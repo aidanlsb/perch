@@ -60,6 +60,14 @@ type Health struct {
 	APIVersion string `json:"api_version"`
 }
 
+// Session is GET /v1/session data: vault identity and rvn-open editor settings.
+type Session struct {
+	APIVersion string `json:"api_version"`
+	VaultPath  string `json:"vault_path"`
+	Editor     string `json:"editor"`
+	EditorMode string `json:"editor_mode"`
+}
+
 // Commands is GET /v1/commands data.
 type Commands struct {
 	APIVersion string        `json:"api_version"`

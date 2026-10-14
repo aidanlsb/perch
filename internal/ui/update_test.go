@@ -204,6 +204,19 @@ func TestRefusesNilClientWritesStillReadonly(t *testing.T) {
 	}
 }
 
+func TestSessionAppliedFromSchemaMsg(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{}})
+	m, _ = m.update(schemaMsg{
+		schema: ptrSchema(sampleSchema()),
+		session: &api.Session{
+			VaultPath: "/from-session", Editor: "hx", EditorMode: "terminal",
+		},
+	})
+	if m.vaultPath != "/from-session" || m.editor != "hx" || m.editorMode != "terminal" {
+		t.Fatalf("vault=%q editor=%q mode=%q", m.vaultPath, m.editor, m.editorMode)
+	}
+}
+
 func TestQuit(t *testing.T) {
 	m := loadBrowse(t)
 	_, cmd := m.update(key("q"))

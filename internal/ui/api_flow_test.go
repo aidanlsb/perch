@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/aidanlsb/perch/internal/api"
+	"github.com/aidanlsb/perch/internal/editor"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -15,6 +16,14 @@ func TestModelInitAgainstFakeAPI(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/v1/session":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"data": map[string]any{
+					"api_version": "1", "vault_path": "/vault",
+					"editor": "code", "editor_mode": "gui",
+				},
+			})
 		case "/v1/schema":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
@@ -76,6 +85,9 @@ func TestModelInitAgainstFakeAPI(t *testing.T) {
 	m, cmd = m.update(msg)
 	if !m.ready {
 		t.Fatalf("not ready: %+v %v", msg, m.errMsg)
+	}
+	if m.vaultPath != "/vault" || m.editor != "code" || editor.NormalizeMode(m.editorMode) != editor.ModeGUI {
+		t.Fatalf("session apply vault=%q editor=%q mode=%q", m.vaultPath, m.editor, m.editorMode)
 	}
 	if cmd == nil {
 		t.Fatal("expected query")

@@ -78,12 +78,23 @@ Flags:
 	defer func() { _ = handle.Close() }()
 
 	client := api.NewClient(handle.URL, handle.Token)
-	ed := editor.Resolve("")
+	vaultPath := firstNonEmpty(handle.VaultPath, *vault)
+	ed := ""
+	edMode := editor.ModeAuto
+	if sess, sessErr := client.Session(ctx); sessErr == nil && sess != nil {
+		if strings.TrimSpace(sess.VaultPath) != "" {
+			vaultPath = sess.VaultPath
+		}
+		ed = sess.Editor
+		edMode = sess.EditorMode
+	}
+	ed = editor.Resolve(ed)
 	model := ui.NewModel(ui.Options{
-		Client:    client,
-		Config:    cfg,
-		VaultPath: firstNonEmpty(handle.VaultPath, *vault),
-		Editor:    ed,
+		Client:     client,
+		Config:     cfg,
+		VaultPath:  vaultPath,
+		Editor:     ed,
+		EditorMode: edMode,
 	})
 
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(stdout))

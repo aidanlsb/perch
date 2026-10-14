@@ -11,6 +11,7 @@ import (
 type schemaMsg struct {
 	schema  *api.Schema
 	queries []api.SavedQuery
+	session *api.Session
 	err     error
 }
 
@@ -50,9 +51,10 @@ func fetchSchema(c *api.Client) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
+		sess, _ := c.Session(ctx)
 		sch, err := c.Schema(ctx)
 		if err != nil {
-			return schemaMsg{err: err}
+			return schemaMsg{session: sess, err: err}
 		}
 		qs, qerr := c.SavedQueries(ctx)
 		if qerr == nil && sch.Queries == nil && len(qs) > 0 {
@@ -61,7 +63,7 @@ func fetchSchema(c *api.Client) tea.Cmd {
 				sch.Queries[q.Name] = q
 			}
 		}
-		return schemaMsg{schema: sch, queries: qs}
+		return schemaMsg{schema: sch, queries: qs, session: sess}
 	}
 }
 

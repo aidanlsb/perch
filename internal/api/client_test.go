@@ -30,6 +30,10 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/health":
 			writeEnv(w, 200, map[string]any{"ok": true, "data": map[string]any{"status": "ok", "api_version": "1"}})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/session":
+			writeEnv(w, 200, map[string]any{"ok": true, "data": map[string]any{
+				"api_version": "1", "vault_path": "/vault", "editor": "code", "editor_mode": "auto",
+			}})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/schema":
 			writeEnv(w, 200, map[string]any{
 				"ok": true,
@@ -140,6 +144,14 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 		t.Fatalf("health %+v", h)
 	}
 
+	sess, err := c.Session(ctx)
+	if err != nil {
+		t.Fatalf("session: %v", err)
+	}
+	if sess.VaultPath != "/vault" || sess.Editor != "code" || sess.EditorMode != "auto" {
+		t.Fatalf("session %+v", sess)
+	}
+
 	sch, err := c.Schema(ctx)
 	if err != nil {
 		t.Fatalf("schema: %v", err)
@@ -191,6 +203,21 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 	cBad := NewClient(srv.URL, "wrong")
 	if _, err := cBad.Health(ctx); err == nil {
 		t.Fatal("expected unauthorized")
+	}
+}
+
+func TestSessionMissingEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/session" {
+			http.NotFound(w, r)
+			return
+		}
+		writeEnv(w, 200, map[string]any{"ok": true, "data": map[string]any{"status": "ok"}})
+	}))
+	t.Cleanup(srv.Close)
+	_, err := NewClient(srv.URL, "t").Session(context.Background())
+	if err == nil || !IsNotFound(err) {
+		t.Fatalf("got %v", err)
 	}
 }
 

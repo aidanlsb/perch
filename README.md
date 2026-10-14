@@ -9,6 +9,12 @@ Perch does not import Raven internals and does not write to the vault.
 Requires Go 1.22+ and a `rvn` binary on `PATH`.
 
 ```bash
+go install github.com/aidanlsb/perch/cmd/perch@latest
+```
+
+Or from a checkout:
+
+```bash
 git clone https://github.com/aidanlsb/perch
 cd perch
 make build
@@ -78,12 +84,16 @@ A backlinks pane lists `data.backlinks`.
 
 ## Editor
 
-Perch suspends the TUI, opens the file, and refreshes on return.
+`GET /v1/session` supplies `vault_path`, `editor`, and `editor_mode`
+(`auto`, `terminal`, or `gui`), matching `rvn open`.
 
-Raven's `editor` setting in `config.toml` is **not** exposed on `rvn api`
-(not on `/v1/health`, `/v1/schema`, `/v1/commands`, or the invoke
-allowlist). Perch falls back to `$VISUAL`, then `$EDITOR`. See
-[Raven API gaps](#raven-api-gaps).
+- `terminal`: suspend the TUI, run the editor in the foreground, refresh on return.
+- `gui`: spawn the editor detached and keep the TUI running.
+- `auto`: same heuristic as `rvn open` (vim/nvim/helix/nano/emacs/… in the
+  foreground; `code` and other GUI commands in the background).
+
+If `editor` is empty, or the server has no `/v1/session` (older `rvn`),
+Perch falls back to `$VISUAL`, then `$EDITOR`.
 
 ## Architecture
 
@@ -91,32 +101,20 @@ allowlist). Perch falls back to `$VISUAL`, then `$EDITOR`. See
 perch  →  HTTP 127.0.0.1  →  rvn api  →  commandexec.Invoker
 ```
 
-Endpoints used: `GET /v1/health`, `GET /v1/schema`, `GET /v1/commands`
-(unused beyond discovery), `POST /v1/invoke` with `query`,
-`query_saved_list`, `read`, `search`, and `backlinks`. Write commands
-(`set`, `unset`, `new`, `move`) and `daily` (which may create a file) are
-rejected in the client.
+Endpoints used: `GET /v1/health`, `GET /v1/session`, `GET /v1/schema`,
+`POST /v1/invoke` with `query`, `query_saved_list`, `read`, `search`, and
+`backlinks`. Write commands (`set`, `unset`, `new`, `move`) and `daily`
+(which may create a file) are rejected in the client.
 
 ## Raven API gaps
 
-Concrete changes that would help a companion UI, none of which Perch
-implements by talking to Raven internals:
-
-1. **Editor.** Add `editor` and `editor_mode` to `GET /v1/health` (or a
-   new `GET /v1/session`). Today the only way to read Raven's editor is
-   `config.toml`, which is outside the API contract. Alternative: put a
-   read-only `config_show` on the invoke allowlist.
-2. **Vault path on health.** `meta.vault_context.path` is present on
-   invoke responses, and the `--json` startup line has `vault_path`.
-   Attach-only clients still have to invoke something to learn the path.
-   Include `vault_path` on `GET /v1/health`.
-3. **`open` is not allowlisted.** Correct for a read-only UI; Perch
-   therefore spawns the editor itself and needs an absolute path
-   (`vault_path` + `data.path`).
-4. **Saved-query inputs.** Auto lists skip saved queries that declare
+1. **`open` is not allowlisted.** Correct for a read-only UI; Perch
+   launches the editor itself using session `editor` / `editor_mode` and
+   `vault_path` + `data.path`.
+2. **Saved-query inputs.** Auto lists skip saved queries that declare
    `args`. Document how extra invoke args bind to `{{args.*}}`, or add a
    dedicated invoke field.
-5. **Query sort.** There is no `sort:` in RQL yet. Perch sorts
+3. **Query sort.** There is no `sort:` in RQL yet. Perch sorts
    client-side from the saved view's `sort` field.
 
 ## Develop

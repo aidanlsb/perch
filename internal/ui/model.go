@@ -58,10 +58,11 @@ type noteFrame struct {
 
 // Options configure the TUI at start.
 type Options struct {
-	Client    *api.Client
-	Config    *config.File
-	VaultPath string
-	Editor    string
+	Client     *api.Client
+	Config     *config.File
+	VaultPath  string
+	Editor     string
+	EditorMode string
 }
 
 // Model is the Bubble Tea application state. Update is a pure-ish reducer
@@ -71,6 +72,7 @@ type Model struct {
 	cfg        *config.File
 	vaultPath  string
 	editor     string
+	editorMode string
 	queryLimit int
 
 	width  int
@@ -138,6 +140,7 @@ func NewModel(opts Options) Model {
 		cfg:         cfg,
 		vaultPath:   opts.VaultPath,
 		editor:      opts.Editor,
+		editorMode:  opts.EditorMode,
 		queryLimit:  queryLimit,
 		screen:      "browse",
 		pane:        paneSidebar,

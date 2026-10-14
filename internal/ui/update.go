@@ -39,6 +39,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
+	m.applySession(msg.session)
 	if msg.err != nil {
 		m.errMsg = msg.err.Error()
 		m.loading = false
@@ -635,6 +636,23 @@ func (m Model) followOrOpenBacklink() (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) applySession(sess *api.Session) {
+	if sess != nil {
+		if strings.TrimSpace(sess.VaultPath) != "" {
+			m.vaultPath = sess.VaultPath
+		}
+		if strings.TrimSpace(sess.Editor) != "" {
+			m.editor = sess.Editor
+		}
+		if strings.TrimSpace(sess.EditorMode) != "" {
+			m.editorMode = sess.EditorMode
+		}
+	}
+	if strings.TrimSpace(m.editor) == "" {
+		m.editor = editor.Resolve("")
+	}
+}
+
 func (m Model) openEditor() (Model, tea.Cmd) {
 	path := ""
 	objectID := ""
@@ -651,9 +669,17 @@ func (m Model) openEditor() (Model, tea.Cmd) {
 		m.errMsg = err.Error()
 		return m, nil
 	}
-	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return editorDoneMsg{err: err, objectID: objectID}
-	})
+	if editor.ShouldSuspend(ed, m.editorMode) {
+		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return editorDoneMsg{err: err, objectID: objectID}
+		})
+	}
+	return m, func() tea.Msg {
+		if err := cmd.Start(); err != nil {
+			return editorDoneMsg{err: err, objectID: objectID}
+		}
+		return editorDoneMsg{objectID: objectID}
+	}
 }
 
 func (m Model) noteBodyWidth() int {

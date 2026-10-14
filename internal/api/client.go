@@ -4,12 +4,48 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// ErrNoSession means this rvn api has no GET /v1/session (pre-PR 306).
+var ErrNoSession = errors.New("rvn api has no GET /v1/session")
+
+// StatusError is an HTTP failure from rvn api (including non-JSON 404s).
+type StatusError struct {
+	Status int
+	Path   string
+	Body   string
+}
+
+func (e *StatusError) Error() string {
+	if e == nil {
+		return "raven api error"
+	}
+	if e.Body != "" {
+		return fmt.Sprintf("raven api %s: HTTP %d: %s", e.Path, e.Status, truncate(e.Body, 200))
+	}
+	return fmt.Sprintf("raven api %s: HTTP %d", e.Path, e.Status)
+}
+
+// IsNotFound reports a missing HTTP route (older rvn, or a typo).
+func IsNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrNoSession) {
+		return true
+	}
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.Status == http.StatusNotFound || se.Status == http.StatusMethodNotAllowed
+	}
+	return false
+}
 
 const (
 	defaultTimeout = 15 * time.Second
@@ -62,6 +98,18 @@ func (c *Client) Commands(ctx context.Context) (*Commands, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Session GET /v1/session. ErrNoSession if the route is missing (older rvn).
+func (c *Client) Session(ctx context.Context) (*Session, error) {
+	var s Session
+	if err := c.getJSON(ctx, "/v1/session", &s); err != nil {
+		if IsNotFound(err) {
+			return nil, ErrNoSession
+		}
+		return nil, err
+	}
+	return &s, nil
 }
 
 // Invoke POST /v1/invoke. Command failures are HTTP 200 with ok:false.
@@ -234,7 +282,10 @@ func (c *Client) do(req *http.Request) (*Envelope, error) {
 
 	var env Envelope
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("raven api %s: HTTP %d: %s", req.URL.Path, resp.StatusCode, truncate(string(body), 200))
+		return nil, &StatusError{Status: resp.StatusCode, Path: req.URL.Path, Body: string(body)}
+	}
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		return &env, &StatusError{Status: resp.StatusCode, Path: req.URL.Path, Body: string(body)}
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		if env.Error == nil {
@@ -246,7 +297,7 @@ func (c *Client) do(req *http.Request) (*Envelope, error) {
 		if env.Error != nil {
 			return &env, env.Error
 		}
-		return &env, fmt.Errorf("raven api %s: HTTP %d", req.URL.Path, resp.StatusCode)
+		return &env, &StatusError{Status: resp.StatusCode, Path: req.URL.Path}
 	}
 	return &env, nil
 }

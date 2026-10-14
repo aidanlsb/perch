@@ -18,6 +18,45 @@ func TestResolveFallback(t *testing.T) {
 	if got := Resolve(""); got != "code" {
 		t.Fatalf("%q", got)
 	}
+	if got := Resolve("   "); got != "code" {
+		t.Fatalf("empty session editor should fall back, got %q", got)
+	}
+}
+
+func TestShouldSuspend(t *testing.T) {
+	if !ShouldSuspend("vim", ModeTerminal) {
+		t.Fatal("terminal always suspends")
+	}
+	if ShouldSuspend("vim", ModeGUI) {
+		t.Fatal("gui never suspends")
+	}
+	if !ShouldSuspend("nvim", ModeAuto) {
+		t.Fatal("auto nvim is terminal")
+	}
+	if ShouldSuspend("code", ModeAuto) {
+		t.Fatal("auto code is gui")
+	}
+	if !ShouldSuspend("tui", "tui") {
+		t.Fatal("tui alias is terminal")
+	}
+	if ShouldSuspend("/usr/bin/code", "auto") {
+		t.Fatal("path to code")
+	}
+	if !ShouldSuspend(`"/usr/bin/nvim"`, ModeAuto) {
+		t.Fatal("quoted nvim")
+	}
+}
+
+func TestNormalizeMode(t *testing.T) {
+	if NormalizeMode("") != ModeAuto {
+		t.Fatal("empty")
+	}
+	if NormalizeMode("TTY") != ModeTerminal {
+		t.Fatal("tty")
+	}
+	if NormalizeMode("non-blocking") != ModeGUI {
+		t.Fatal("gui alias")
+	}
 }
 
 func TestFilePath(t *testing.T) {
