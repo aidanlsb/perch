@@ -68,20 +68,6 @@ var (
 			Padding(0, 1)
 )
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo
