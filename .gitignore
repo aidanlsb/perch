@@ -1,0 +1,6 @@
+/perch
+/perch.exe
+.tmp/
+*.out
+coverage.out
+coverage.html

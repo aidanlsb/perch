@@ -1,0 +1,32 @@
+# golangci-lint v1 configuration (Go 1.22)
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - bodyclose
+    - durationcheck
+    - errorlint
+    - predeclared
+    - unconvert
+    - whitespace
+
+linters-settings:
+  misspell:
+    locale: US
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - predeclared

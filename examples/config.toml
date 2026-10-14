@@ -1,0 +1,17 @@
+# Perch saved views. Raven does not read this file.
+# Default location: ~/.config/perch/config.toml
+
+[[views]]
+name = "Projects by status"
+source = "type:project"
+kind = "board"
+group_by = "status"
+fields = ["status"]
+sort = "name"
+
+[[views]]
+name = "Dated notes"
+source = "type:date"
+kind = "date"
+group_by = "date"
+granularity = "month"
