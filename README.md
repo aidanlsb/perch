@@ -35,52 +35,109 @@ If nothing is listening, Perch starts `rvn api --json --port 0` as a child
 and sends SIGTERM to that child on exit. If a server is already up and you
 pass a token, Perch connects and leaves it running.
 
-## Views
+## Layouts
 
-The sidebar is generated from `GET /v1/schema` at runtime: one list per
-type (except `section`, which Raven cannot query as `type:section`) and
-one list per saved query. No Perch config is required.
+Every source — a type, a saved query, or an ad-hoc RQL string — renders
+through one `Spec`: **list**, **board** (grouped by an enum or ref field),
+or **date** (grouped by a date/datetime field). Config chooses the default;
+`L` cycles at runtime.
 
-Board and date layouts live in Perch's own config, defaulting to
-`~/.config/perch/config.toml`:
+Zero-config heuristics (first match wins; kept small on purpose):
+
+1. Scalar enum field named `status` → board grouped by `status`
+2. Type named `date` with a date/datetime field (prefer `date`) → date grouping by day
+3. Otherwise list
+
+`L` then walks every viable option for the current type: list, each enum/ref
+board, then each date field. `.` cycles board group-by, or date granularity
+(day → week → month).
+
+## Config
+
+Defaults live in Perch's own file (Raven never reads it), defaulting to
+`~/.config/perch/config.toml`. See `examples/config.toml`.
 
 ```toml
-[[views]]
-name = "Projects by status"
-source = "type:project"
-kind = "board"
+[types.project]
+layout = "board"
 group_by = "status"
+fields = ["status", "due"]
+sort = "name"
 
-[[views]]
-name = "Dated notes"
-source = "type:date"
-kind = "date"
+[types.date]
+layout = "date"
 group_by = "date"
 granularity = "week"
+
+[queries.open]
+layout = "list"
+
+[[views]]
+name = "This month"
+source = "type:date"
+layout = "date"
+group_by = "date"
+granularity = "month"
 ```
 
-`kind` is `list`, `board`, or `date`. Board `group_by` is an enum or ref
-field. Date `group_by` is a date/datetime field; `granularity` is `day`,
-`week`, or `month`. `d`/`w`/`m` retile a date view live.
+`layout` is `list`, `board`, or `date`. `kind` is accepted as an alias.
+Board `group_by` is an enum or ref field. Date `group_by` is a date/datetime
+field; `granularity` is `day`, `week`, or `month`.
 
-The note view renders Markdown, shows frontmatter as a header, and cycles
-wiki links from `read --json` `data.links` using UTF-8 byte offsets. Perch
-does not parse `[[links]]` itself. Enter follows a resolved `object_id`.
-A backlinks pane lists `data.backlinks`.
+Named `[[views]]` rows still appear in the sidebar and the query picker.
+They are extra sources, not a second layout system.
+
+## Pickers and search
+
+| Key | Opens |
+| --- | --- |
+| `t` / `space t` | Types (fuzzy) |
+| `q` / `space q` | Saved queries and named views (fuzzy) |
+| `ctrl-p` / `space f` | Notes: fuzzy over cached names/ids, plus Raven `search` after two characters |
+| `/` | Fuzzy search in the current view; `n` / `N` next/previous hit |
+| `:` | Ad-hoc RQL |
+| `d` / `space d` | Today's daily note, or the `date` list if it does not exist yet |
+
+The sidebar is still generated from `GET /v1/schema` (types, saved queries,
+named views). `section` is omitted because Raven cannot query `type:section`.
+
+## Preview and editor
+
+`p` toggles a preview pane of the selected object's rendered Markdown.
+Reads are cached; moving the cursor does not block the UI.
+
+`e` opens the selected row's file in the editor from browse, preview, note
+view, or the notes picker. Perch does not wait on `read` when `file_path`
+is already on the row.
 
 ## Keys
+
+`?` lists this table inside the TUI. `q` / `esc` close overlays and leave a
+note; from browse, `q` is the query picker. `ctrl+c` quits.
 
 | Key | Action |
 | --- | --- |
 | `hjkl` / arrows | Move |
-| `tab` | Sidebar ↔ list; in a note, cycle wiki links |
+| `tab` | Sidebar ↔ list ↔ preview |
+| `gg` / `G` | Top / bottom |
+| `ctrl-d` / `ctrl-u` | Half-page down / up |
 | `enter` | Open note / follow link |
-| `[` `]` | History back / forward |
-| `/` | Filter the current view |
-| `s` | Search via Raven `search` |
-| `e` `o` | Open the current file in an editor |
+| `t` | Type picker |
+| `q` | Saved query picker (back, in a note or overlay) |
+| `ctrl-p` / `space f` | Notes picker |
+| `/` | Fuzzy search in view |
+| `n` / `N` | Next / previous search hit |
+| `d` | Daily note |
+| `L` | Cycle layout |
+| `.` | Cycle group-by / date granularity |
+| `p` | Toggle preview |
+| `:` | Ad-hoc RQL |
+| `e` | Open in editor |
 | `r` | Refresh |
-| `q` | Back, or quit |
+| `[` `]` | Note history back / forward |
+| `?` | Help |
+| `esc` | Close overlay / clear search / back |
+| `ctrl+c` | Quit |
 
 ## Editor
 
@@ -102,9 +159,19 @@ perch  →  HTTP 127.0.0.1  →  rvn api  →  commandexec.Invoker
 ```
 
 Endpoints used: `GET /v1/health`, `GET /v1/session`, `GET /v1/schema`,
-`POST /v1/invoke` with `query`, `query_saved_list`, `read`, `search`, and
-`backlinks`. Write commands (`set`, `unset`, `new`, `move`) and `daily`
-(which may create a file) are rejected in the client.
+`POST /v1/invoke` with `query`, `query_saved_list`, `read`, `search`,
+`backlinks`, and the read-only `date` hub. Write commands (`set`, `unset`,
+`new`, `move`) and `daily` (which may create a file) are rejected in the
+client.
+
+Query and `read` results are cached in memory. Types are prefetched in the
+background after the first view loads so the notes picker has names/ids to
+rank without blocking.
+
+The note view renders Markdown, shows frontmatter as a header, and cycles
+wiki links from `read --json` `data.links` using UTF-8 byte offsets. Perch
+does not parse `[[links]]` itself. Enter follows a resolved `object_id`.
+A backlinks pane lists `data.backlinks`.
 
 ## Raven API gaps
 
@@ -112,10 +179,23 @@ Endpoints used: `GET /v1/health`, `GET /v1/session`, `GET /v1/schema`,
    launches the editor itself using session `editor` / `editor_mode` and
    `vault_path` + `data.path`.
 2. **Saved-query inputs.** Auto lists skip saved queries that declare
-   `args`. Document how extra invoke args bind to `{{args.*}}`, or add a
-   dedicated invoke field.
+   `args`. MCP already binds extras via `query` `inputs`; the HTTP invoke
+   path should document that the same `inputs` map applies, and/or Perch
+   could grow an args prompt.
 3. **Query sort.** There is no `sort:` in RQL yet. Perch sorts
-   client-side from the saved view's `sort` field.
+   client-side from the layout `sort` field.
+4. **Daily config is not on `GET /v1/session`.** Object ids for daily
+   notes are bare ISO dates, and the allowlisted `date` command returns
+   `daily_note_id`, `daily_path`, and `daily_exists` without creating a
+   file. Perch uses that. Proposed Raven change: add a `daily` object to
+   `GET /v1/session` (`directory`, `today_id`, `today_path`,
+   `today_exists`) so a UI can jump without a second round trip, and/or
+   allowlist read-only `vault_config_show` so `directories.daily` is
+   visible. Keep `daily` itself off read-only UIs; it creates files.
+5. **No corpus endpoint.** Fuzzy notes search is client-side over
+   prefetched query rows plus Raven `search`. A cheap `query` of all
+   objects (or a names-only index) would make the picker complete without
+   per-type prefetch.
 
 ## Develop
 

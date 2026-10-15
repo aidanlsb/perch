@@ -68,6 +68,19 @@ type Session struct {
 	EditorMode string `json:"editor_mode"`
 }
 
+// DateResult is the read-only `date` command payload (today's hub).
+// Daily notes are not created; DailyExists is false when the file is missing.
+type DateResult struct {
+	Date        string          `json:"date"`
+	DayOfWeek   string          `json:"day_of_week"`
+	DailyNoteID string          `json:"daily_note_id"`
+	DailyPath   string          `json:"daily_path"`
+	DailyExists bool            `json:"daily_exists"`
+	DailyNote   json.RawMessage `json:"daily_note,omitempty"`
+	Items       json.RawMessage `json:"items,omitempty"`
+	Backlinks   []BacklinkGroup `json:"backlinks,omitempty"`
+}
+
 // Commands is GET /v1/commands data.
 type Commands struct {
 	APIVersion string        `json:"api_version"`

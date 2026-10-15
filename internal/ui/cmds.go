@@ -26,10 +26,12 @@ type queryMsg struct {
 }
 
 type readMsg struct {
-	gen    int
-	result *api.ReadResult
-	vault  string
-	err    error
+	gen     int
+	purpose string // note | preview
+	id      string
+	result  *api.ReadResult
+	vault   string
+	err     error
 }
 
 type searchMsg struct {
@@ -37,6 +39,17 @@ type searchMsg struct {
 	query  string
 	result *api.SearchResult
 	err    error
+}
+
+type dateMsg struct {
+	gen    int
+	result *api.DateResult
+	err    error
+}
+
+type prefetchMsg struct {
+	objects []api.Object
+	rest    []string
 }
 
 type editorDoneMsg struct {
@@ -96,22 +109,22 @@ func fetchQuery(c *api.Client, gen int, query, typeName string, limit int, ts ap
 	}
 }
 
-func fetchRead(c *api.Client, gen int, ref string) tea.Cmd {
+func fetchRead(c *api.Client, gen int, ref, purpose string) tea.Cmd {
 	return func() tea.Msg {
 		if c == nil {
-			return readMsg{gen: gen, err: errNoClient}
+			return readMsg{gen: gen, purpose: purpose, id: ref, err: errNoClient}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		rd, meta, err := c.Read(ctx, ref)
 		if err != nil {
-			return readMsg{gen: gen, err: err}
+			return readMsg{gen: gen, purpose: purpose, id: ref, err: err}
 		}
 		vault := ""
 		if meta != nil && meta.VaultContext != nil {
 			vault = meta.VaultContext.Path
 		}
-		return readMsg{gen: gen, result: rd, vault: vault}
+		return readMsg{gen: gen, purpose: purpose, id: ref, result: rd, vault: vault}
 	}
 }
 
@@ -127,6 +140,36 @@ func fetchSearch(c *api.Client, gen int, q string) tea.Cmd {
 			return searchMsg{gen: gen, query: q, err: err}
 		}
 		return searchMsg{gen: gen, query: q, result: sr}
+	}
+}
+
+func fetchDate(c *api.Client, gen int, date string) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil {
+			return dateMsg{gen: gen, err: errNoClient}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		dr, err := c.Date(ctx, date)
+		if err != nil {
+			return dateMsg{gen: gen, err: err}
+		}
+		return dateMsg{gen: gen, result: dr}
+	}
+}
+
+func fetchPrefetch(c *api.Client, typeName string, rest []string, limit int, ts api.TypeSchema) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil || typeName == "" {
+			return prefetchMsg{rest: rest}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		qr, _, err := c.Query(ctx, "type:"+typeName, limit)
+		if err != nil {
+			return prefetchMsg{rest: rest}
+		}
+		return prefetchMsg{objects: api.ObjectsFromQuery(qr, ts), rest: rest}
 	}
 }
 

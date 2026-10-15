@@ -1,17 +1,34 @@
-# Perch saved views. Raven does not read this file.
+# Perch config. Raven does not read this file.
 # Default location: ~/.config/perch/config.toml
+#
+# Layouts are a presentation primitive (list / board / date) applied to any
+# source: a type, a saved query, or an ad-hoc RQL string. Config sets the
+# default only. Press L in the TUI to cycle; . cycles group-by / granularity.
 
-[[views]]
-name = "Projects by status"
-source = "type:project"
-kind = "board"
+# Zero-config heuristics (if you omit these tables):
+#   1. scalar enum field named "status" → board by status
+#   2. type named "date" with a date field → date grouping by day
+#   3. otherwise list
+
+[types.project]
+layout = "board"
 group_by = "status"
-fields = ["status"]
+fields = ["status", "due"]
 sort = "name"
 
+[types.date]
+layout = "date"
+group_by = "date"
+granularity = "week"
+
+[queries.open]
+layout = "list"
+sort = "name"
+
+# Optional extra named sources for the sidebar / query picker.
 [[views]]
-name = "Dated notes"
+name = "This month"
 source = "type:date"
-kind = "date"
+layout = "date"
 group_by = "date"
 granularity = "month"

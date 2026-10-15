@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	"github.com/aidanlsb/perch/internal/api"
-	"github.com/aidanlsb/perch/internal/config"
 	"github.com/aidanlsb/perch/internal/editor"
 	"github.com/aidanlsb/perch/internal/frontmatter"
+	"github.com/aidanlsb/perch/internal/layout"
 	"github.com/aidanlsb/perch/internal/md"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -30,6 +30,10 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.onRead(msg)
 	case searchMsg:
 		return m.onSearch(msg)
+	case dateMsg:
+		return m.onDate(msg)
+	case prefetchMsg:
+		return m.onPrefetch(msg)
 	case editorDoneMsg:
 		return m.onEditorDone(msg)
 	case tea.KeyMsg:
@@ -51,11 +55,33 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 	m.rebuildNav()
 	m.ready = true
 	m.loading = false
+	m.needPrefetch = true
 	m.status = fmt.Sprintf("%d types", len(m.schema.Types))
 	if len(m.nav) == 0 {
-		return m, nil
+		return m, m.prefetchCmd()
 	}
 	return m.loadNav(m.navCur)
+}
+
+func (m Model) prefetchCmd() tea.Cmd {
+	names := m.schema.SortedTypeNames()
+	if len(names) == 0 {
+		return nil
+	}
+	rest := names[1:]
+	return fetchPrefetch(m.client, names[0], rest, m.queryLimit, m.schema.Types[names[0]])
+}
+
+func (m Model) onPrefetch(msg prefetchMsg) (Model, tea.Cmd) {
+	m.mergeNotes(msg.objects)
+	if len(msg.rest) == 0 {
+		return m, nil
+	}
+	next := msg.rest[0]
+	if _, ok := m.queryCache["type:"+next]; ok {
+		return m, fetchPrefetch(m.client, "", msg.rest[1:], m.queryLimit, api.TypeSchema{})
+	}
+	return m, fetchPrefetch(m.client, next, msg.rest[1:], m.queryLimit, m.schema.Types[next])
 }
 
 func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
@@ -85,16 +111,49 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 	m.boardRow = 0
 	m.dateSec = 0
 	m.dateRow = 0
+	if !m.layoutLocked && m.sourceIsQuery {
+		if m.cfg == nil {
+			m.applySpec(layout.Infer(m.typeSchema()))
+		} else if _, ok := m.cfg.QuerySpec(m.sourceLabel); !ok {
+			m.applySpec(layout.Infer(m.typeSchema()))
+		}
+	}
+	if len(m.listFields) == 0 {
+		m.listFields = defaultFields(m.typeSchema())
+		m.spec.Fields = m.listFields
+	}
 	m.applyFilterAndGroup()
+	m.mergeNotes(m.objects)
+	m.cacheQuery()
 	n := len(m.filtered)
 	m.status = fmt.Sprintf("%d objects", n)
 	if m.hasMore {
 		m.status = fmt.Sprintf("%d of %d (truncated)", n, m.total)
 	}
-	return m, nil
+	var cmds []tea.Cmd
+	if c := m.previewCmd(); c != nil {
+		cmds = append(cmds, c)
+	}
+	if m.needPrefetch {
+		m.needPrefetch = false
+		if c := m.prefetchCmd(); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	switch len(cmds) {
+	case 0:
+		return m, nil
+	case 1:
+		return m, cmds[0]
+	default:
+		return m, tea.Batch(cmds...)
+	}
 }
 
 func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
+	if msg.purpose == "preview" {
+		return m.onPreviewRead(msg)
+	}
 	if msg.gen != m.gen {
 		return m, nil
 	}
@@ -105,6 +164,9 @@ func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
 	}
 	m.errMsg = ""
 	m.note = msg.result
+	if msg.result != nil && m.readCache != nil {
+		m.readCache[msg.result.ObjectID] = msg.result
+	}
 	if msg.vault != "" {
 		m.vaultPath = msg.vault
 	}
@@ -123,24 +185,99 @@ func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) onPreviewRead(msg readMsg) (Model, tea.Cmd) {
+	if msg.id != "" && msg.id != m.previewID {
+		return m, nil
+	}
+	m.previewLoading = false
+	if msg.err != nil {
+		m.preview = nil
+		m.previewBody = styleErr.Render(msg.err.Error())
+		return m, nil
+	}
+	if msg.result != nil {
+		if m.readCache != nil {
+			m.readCache[msg.result.ObjectID] = msg.result
+		}
+		m.setPreview(msg.result)
+		if msg.vault != "" {
+			m.vaultPath = msg.vault
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) setPreview(rd *api.ReadResult) {
+	m.preview = rd
+	m.previewDoc = frontmatter.Split(rd.Content)
+	w := m.previewWidth
+	if w < 20 {
+		w = 36
+	}
+	m.previewBody = md.Render(m.previewDoc.Body, w-2)
+	m.previewScroll = 0
+}
+
 func (m Model) onSearch(msg searchMsg) (Model, tea.Cmd) {
-	if msg.gen != m.gen && m.overlay == overlaySwitcher {
-		// still accept if query matches what is typed
-		if msg.query != m.switcherQ {
+	if m.overlay == overlayPicker && m.pickerKind == pickerNotes {
+		if msg.query != strings.TrimSpace(m.pickerQ) {
 			return m, nil
 		}
+	} else if msg.gen != m.gen {
+		return m, nil
 	}
 	if msg.err != nil {
 		m.errMsg = msg.err.Error()
 		return m, nil
 	}
-	if msg.result != nil {
-		m.switcherHit = msg.result.Items
-	} else {
-		m.switcherHit = nil
+	if m.overlay != overlayPicker || m.pickerKind != pickerNotes || msg.result == nil {
+		return m, nil
 	}
-	m.switcherCur = 0
+	for _, hit := range msg.result.Items {
+		id := hit.ObjectID
+		if hit.IsSection && hit.FileObjectID != "" {
+			id = hit.FileObjectID
+		}
+		if id == "" {
+			continue
+		}
+		obj := api.Object{ID: id, Title: hit.Title, FilePath: hit.FilePath}
+		if existing, ok := m.noteIndex[id]; ok {
+			obj = existing
+			if obj.Title == "" {
+				obj.Title = hit.Title
+			}
+		}
+		m.noteIndex[id] = obj
+	}
+	m.rebuildNotePicks()
+	m.refilterPicker()
 	return m, nil
+}
+
+func (m Model) onDate(msg dateMsg) (Model, tea.Cmd) {
+	if msg.gen != m.gen {
+		return m, nil
+	}
+	m.loading = false
+	if msg.err != nil {
+		// Fall back to the date type list. Session/schema do not expose daily config.
+		m.errMsg = "daily: " + msg.err.Error()
+		return m.loadType("date")
+	}
+	res := msg.result
+	if res != nil && res.DailyExists && res.DailyNoteID != "" {
+		m.status = "daily " + res.Date
+		return m.openNote(res.DailyNoteID)
+	}
+	dateLabel := "today"
+	if res != nil && res.Date != "" {
+		dateLabel = res.Date
+	}
+	m.status = "no daily note for " + dateLabel + " — date list"
+	m2, cmd := m.loadType("date")
+	m2.status = "no daily note for " + dateLabel + " (rvn daily creates it)"
+	return m2, cmd
 }
 
 func (m Model) onEditorDone(msg editorDoneMsg) (Model, tea.Cmd) {
@@ -151,7 +288,7 @@ func (m Model) onEditorDone(msg editorDoneMsg) (Model, tea.Cmd) {
 		gen := m.nextGen()
 		m.loading = true
 		m.status = "refreshing…"
-		return m, fetchRead(m.client, gen, msg.objectID)
+		return m, fetchRead(m.client, gen, msg.objectID, "note")
 	}
 	if m.screen == "browse" {
 		return m.refresh()
@@ -170,10 +307,21 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.overlay = overlayNone
 		}
 		return m, nil
-	case overlayFilter:
-		return m.keysFilter(msg)
-	case overlaySwitcher:
-		return m.keysSwitcher(msg)
+	case overlaySearch:
+		return m.keysSearch(msg)
+	case overlayPicker:
+		return m.keysPicker(msg)
+	case overlayLeader:
+		return m.keysLeader(msg)
+	case overlayRQL:
+		return m.keysRQL(msg)
+	}
+	if key == "e" {
+		return m.openEditor()
+	}
+	if key == "?" {
+		m.overlay = overlayHelp
+		return m, nil
 	}
 	if m.screen == kindNote {
 		return m.keysNote(msg)
@@ -181,73 +329,176 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m.keysBrowse(msg)
 }
 
-func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
+	key := msg.String()
+	m.overlay = overlayNone
+	switch key {
+	case "t":
+		return m.openTypePicker()
+	case "q":
+		return m.openQueryPicker()
+	case "f":
+		return m.openNotesPicker()
+	case "d":
+		return m.openDaily()
+	case "l":
+		return m.cycleLayout()
+	case "esc", " ":
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
-	case "q":
-		return m, tea.Quit
-	case "?":
-		m.overlay = overlayHelp
+	case "esc":
+		m.overlay = overlayNone
+		m.rql = ""
 		return m, nil
-	case "tab":
-		if m.pane == paneSidebar {
-			m.pane = paneMain
-		} else {
-			m.pane = paneSidebar
+	case "enter":
+		q := strings.TrimSpace(m.rql)
+		m.overlay = overlayNone
+		if q == "" {
+			return m, nil
+		}
+		spec := layout.Spec{Kind: kindList}.Normalize()
+		return m.loadSource(q, q, "", spec, nil, true)
+	case "backspace":
+		m.rql = dropLastRune(m.rql)
+		return m, nil
+	}
+	if msg.Type == tea.KeyRunes {
+		m.rql += string(msg.Runes)
+	}
+	return m, nil
+}
+
+func (m Model) keysSearch(msg tea.KeyMsg) (Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "esc":
+		m.searchQ = ""
+		m.searchHits = nil
+		m.overlay = overlayNone
+		m.applyFilterAndGroup()
+		return m, nil
+	case "enter":
+		m.overlay = overlayNone
+		m.jumpSearchFirst()
+		return m, nil
+	case "backspace":
+		m.searchQ = dropLastRune(m.searchQ)
+		m.jumpSearchFirst()
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	if msg.Type == tea.KeyRunes {
+		m.searchQ += string(msg.Runes)
+		m.jumpSearchFirst()
+	}
+	return m, nil
+}
+
+func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
+	key := msg.String()
+	if m.pending == "g" {
+		m.pending = ""
+		if key == "g" {
+			m.moveToStart()
+			return m, m.previewCmd()
+		}
+	}
+	switch key {
+	case "q":
+		return m.openQueryPicker()
+	case "esc":
+		if m.searchQ != "" {
+			m.searchQ = ""
+			m.searchHits = nil
+			m.applyFilterAndGroup()
 		}
 		return m, nil
-	case "/":
-		m.overlay = overlayFilter
+	case "t":
+		return m.openTypePicker()
+	case "ctrl+p":
+		return m.openNotesPicker()
+	case " ":
+		m.overlay = overlayLeader
 		return m, nil
-	case "s", "ctrl+p":
-		m.overlay = overlaySwitcher
-		m.switcherQ = ""
-		m.switcherHit = nil
-		m.switcherCur = 0
+	case "/":
+		m.overlay = overlaySearch
+		return m, nil
+	case "n":
+		m.jumpSearch(1)
+		return m, m.previewCmd()
+	case "N":
+		m.jumpSearch(-1)
+		return m, m.previewCmd()
+	case "d":
+		return m.openDaily()
+	case "L":
+		return m.cycleLayout()
+	case ".":
+		return m.cycleGroup()
+	case "p":
+		return m.togglePreview()
+	case ":":
+		m.overlay = overlayRQL
+		m.rql = ""
 		return m, nil
 	case "r":
 		return m.refresh()
-	case "e", "o":
-		return m.openEditor()
 	case "enter":
 		if m.pane == paneSidebar {
 			return m.loadNav(m.navCur)
 		}
 		return m.openSelectedNote()
-	case "d":
-		if m.viewKind == kindDate {
-			m.granularity = config.GranDay
-			m.applyFilterAndGroup()
-		}
-		return m, nil
-	case "w":
-		if m.viewKind == kindDate {
-			m.granularity = config.GranWeek
-			m.applyFilterAndGroup()
-		}
-		return m, nil
-	case "m":
-		if m.viewKind == kindDate {
-			m.granularity = config.GranMonth
-			m.applyFilterAndGroup()
-		}
-		return m, nil
+	case "tab":
+		return m.cyclePane(1), nil
+	case "shift+tab":
+		return m.cyclePane(-1), nil
 	case "j", "down":
+		if m.pane == panePreview {
+			m.previewScroll++
+			return m, nil
+		}
 		m.move(1)
-		return m, nil
+		return m, m.previewCmd()
 	case "k", "up":
+		if m.pane == panePreview {
+			if m.previewScroll > 0 {
+				m.previewScroll--
+			}
+			return m, nil
+		}
 		m.move(-1)
-		return m, nil
+		return m, m.previewCmd()
 	case "g":
-		m.moveToStart()
+		m.pending = "g"
 		return m, nil
 	case "G":
+		if m.pane == panePreview {
+			m.previewScroll = 1 << 20
+			return m, nil
+		}
 		m.moveToEnd()
-		return m, nil
+		return m, m.previewCmd()
+	case "ctrl+d":
+		m.move(m.pageSize())
+		return m, m.previewCmd()
+	case "ctrl+u":
+		m.move(-m.pageSize())
+		return m, m.previewCmd()
 	case "h", "left":
+		if m.pane == panePreview {
+			m.pane = paneMain
+			return m, nil
+		}
 		if m.pane == paneMain && m.viewKind == kindBoard {
 			m.moveBoardCol(-1)
-			return m, nil
+			return m, m.previewCmd()
 		}
 		m.pane = paneSidebar
 		return m, nil
@@ -256,8 +507,12 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.pane = paneMain
 			return m, nil
 		}
-		if m.viewKind == kindBoard {
+		if m.viewKind == kindBoard && m.pane == paneMain {
 			m.moveBoardCol(1)
+			return m, m.previewCmd()
+		}
+		if m.previewOn {
+			m.pane = panePreview
 		}
 		return m, nil
 	}
@@ -266,27 +521,32 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := msg.String()
+	if m.pending == "g" {
+		m.pending = ""
+		if key == "g" {
+			m.noteScroll = 0
+			return m, nil
+		}
+	}
 	switch key {
 	case "q", "esc", "backspace":
 		m.screen = "browse"
 		m.note = nil
 		m.status = m.sourceLabel
-		return m, nil
-	case "?":
-		m.overlay = overlayHelp
-		return m, nil
-	case "e", "o":
-		return m.openEditor()
-	case "s", "ctrl+p":
-		m.overlay = overlaySwitcher
-		m.switcherQ = ""
-		m.switcherHit = nil
-		return m, nil
+		return m, m.previewCmd()
+	case "t":
+		return m.openTypePicker()
+	case "Q":
+		return m.openQueryPicker()
+	case "ctrl+p":
+		return m.openNotesPicker()
+	case "d":
+		return m.openDaily()
 	case "r":
 		if m.note != nil {
 			gen := m.nextGen()
 			m.loading = true
-			return m, fetchRead(m.client, gen, m.note.ObjectID)
+			return m, fetchRead(m.client, gen, m.note.ObjectID, "note")
 		}
 		return m, nil
 	case "tab":
@@ -322,84 +582,96 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	case "g":
-		m.noteScroll = 0
+		m.pending = "g"
+		return m, nil
+	case "G":
+		m.noteScroll = 1 << 20
+		return m, nil
+	case "ctrl+d":
+		m.noteScroll += m.pageSize()
+		return m, nil
+	case "ctrl+u":
+		m.noteScroll = max(0, m.noteScroll-m.pageSize())
 		return m, nil
 	}
 	return m, nil
 }
 
-func (m Model) keysFilter(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
-	switch key {
-	case "esc":
-		m.filter = ""
-		m.overlay = overlayNone
-		m.applyFilterAndGroup()
-		return m, nil
-	case "enter":
-		m.overlay = overlayNone
-		return m, nil
-	case "backspace":
-		m.filter = dropLastRune(m.filter)
-		m.applyFilterAndGroup()
-		return m, nil
-	case "ctrl+c":
-		return m, tea.Quit
+func (m Model) cyclePane(delta int) Model {
+	order := []pane{paneSidebar, paneMain}
+	if m.previewOn {
+		order = append(order, panePreview)
 	}
-	if msg.Type == tea.KeyRunes {
-		m.filter += string(msg.Runes)
-		m.applyFilterAndGroup()
+	idx := 0
+	for i, p := range order {
+		if p == m.pane {
+			idx = i
+			break
+		}
 	}
-	return m, nil
+	m.pane = order[(idx+delta+len(order))%len(order)]
+	return m
 }
 
-func (m Model) keysSwitcher(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
-	switch key {
-	case "esc":
-		m.overlay = overlayNone
-		return m, nil
-	case "enter":
-		if m.switcherCur >= 0 && m.switcherCur < len(m.switcherHit) {
-			id := m.switcherHit[m.switcherCur].ObjectID
-			if m.switcherHit[m.switcherCur].IsSection && m.switcherHit[m.switcherCur].FileObjectID != "" {
-				id = m.switcherHit[m.switcherCur].FileObjectID
-			}
-			m.overlay = overlayNone
-			return m.openNote(id)
-		}
-		return m, nil
-	case "down", "ctrl+n":
-		if m.switcherCur+1 < len(m.switcherHit) {
-			m.switcherCur++
-		}
-		return m, nil
-	case "up", "ctrl+p":
-		if m.switcherCur > 0 {
-			m.switcherCur--
-		}
-		return m, nil
-	case "backspace":
-		m.switcherQ = dropLastRune(m.switcherQ)
-		return m.searchIfReady()
-	case "ctrl+c":
-		return m, tea.Quit
-	}
-	if msg.Type == tea.KeyRunes {
-		m.switcherQ += string(msg.Runes)
-		return m.searchIfReady()
-	}
-	return m, nil
+func (m Model) cycleLayout() (Model, tea.Cmd) {
+	next := layout.Next(m.spec, m.typeSchema())
+	m.layoutLocked = true
+	m.applySpec(next)
+	m.status = next.Label()
+	return m, m.previewCmd()
 }
 
-func (m Model) searchIfReady() (Model, tea.Cmd) {
-	q := strings.TrimSpace(m.switcherQ)
-	if len([]rune(q)) < 2 {
-		m.switcherHit = nil
+func (m Model) cycleGroup() (Model, tea.Cmd) {
+	m.layoutLocked = true
+	if m.spec.Kind == layout.KindDate {
+		m.applySpec(layout.NextGranularity(m.spec))
+	} else {
+		m.applySpec(layout.NextGroupBy(m.spec, m.typeSchema()))
+	}
+	m.status = m.spec.Label()
+	return m, m.previewCmd()
+}
+
+func (m Model) togglePreview() (Model, tea.Cmd) {
+	m.previewOn = !m.previewOn
+	if !m.previewOn {
+		if m.pane == panePreview {
+			m.pane = paneMain
+		}
 		return m, nil
 	}
+	return m, m.previewCmd()
+}
+
+func (m Model) previewCmd() tea.Cmd {
+	if !m.previewOn || m.screen == kindNote {
+		return nil
+	}
+	obj := m.selectedObject()
+	if obj == nil || obj.ID == "" {
+		m.preview = nil
+		m.previewID = ""
+		m.previewBody = ""
+		return nil
+	}
+	if m.previewID == obj.ID && m.preview != nil {
+		return nil
+	}
+	m.previewID = obj.ID
+	if rd, ok := m.readCache[obj.ID]; ok {
+		m.setPreview(rd)
+		return nil
+	}
+	m.previewLoading = true
+	return fetchRead(m.client, m.gen, obj.ID, "preview")
+}
+
+func (m Model) openDaily() (Model, tea.Cmd) {
 	gen := m.nextGen()
-	return m, fetchSearch(m.client, gen, q)
+	m.loading = true
+	m.status = "daily…"
+	m.overlay = overlayNone
+	return m, fetchDate(m.client, gen, "today")
 }
 
 func (m *Model) move(delta int) {
@@ -460,6 +732,10 @@ func (m *Model) moveToStart() {
 		m.navCur = 0
 		return
 	}
+	if m.pane == panePreview {
+		m.previewScroll = 0
+		return
+	}
 	m.listCur = 0
 	m.boardRow = 0
 	m.dateSec = 0
@@ -502,51 +778,68 @@ func (m Model) loadNav(index int) (Model, tea.Cmd) {
 	}
 	item := m.nav[index]
 	m.navCur = index
+	spec := m.specForNav(item)
+	isQuery := item.Kind == navQuery
+	return m.loadSource(item.Label, item.Source, item.Type, spec, item.Query, isQuery)
+}
+
+func (m Model) loadSource(label, query, typeName string, spec layout.Spec, q *api.SavedQuery, isQuery bool) (Model, tea.Cmd) {
 	m.screen = "browse"
 	m.note = nil
-	m.filter = ""
-	m.sourceLabel = item.Label
-	m.sourceQuery = item.Source
-	m.typeName = item.Type
-	m.viewKind = kindList
-	m.groupBy = ""
-	m.sortField = ""
-	m.listFields = nil
-	m.granularity = config.GranDay
+	m.searchQ = ""
+	m.searchHits = nil
+	m.sourceLabel = label
+	m.sourceQuery = query
+	m.sourceIsQuery = isQuery
+	m.typeName = typeName
+	m.layoutLocked = false
+	m.overlay = overlayNone
+	m.filterReset()
 
-	if item.Kind == navQuery && item.Query != nil && len(item.Query.Args) > 0 {
+	if q != nil && len(q.Args) > 0 {
 		m.objects = nil
-		m.applyFilterAndGroup()
-		m.errMsg = fmt.Sprintf("saved query %q needs arguments: %s", item.Query.Name, strings.Join(item.Query.Args, ", "))
-		m.status = item.Label
+		m.applySpec(spec)
+		m.errMsg = fmt.Sprintf("saved query %q needs arguments: %s", q.Name, strings.Join(q.Args, ", "))
+		m.status = label
 		return m, nil
 	}
-	if item.View != nil {
-		m.viewKind = item.View.Kind
-		m.sourceQuery = item.View.Source
-		m.groupBy = item.View.GroupBy
-		m.sortField = item.View.Sort
-		m.listFields = item.View.Fields
-		if item.View.Granularity != "" {
-			m.granularity = item.View.Granularity
-		}
-		if strings.HasPrefix(item.View.Source, "type:") {
-			m.typeName = strings.TrimPrefix(item.View.Source, "type:")
-		}
-	} else if item.Kind == navType {
-		m.typeName = item.Type
-		ts := m.typeSchema()
-		m.listFields = defaultFields(ts)
-		if ts.NameField != "" {
-			m.sortField = ts.NameField
-		}
+	m.errMsg = ""
+	m.applySpec(spec)
+	if typeName != "" && len(m.listFields) == 0 {
+		m.listFields = defaultFields(m.typeSchema())
+		m.spec.Fields = m.listFields
 	}
+	if typeName != "" && m.spec.Sort == "" && m.typeSchema().NameField != "" {
+		m.spec.Sort = m.typeSchema().NameField
+		m.sortField = m.spec.Sort
+	}
+
+	if ent, ok := m.queryCache[query]; ok {
+		m.objects = ent.objects
+		if m.typeName == "" {
+			m.typeName = ent.typeName
+		}
+		m.hasMore = ent.hasMore
+		m.total = ent.total
+		m.applyFilterAndGroup()
+		m.status = "cached " + label
+	}
+
 	gen := m.nextGen()
 	m.loading = true
-	m.errMsg = ""
-	m.status = "loading " + m.sourceLabel + "…"
-	ts := m.typeSchema()
-	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, ts)
+	if m.status == "" || !strings.HasPrefix(m.status, "cached") {
+		m.status = "loading " + label + "…"
+	}
+	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, m.typeSchema())
+}
+
+func (m *Model) filterReset() {
+	m.listCur = 0
+	m.listOff = 0
+	m.boardCol = 0
+	m.boardRow = 0
+	m.dateSec = 0
+	m.dateRow = 0
 }
 
 func defaultFields(ts api.TypeSchema) []string {
@@ -559,12 +852,18 @@ func defaultFields(ts api.TypeSchema) []string {
 
 func (m Model) refresh() (Model, tea.Cmd) {
 	if m.screen == kindNote && m.note != nil {
+		if m.readCache != nil {
+			delete(m.readCache, m.note.ObjectID)
+		}
 		gen := m.nextGen()
 		m.loading = true
-		return m, fetchRead(m.client, gen, m.note.ObjectID)
+		return m, fetchRead(m.client, gen, m.note.ObjectID, "note")
 	}
 	if m.sourceQuery == "" {
 		return m, fetchSchema(m.client)
+	}
+	if m.queryCache != nil {
+		delete(m.queryCache, m.sourceQuery)
 	}
 	gen := m.nextGen()
 	m.loading = true
@@ -591,7 +890,8 @@ func (m Model) openNote(id string) (Model, tea.Cmd) {
 	gen := m.nextGen()
 	m.loading = true
 	m.status = "reading " + id + "…"
-	return m, fetchRead(m.client, gen, id)
+	m.overlay = overlayNone
+	return m, fetchRead(m.client, gen, id, "note")
 }
 
 func (m Model) historyGo(delta int) (Model, tea.Cmd) {
@@ -608,7 +908,7 @@ func (m Model) historyGo(delta int) (Model, tea.Cmd) {
 	id := m.noteStack[m.notePtr].ID
 	gen := m.nextGen()
 	m.loading = true
-	return m, fetchRead(m.client, gen, id)
+	return m, fetchRead(m.client, gen, id, "note")
 }
 
 func (m Model) followOrOpenBacklink() (Model, tea.Cmd) {
@@ -659,9 +959,17 @@ func (m Model) openEditor() (Model, tea.Cmd) {
 	if m.screen == kindNote && m.note != nil {
 		path = editor.FilePath(m.vaultPath, m.note.Path)
 		objectID = m.note.ObjectID
+	} else if m.previewOn && m.pane == panePreview && m.preview != nil {
+		path = editor.FilePath(m.vaultPath, m.preview.Path)
+		objectID = m.preview.ObjectID
 	} else if obj := m.selectedObject(); obj != nil {
 		path = editor.FilePath(m.vaultPath, obj.FilePath)
 		objectID = obj.ID
+		if path == "" {
+			if rd, ok := m.readCache[obj.ID]; ok {
+				path = editor.FilePath(m.vaultPath, rd.Path)
+			}
+		}
 	}
 	ed := editor.Resolve(m.editor)
 	cmd, err := editor.Command(ed, path)

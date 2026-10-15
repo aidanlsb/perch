@@ -121,6 +121,15 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 						},
 					},
 				})
+			case "date":
+				writeEnv(w, 200, map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"date": "2026-10-15", "day_of_week": "Thursday",
+						"daily_note_id": "2026-10-15", "daily_path": "daily/2026-10-15.md",
+						"daily_exists": true, "items": []any{}, "backlinks": []any{},
+					},
+				})
 			default:
 				writeEnv(w, 200, map[string]any{
 					"ok":    false,
@@ -198,6 +207,11 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 	qs, err := c.SavedQueries(ctx)
 	if err != nil || len(qs) != 1 {
 		t.Fatalf("saved %v %+v", err, qs)
+	}
+
+	dr, err := c.Date(ctx, "today")
+	if err != nil || dr.Date != "2026-10-15" || !dr.DailyExists || dr.DailyNoteID != "2026-10-15" {
+		t.Fatalf("date %v %+v", err, dr)
 	}
 
 	cBad := NewClient(srv.URL, "wrong")

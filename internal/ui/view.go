@@ -25,9 +25,13 @@ func (m Model) View() string {
 	switch m.overlay {
 	case overlayHelp:
 		return overlayOn(frame, m.width, m.height, m.viewHelp())
-	case overlaySwitcher:
-		return overlayOn(frame, m.width, m.height, m.viewSwitcher())
-	case overlayFilter:
+	case overlayPicker:
+		return overlayOn(frame, m.width, m.height, m.viewPicker())
+	case overlayLeader:
+		return overlayOn(frame, m.width, m.height, m.viewLeader())
+	case overlayRQL:
+		return overlayOn(frame, m.width, m.height, m.viewRQL())
+	case overlaySearch:
 		return frame
 	}
 	return frame
@@ -52,8 +56,14 @@ func (m Model) viewHeader() string {
 	if m.loading {
 		right = "loading…"
 	}
-	if m.overlay == overlayFilter {
-		right = "/" + m.filter
+	if m.overlay == overlaySearch || m.searchQ != "" {
+		right = "/" + m.searchQ
+		if m.overlay == overlaySearch {
+			right += "█"
+		}
+		if n := len(m.searchHits); n > 0 && m.searchQ != "" {
+			right += fmt.Sprintf("  %d/%d", m.searchAt+1, n)
+		}
 	}
 	gap := max(0, m.width-lipgloss.Width(left+mid)-lipgloss.Width(right)-1)
 	line := left + mid + strings.Repeat(" ", gap) + styleStatus.Render(right)
@@ -67,24 +77,24 @@ func (m Model) viewFooter() string {
 	if m.errMsg != "" {
 		return styleErr.Render(truncate(m.errMsg, m.width))
 	}
-	var keys string
-	switch {
-	case m.overlay == overlayFilter:
-		keys = "filter  enter done  esc clear"
-	case m.overlay == overlaySwitcher:
-		keys = "search  j/k  enter open  esc"
-	case m.screen == kindNote:
-		keys = "tab link  enter follow  [ ] history  e edit  h/l backlinks  q back"
-	default:
-		keys = "hjkl  enter open  / filter  s search  e edit  ? help  q quit"
-	}
+	keys := footerKeys(m.overlay, m.screen, m.previewOn)
 	return styleFooter.Render(truncate(keys, m.width))
 }
 
 func (m Model) viewBrowse(height int) string {
 	side := m.viewSidebar(height)
-	mainW := max(10, m.width-lipgloss.Width(side))
-	main := m.viewMain(mainW, height)
+	rest := max(10, m.width-lipgloss.Width(side))
+	if m.previewOn {
+		pw := max(previewMinW, rest*2/5)
+		if pw > rest-16 {
+			pw = max(previewMinW, rest/3)
+		}
+		mainW := max(12, rest-pw)
+		main := m.viewMain(mainW, height)
+		prev := m.viewPreview(pw, height)
+		return lipgloss.JoinHorizontal(lipgloss.Top, side, main, prev)
+	}
+	main := m.viewMain(rest, height)
 	return lipgloss.JoinHorizontal(lipgloss.Top, side, main)
 }
 
@@ -168,9 +178,6 @@ func (m Model) viewMain(width, height int) string {
 
 func (m Model) viewList(width, height int) string {
 	if len(m.filtered) == 0 {
-		if m.filter != "" {
-			return styleMuted.Render("no matches for /" + m.filter)
-		}
 		return styleMuted.Render("no objects")
 	}
 	fields := m.listFields
@@ -408,48 +415,105 @@ func (m Model) viewBacklinks(width, height int) string {
 }
 
 func (m Model) viewHelp() string {
-	text := strings.TrimSpace(`
-perch  read-only companion for Raven
-
-navigation
-  hjkl / arrows   move
-  tab             sidebar ↔ list, or cycle wiki links
-  enter           open note / follow link
-  [ ]             back / forward
-  /               filter current view
-  s               search (Raven)
-  e o             open in $VISUAL / $EDITOR
-  r               refresh
-  d w m           date grouping (day/week/month)
-  q               back / quit
-
-views come from the vault schema. board and date layouts
-are saved in perch's config, not in Raven.
-`)
-	return styleHelpBox.Width(min(60, m.width-4)).Render(text)
+	var b strings.Builder
+	b.WriteString(styleHeader.Render("perch") + styleMuted.Render("  keys") + "\n")
+	section := ""
+	for _, bind := range Keymap {
+		if bind.Section != section {
+			section = bind.Section
+			b.WriteString("\n" + styleSidebarTitle.Render(section) + "\n")
+		}
+		keys := padTrunc(bind.Keys, 26)
+		b.WriteString(styleMuted.Render(keys) + "  " + bind.Desc + "\n")
+	}
+	b.WriteString("\n" + styleDim.Render("config sets layout defaults; L cycles at runtime"))
+	w := min(72, max(40, m.width-4))
+	return styleHelpBox.Width(w).Render(strings.TrimRight(b.String(), "\n"))
 }
 
-func (m Model) viewSwitcher() string {
-	var b strings.Builder
-	b.WriteString(styleMuted.Render("search  ") + m.switcherQ + "█\n")
-	if len(m.switcherHit) == 0 {
-		b.WriteString(styleDim.Render("type two characters…"))
+func (m Model) viewPicker() string {
+	title := "types"
+	switch m.pickerKind {
+	case pickerQueries:
+		title = "saved queries"
+	case pickerNotes:
+		title = "notes"
 	}
-	for i, hit := range m.switcherHit {
-		line := hit.Title
-		if line == "" {
-			line = hit.ObjectID
-		} else {
-			line += "  " + styleDim.Render(hit.ObjectID)
+	var b strings.Builder
+	b.WriteString(styleMuted.Render(title+"  ") + m.pickerQ + "█\n")
+	if len(m.pickerHit) == 0 {
+		b.WriteString(styleDim.Render("no matches"))
+	}
+	maxRows := max(6, min(16, m.height-8))
+	start := 0
+	if m.pickerCur >= maxRows {
+		start = m.pickerCur - maxRows + 1
+	}
+	end := min(len(m.pickerHit), start+maxRows)
+	for i := start; i < end; i++ {
+		it := m.pickerHit[i]
+		line := it.Label
+		if it.Sub != "" && it.Sub != it.Label {
+			line += "  " + styleDim.Render(truncate(it.Sub, 32))
 		}
-		if i == m.switcherCur {
-			b.WriteString(styleNavSel.Render(truncate(line, 56)))
+		if i == m.pickerCur {
+			b.WriteString(styleNavSel.Render(truncate(line, 60)))
 		} else {
-			b.WriteString(styleNav.Render(truncate(line, 56)))
+			b.WriteString(styleNav.Render(truncate(line, 60)))
 		}
 		b.WriteByte('\n')
 	}
-	return styleModal.Width(min(64, m.width-4)).Render(strings.TrimRight(b.String(), "\n"))
+	return styleModal.Width(min(68, m.width-4)).Render(strings.TrimRight(b.String(), "\n"))
+}
+
+func (m Model) viewLeader() string {
+	text := strings.TrimSpace(`
+t  types
+q  saved queries
+f  notes
+d  daily
+l  cycle layout
+`)
+	return styleModal.Width(min(28, m.width-4)).Render("space\n" + text)
+}
+
+func (m Model) viewRQL() string {
+	return styleModal.Width(min(64, m.width-4)).Render(
+		styleMuted.Render("query  ") + m.rql + "█",
+	)
+}
+
+func (m Model) viewPreview(width, height int) string {
+	box := lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(colBorder).
+		PaddingLeft(1)
+	title := "preview"
+	if m.pane == panePreview {
+		title = "▸ preview"
+	}
+	var body string
+	switch {
+	case !m.previewOn:
+		body = ""
+	case m.previewLoading && m.preview == nil:
+		body = styleMuted.Render("loading…")
+	case m.preview == nil:
+		body = styleDim.Render("no selection")
+	default:
+		head := m.preview.ObjectID
+		if name := m.previewDoc.Fields["name"]; name != "" {
+			head = name
+		}
+		body = styleHeader.Render(truncate(head, width-3)) + "\n"
+		if m.preview.Path != "" {
+			body += styleDim.Render(truncate(m.preview.Path, width-3)) + "\n"
+		}
+		body += windowLines(m.previewBody, m.previewScroll, max(1, height-3), width-3)
+	}
+	return box.Render(styleSidebarTitle.Render(title) + "\n" + body)
 }
 
 func overlayOn(base string, width, height int, modal string) string {

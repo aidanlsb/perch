@@ -19,6 +19,7 @@ func sampleSchema() api.Schema {
 					"name":   {Type: "string"},
 					"status": {Type: "enum", Values: []string{"idea", "active", "done"}},
 					"due":    {Type: "date"},
+					"owner":  {Type: "ref", Target: "person"},
 				},
 			},
 			"person":  {Name: "person", NameField: "name", Fields: map[string]api.FieldSchema{"name": {Type: "string"}}},
@@ -71,21 +72,31 @@ func TestSchemaBuildsSidebar(t *testing.T) {
 	}
 }
 
-func TestMoveAndFilter(t *testing.T) {
+func TestMoveAndSearch(t *testing.T) {
 	m := loadBrowse(t)
 	m.pane = paneMain
 	m, _ = m.update(key("j"))
 	if m.listCur != 1 {
 		t.Fatalf("cursor %d", m.listCur)
 	}
+	m, _ = m.update(key("g"))
+	m, _ = m.update(key("g"))
+	if m.listCur != 0 {
+		t.Fatalf("gg %d", m.listCur)
+	}
 	m, _ = m.update(key("/"))
-	if m.overlay != overlayFilter {
-		t.Fatal("filter overlay")
+	if m.overlay != overlaySearch {
+		t.Fatal("search overlay")
 	}
 	m, _ = m.update(runeKey('B'))
 	m, _ = m.update(runeKey('e'))
-	if len(m.filtered) != 1 || m.filtered[0].Title != "Beta" {
-		t.Fatalf("%v", m.filtered)
+	obj := m.selectedObject()
+	if obj == nil || obj.Title != "Beta" {
+		t.Fatalf("%v", obj)
+	}
+	m, _ = m.update(key("enter"))
+	if m.overlay != overlayNone {
+		t.Fatal("enter keeps search")
 	}
 }
 
@@ -219,7 +230,7 @@ func TestSessionAppliedFromSchemaMsg(t *testing.T) {
 
 func TestQuit(t *testing.T) {
 	m := loadBrowse(t)
-	_, cmd := m.update(key("q"))
+	_, cmd := m.update(key("ctrl+c"))
 	if cmd == nil {
 		t.Fatal("quit")
 	}
@@ -245,6 +256,16 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyRight}
 	case "ctrl+c":
 		return tea.KeyMsg{Type: tea.KeyCtrlC}
+	case "ctrl+d":
+		return tea.KeyMsg{Type: tea.KeyCtrlD}
+	case "ctrl+u":
+		return tea.KeyMsg{Type: tea.KeyCtrlU}
+	case "ctrl+p":
+		return tea.KeyMsg{Type: tea.KeyCtrlP}
+	case "ctrl+n":
+		return tea.KeyMsg{Type: tea.KeyCtrlN}
+	case " ":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
 	default:
 		if len(s) == 1 {
 			return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{rune(s[0])}}
