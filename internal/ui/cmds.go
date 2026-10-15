@@ -25,6 +25,16 @@ type queryMsg struct {
 	err      error
 }
 
+type objectsMsg struct {
+	objects    []api.Object
+	offset     int
+	nextOffset int
+	hasMore    bool
+	total      int
+	fallback   bool
+	err        error
+}
+
 type readMsg struct {
 	gen     int
 	purpose string // note | preview
@@ -80,14 +90,14 @@ func fetchSchema(c *api.Client) tea.Cmd {
 	}
 }
 
-func fetchQuery(c *api.Client, gen int, query, typeName string, limit int, ts api.TypeSchema) tea.Cmd {
+func fetchQuery(c *api.Client, gen int, query, typeName string, limit int, ts api.TypeSchema, inputs map[string]string) tea.Cmd {
 	return func() tea.Msg {
 		if c == nil {
 			return queryMsg{gen: gen, err: errNoClient}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		qr, meta, err := c.Query(ctx, query, limit)
+		qr, meta, err := c.QueryInputs(ctx, query, limit, inputs)
 		if err != nil {
 			return queryMsg{gen: gen, err: err}
 		}
@@ -155,6 +165,37 @@ func fetchDate(c *api.Client, gen int, date string) tea.Cmd {
 			return dateMsg{gen: gen, err: err}
 		}
 		return dateMsg{gen: gen, result: dr}
+	}
+}
+
+const objectsPageSize = 200
+
+func fetchObjectsPage(c *api.Client, offset, limit int) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil {
+			return objectsMsg{fallback: true, err: errNoClient}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		res, err := c.Objects(ctx, limit, offset)
+		if err != nil {
+			return objectsMsg{
+				err:      err,
+				fallback: api.IsCommandNotAllowed(err) || api.IsNotFound(err),
+				offset:   offset,
+			}
+		}
+		next := offset + len(res.Items)
+		if res.NextOffset != nil {
+			next = *res.NextOffset
+		}
+		return objectsMsg{
+			objects:    api.ObjectsFromCorpus(res.Items),
+			offset:     res.Offset,
+			nextOffset: next,
+			hasMore:    res.HasMore,
+			total:      res.Total,
+		}
 	}
 }
 

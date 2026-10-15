@@ -33,6 +33,10 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/session":
 			writeEnv(w, 200, map[string]any{"ok": true, "data": map[string]any{
 				"api_version": "1", "vault_path": "/vault", "editor": "code", "editor_mode": "auto",
+				"daily": map[string]any{
+					"directory": "daily", "today_id": "2026-10-15",
+					"today_path": "daily/2026-10-15.md", "today_exists": true,
+				},
 			}})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/schema":
 			writeEnv(w, 200, map[string]any{
@@ -62,6 +66,17 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 				t.Errorf("invoke json: %v", err)
 			}
 			switch lastInvoke.Command {
+			case "objects":
+				writeEnv(w, 200, map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"items": []any{map[string]any{
+							"id": "people/freya", "type": "person",
+							"name": "Freya", "file_path": "people/freya.md",
+						}},
+						"total": 1, "returned": 1, "offset": 0, "limit": 200, "has_more": false,
+					},
+				})
 			case "query":
 				writeEnv(w, 200, map[string]any{
 					"ok": true,
@@ -160,6 +175,9 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 	if sess.VaultPath != "/vault" || sess.Editor != "code" || sess.EditorMode != "auto" {
 		t.Fatalf("session %+v", sess)
 	}
+	if sess.Daily == nil || sess.Daily.TodayID != "2026-10-15" || !sess.Daily.TodayExists {
+		t.Fatalf("session daily %+v", sess.Daily)
+	}
 
 	sch, err := c.Schema(ctx)
 	if err != nil {
@@ -214,6 +232,23 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 		t.Fatalf("date %v %+v", err, dr)
 	}
 
+	_, _, err = c.QueryInputs(ctx, "project-todos", 20, map[string]string{"project": "projects/raven"})
+	if err != nil {
+		t.Fatalf("query inputs: %v", err)
+	}
+	if lastInvoke.Command != "query" {
+		t.Fatalf("command %s", lastInvoke.Command)
+	}
+	inputs, _ := lastInvoke.Args["inputs"].(map[string]any)
+	if inputs["project"] != "projects/raven" {
+		t.Fatalf("inputs %+v", lastInvoke.Args)
+	}
+
+	or, err := c.Objects(ctx, 200, 0)
+	if err != nil || len(or.Items) != 1 || or.Items[0].ID != "people/freya" {
+		t.Fatalf("objects %v %+v", err, or)
+	}
+
 	cBad := NewClient(srv.URL, "wrong")
 	if _, err := cBad.Health(ctx); err == nil {
 		t.Fatal("expected unauthorized")
@@ -244,6 +279,20 @@ func TestClientRefusesWrites(t *testing.T) {
 		} else if !strings.Contains(err.Error(), "read-only") {
 			t.Fatalf("%s: %v", cmd, err)
 		}
+	}
+}
+
+func TestObjectsCommandNotAllowed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeEnv(w, 200, map[string]any{
+			"ok":    false,
+			"error": map[string]any{"code": "COMMAND_NOT_ALLOWED", "message": "objects"},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	_, err := NewClient(srv.URL, "t").Objects(context.Background(), 200, 0)
+	if err == nil || !IsCommandNotAllowed(err) {
+		t.Fatalf("got %v", err)
 	}
 }
 

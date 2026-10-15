@@ -62,10 +62,20 @@ type Health struct {
 
 // Session is GET /v1/session data: vault identity and rvn-open editor settings.
 type Session struct {
-	APIVersion string `json:"api_version"`
-	VaultPath  string `json:"vault_path"`
-	Editor     string `json:"editor"`
-	EditorMode string `json:"editor_mode"`
+	APIVersion string     `json:"api_version"`
+	VaultPath  string     `json:"vault_path"`
+	Editor     string     `json:"editor"`
+	EditorMode string     `json:"editor_mode"`
+	Daily      *DailyInfo `json:"daily,omitempty"`
+}
+
+// DailyInfo is the read-only today snapshot on GET /v1/session (Raven PR 308).
+// Session never creates the file. Older rvn omits this field.
+type DailyInfo struct {
+	Directory   string `json:"directory"`
+	TodayID     string `json:"today_id"`
+	TodayPath   string `json:"today_path"`
+	TodayExists bool   `json:"today_exists"`
 }
 
 // DateResult is the read-only `date` command payload (today's hub).
@@ -137,6 +147,25 @@ type SavedQuery struct {
 	Query       string   `json:"query"`
 	Args        []string `json:"args,omitempty"`
 	Description string   `json:"description,omitempty"`
+}
+
+// ObjectSummary is one row from the `objects` corpus (no body, no field map).
+type ObjectSummary struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Name     string `json:"name"`
+	FilePath string `json:"file_path"`
+}
+
+// ObjectsResult is the paginated `objects` success payload.
+type ObjectsResult struct {
+	Items      []ObjectSummary `json:"items"`
+	Total      int             `json:"total"`
+	Returned   int             `json:"returned"`
+	Offset     int             `json:"offset"`
+	Limit      int             `json:"limit"`
+	HasMore    bool            `json:"has_more"`
+	NextOffset *int            `json:"next_offset,omitempty"`
 }
 
 // QueryResult is a `query` success payload (object, trait, section, or link).

@@ -91,6 +91,10 @@ func (m Model) openNotesPicker() (Model, tea.Cmd) {
 	m.pickerCur = 0
 	m.rebuildNotePicks()
 	m.refilterPicker()
+	if !m.corpusDone && !m.corpusLoading {
+		m.corpusLoading = true
+		return m, m.corpusCmd()
+	}
 	return m, nil
 }
 
@@ -197,6 +201,81 @@ func (m Model) loadType(name string) (Model, tea.Cmd) {
 		}
 	}
 	return m.loadSource(name, "type:"+name, name, spec, nil, false)
+}
+
+func inputsComplete(names []string, inputs map[string]string) bool {
+	if len(names) == 0 {
+		return true
+	}
+	if len(inputs) == 0 {
+		return false
+	}
+	for _, name := range names {
+		if strings.TrimSpace(inputs[name]) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func (m Model) startArgsPrompt(q *api.SavedQuery) (Model, tea.Cmd) {
+	m.overlay = overlayArgs
+	m.argsQuery = q
+	m.argsNames = append([]string(nil), q.Args...)
+	m.argsIdx = 0
+	m.argsVals = map[string]string{}
+	m.argsBuf = ""
+	m.status = "args for " + q.Name
+	return m, nil
+}
+
+func (m Model) keysArgs(msg tea.KeyMsg) (Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "esc":
+		m.overlay = overlayNone
+		m.argsQuery = nil
+		m.argsBuf = ""
+		return m, nil
+	case "enter":
+		return m.commitArg()
+	case "backspace":
+		m.argsBuf = dropLastRune(m.argsBuf)
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	if msg.Type == tea.KeyRunes {
+		m.argsBuf += string(msg.Runes)
+	}
+	return m, nil
+}
+
+func (m Model) commitArg() (Model, tea.Cmd) {
+	if m.argsIdx < 0 || m.argsIdx >= len(m.argsNames) {
+		return m.finishArgs()
+	}
+	name := m.argsNames[m.argsIdx]
+	m.argsVals[name] = strings.TrimSpace(m.argsBuf)
+	m.argsBuf = ""
+	m.argsIdx++
+	if m.argsIdx >= len(m.argsNames) {
+		return m.finishArgs()
+	}
+	return m, nil
+}
+
+func (m Model) finishArgs() (Model, tea.Cmd) {
+	q := m.argsQuery
+	inputs := m.argsVals
+	m.overlay = overlayNone
+	m.argsQuery = nil
+	m.argsBuf = ""
+	if q == nil {
+		return m, nil
+	}
+	m.sourceInputs = inputs
+	return m.loadQuery(q)
 }
 
 func (m Model) loadQuery(q *api.SavedQuery) (Model, tea.Cmd) {

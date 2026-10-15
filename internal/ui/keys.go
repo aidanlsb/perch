@@ -18,7 +18,7 @@ var Keymap = []Binding{
 	{"browse", "gg / G", "top / bottom"},
 	{"browse", "ctrl-d / ctrl-u", "half-page down / up"},
 	{"browse", "enter", "open note"},
-	{"browse", "q", "saved query picker"},
+	{"browse", "q", "saved query picker (args prompt if needed)"},
 	{"browse", "t", "type picker"},
 	{"browse", "ctrl-p / space f", "fuzzy notes picker"},
 	{"browse", "/", "fuzzy search in current view"},
@@ -58,6 +58,9 @@ var Keymap = []Binding{
 	{"picker", "enter", "open selection"},
 	{"picker", "e", "open note in editor (notes picker)"},
 	{"picker", "q / esc", "close"},
+
+	{"args", "enter", "next argument / run query"},
+	{"args", "esc", "cancel"},
 }
 
 func footerKeys(overlay overlay, screen string, preview bool) string {
@@ -72,6 +75,8 @@ func footerKeys(overlay overlay, screen string, preview bool) string {
 		return "t types  q queries  f notes  d daily  l layout  esc"
 	case overlayRQL:
 		return "query  enter run  esc"
+	case overlayArgs:
+		return "args  enter next  esc cancel"
 	}
 	if screen == kindNote {
 		return "hjkl  tab link  enter follow  e edit  q back  ? help"

@@ -107,6 +107,30 @@ func TestDailyHotkey(t *testing.T) {
 	}
 }
 
+func TestDailyUsesSessionWhenPresent(t *testing.T) {
+	m := loadBrowse(t)
+	m.daily = &api.DailyInfo{Directory: "daily", TodayID: "2026-10-15", TodayPath: "daily/2026-10-15.md", TodayExists: true}
+	m, cmd := m.update(key("d"))
+	if cmd == nil {
+		t.Fatal("read today")
+	}
+	if !strings.Contains(m.status, "2026-10-15") {
+		t.Fatalf("status %s", m.status)
+	}
+}
+
+func TestDailySessionMissingOpensDateList(t *testing.T) {
+	m := loadBrowse(t)
+	m.daily = &api.DailyInfo{TodayID: "2026-10-15", TodayExists: false}
+	m, cmd := m.update(key("d"))
+	if cmd == nil {
+		t.Fatal("load date type")
+	}
+	if m.sourceQuery != "type:date" {
+		t.Fatalf("source %s", m.sourceQuery)
+	}
+}
+
 func TestDailyMissingFallsBackToDateType(t *testing.T) {
 	m := loadBrowse(t)
 	m, _ = m.update(key("d"))
@@ -119,6 +143,40 @@ func TestDailyMissingFallsBackToDateType(t *testing.T) {
 	}
 	if m.sourceQuery != "type:date" {
 		t.Fatalf("source %s", m.sourceQuery)
+	}
+}
+
+func TestObjectsCorpusFillsNotesPicker(t *testing.T) {
+	m := loadBrowse(t)
+	m, _ = m.update(key("ctrl+p"))
+	m, cmd := m.update(objectsMsg{
+		objects: []api.Object{
+			{ID: "people/freya", Title: "Freya", Type: "person", FilePath: "people/freya.md"},
+		},
+		offset: 0, nextOffset: 1, hasMore: false, total: 1,
+	})
+	if cmd != nil {
+		t.Fatal("no more pages")
+	}
+	if _, ok := m.noteIndex["people/freya"]; !ok {
+		t.Fatal("index")
+	}
+	found := false
+	for _, it := range m.pickerHit {
+		if it.Label == "Freya" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("picker %v", labelsOf(m.pickerHit))
+	}
+}
+
+func TestObjectsFallbackPrefetchesTypes(t *testing.T) {
+	m := loadBrowse(t)
+	_, cmd := m.update(objectsMsg{fallback: true})
+	if cmd == nil {
+		t.Fatal("expected type prefetch")
 	}
 }
 

@@ -93,10 +93,13 @@ They are extra sources, not a second layout system.
 | --- | --- |
 | `t` / `space t` | Types (fuzzy) |
 | `q` / `space q` | Saved queries and named views (fuzzy) |
-| `ctrl-p` / `space f` | Notes: fuzzy over cached names/ids, plus Raven `search` after two characters |
+| `ctrl-p` / `space f` | Notes: fuzzy over the `objects` corpus (paginated, cached, background), plus Raven `search` after two characters |
 | `/` | Fuzzy search in the current view; `n` / `N` next/previous hit |
 | `:` | Ad-hoc RQL |
-| `d` / `space d` | Today's daily note, or the `date` list if it does not exist yet |
+| `d` / `space d` | Today's daily note from `GET /v1/session` `daily` if it exists, else the `date` list |
+
+Saved queries that declare `args` open an argument prompt. Values are sent as
+`query` `inputs` (`{{args.*}}`). Esc cancels.
 
 The sidebar is still generated from `GET /v1/schema` (types, saved queries,
 named views). `section` is omitted because Raven cannot query `type:section`.
@@ -158,15 +161,16 @@ Perch falls back to `$VISUAL`, then `$EDITOR`.
 perch  →  HTTP 127.0.0.1  →  rvn api  →  commandexec.Invoker
 ```
 
-Endpoints used: `GET /v1/health`, `GET /v1/session`, `GET /v1/schema`,
-`POST /v1/invoke` with `query`, `query_saved_list`, `read`, `search`,
-`backlinks`, and the read-only `date` hub. Write commands (`set`, `unset`,
-`new`, `move`) and `daily` (which may create a file) are rejected in the
-client.
+Endpoints used: `GET /v1/health`, `GET /v1/session` (including `daily`),
+`GET /v1/schema`, `POST /v1/invoke` with `query` (and `inputs` for saved-query
+args), `query_saved_list`, `objects`, `read`, `search`, `backlinks`, and the
+read-only `date` hub. Write commands (`set`, `unset`, `new`, `move`) and
+`daily` (which may create a file) are rejected in the client.
 
-Query and `read` results are cached in memory. Types are prefetched in the
-background after the first view loads so the notes picker has names/ids to
-rank without blocking.
+Query, `read`, and `objects` rows are cached in memory. The notes picker is
+backed by paginated `objects` loaded in the background. Older `rvn` without
+`objects` falls back to per-type query prefetch. Older `rvn` without
+`session.daily` falls back to the `date` command, then `type:date`.
 
 The note view renders Markdown, shows frontmatter as a header, and cycles
 wiki links from `read --json` `data.links` using UTF-8 byte offsets. Perch
@@ -178,24 +182,12 @@ A backlinks pane lists `data.backlinks`.
 1. **`open` is not allowlisted.** Correct for a read-only UI; Perch
    launches the editor itself using session `editor` / `editor_mode` and
    `vault_path` + `data.path`.
-2. **Saved-query inputs.** Auto lists skip saved queries that declare
-   `args`. MCP already binds extras via `query` `inputs`; the HTTP invoke
-   path should document that the same `inputs` map applies, and/or Perch
-   could grow an args prompt.
-3. **Query sort.** There is no `sort:` in RQL yet. Perch sorts
+2. **Query sort.** There is no `sort:` in RQL yet. Perch sorts
    client-side from the layout `sort` field.
-4. **Daily config is not on `GET /v1/session`.** Object ids for daily
-   notes are bare ISO dates, and the allowlisted `date` command returns
-   `daily_note_id`, `daily_path`, and `daily_exists` without creating a
-   file. Perch uses that. Proposed Raven change: add a `daily` object to
-   `GET /v1/session` (`directory`, `today_id`, `today_path`,
-   `today_exists`) so a UI can jump without a second round trip, and/or
-   allowlist read-only `vault_config_show` so `directories.daily` is
-   visible. Keep `daily` itself off read-only UIs; it creates files.
-5. **No corpus endpoint.** Fuzzy notes search is client-side over
-   prefetched query rows plus Raven `search`. A cheap `query` of all
-   objects (or a names-only index) would make the picker complete without
-   per-type prefetch.
+
+Closed by Raven PR 308 (consumed here): `GET /v1/session` `daily`, `query`
+`inputs` for saved-query args, and the paginated `objects` corpus. Perch
+still never invokes `daily` because it may create files.
 
 ## Develop
 
