@@ -212,6 +212,26 @@ func (c *Client) Backlinks(ctx context.Context, reference string) ([]BacklinkGro
 	return groups, nil
 }
 
+// Date runs the read-only `date` hub (never creates a daily note).
+func (c *Client) Date(ctx context.Context, date string) (*DateResult, error) {
+	args := map[string]any{}
+	if strings.TrimSpace(date) != "" {
+		args["date"] = strings.TrimSpace(date)
+	}
+	env, err := c.Invoke(ctx, "date", args)
+	if err != nil {
+		return nil, err
+	}
+	if err := envelopeErr(env); err != nil {
+		return nil, err
+	}
+	var out DateResult
+	if err := json.Unmarshal(env.Data, &out); err != nil {
+		return nil, fmt.Errorf("decode date: %w", err)
+	}
+	return &out, nil
+}
+
 // SavedQueries lists saved queries via query_saved_list.
 func (c *Client) SavedQueries(ctx context.Context) ([]SavedQuery, error) {
 	env, err := c.Invoke(ctx, "query_saved_list", nil)

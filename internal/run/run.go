@@ -17,7 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 // Main is the perch CLI entrypoint.
 func Main(args []string, stdout, stderr io.Writer) error {
