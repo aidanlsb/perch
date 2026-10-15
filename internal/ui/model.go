@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"sort"
+	"strings"
+
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/config"
 	"github.com/aidanlsb/perch/internal/frontmatter"
@@ -38,6 +41,7 @@ const (
 	overlayHelp
 	overlayLeader
 	overlayRQL
+	overlayArgs
 )
 
 type pickerKind int
@@ -160,11 +164,23 @@ type Model struct {
 	pickerCur  int
 	rql        string
 
+	argsQuery *api.SavedQuery
+	argsNames []string
+	argsIdx   int
+	argsVals  map[string]string
+	argsBuf   string
+
+	sourceInputs map[string]string
+
+	daily *api.DailyInfo
+
 	queryCache map[string]queryCacheEntry
 	readCache  map[string]*api.ReadResult
 	noteIndex  map[string]api.Object
 
-	needPrefetch bool
+	needPrefetch  bool
+	corpusDone    bool
+	corpusLoading bool
 
 	status  string
 	errMsg  string
@@ -380,11 +396,31 @@ func (m *Model) mergeNotes(objs []api.Object) {
 	}
 }
 
+func cacheKey(query string, inputs map[string]string) string {
+	if len(inputs) == 0 {
+		return query
+	}
+	keys := make([]string, 0, len(inputs))
+	for k := range inputs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(query)
+	for _, k := range keys {
+		b.WriteByte(' ')
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(inputs[k])
+	}
+	return b.String()
+}
+
 func (m *Model) cacheQuery() {
 	if m.sourceQuery == "" || m.queryCache == nil {
 		return
 	}
-	m.queryCache[m.sourceQuery] = queryCacheEntry{
+	m.queryCache[cacheKey(m.sourceQuery, m.sourceInputs)] = queryCacheEntry{
 		objects:  m.objects,
 		typeName: m.typeName,
 		hasMore:  m.hasMore,

@@ -2,6 +2,29 @@ package api
 
 import "strings"
 
+// ObjectsFromCorpus flattens `objects` summaries into view rows (id, name, path).
+func ObjectsFromCorpus(items []ObjectSummary) []Object {
+	out := make([]Object, 0, len(items))
+	for _, it := range items {
+		obj := Object{
+			ID:       it.ID,
+			Type:     it.Type,
+			Title:    it.Name,
+			FilePath: it.FilePath,
+			Kind:     "object",
+			Fields:   map[string]any{},
+		}
+		if it.Name != "" {
+			obj.Fields["name"] = it.Name
+		}
+		if obj.Title == "" {
+			obj.Title = obj.ID
+		}
+		out = append(out, obj)
+	}
+	return out
+}
+
 // ObjectsFromQuery flattens a query payload into view rows.
 func ObjectsFromQuery(q *QueryResult, typeSchema TypeSchema) []Object {
 	if q == nil {

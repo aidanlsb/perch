@@ -32,6 +32,18 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("raven api %s: HTTP %d", e.Path, e.Status)
 }
 
+// IsCommandNotAllowed reports that this rvn api rejected the command (older allowlist).
+func IsCommandNotAllowed(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ei *ErrorInfo
+	if errors.As(err, &ei) {
+		return ei.Code == "COMMAND_NOT_ALLOWED"
+	}
+	return strings.Contains(err.Error(), "COMMAND_NOT_ALLOWED")
+}
+
 // IsNotFound reports a missing HTTP route (older rvn, or a typo).
 func IsNotFound(err error) bool {
 	if err == nil {
@@ -142,9 +154,21 @@ func (c *Client) Invoke(ctx context.Context, command string, args map[string]any
 
 // Query runs the query command and returns a typed payload.
 func (c *Client) Query(ctx context.Context, queryString string, limit int) (*QueryResult, *Meta, error) {
+	return c.QueryInputs(ctx, queryString, limit, nil)
+}
+
+// QueryInputs is Query plus a saved-query `inputs` map bound to {{args.*}}.
+func (c *Client) QueryInputs(ctx context.Context, queryString string, limit int, inputs map[string]string) (*QueryResult, *Meta, error) {
 	args := map[string]any{"query_string": queryString}
 	if limit > 0 {
 		args["limit"] = limit
+	}
+	if len(inputs) > 0 {
+		in := make(map[string]any, len(inputs))
+		for k, v := range inputs {
+			in[k] = v
+		}
+		args["inputs"] = in
 	}
 	env, err := c.Invoke(ctx, "query", args)
 	if err != nil {
@@ -158,6 +182,29 @@ func (c *Client) Query(ctx context.Context, queryString string, limit int) (*Que
 		return nil, env.Meta, fmt.Errorf("decode query: %w", err)
 	}
 	return &out, env.Meta, nil
+}
+
+// Objects lists the all-object corpus (index only). Older rvn returns COMMAND_NOT_ALLOWED.
+func (c *Client) Objects(ctx context.Context, limit, offset int) (*ObjectsResult, error) {
+	args := map[string]any{}
+	if limit != 0 {
+		args["limit"] = limit
+	}
+	if offset > 0 {
+		args["offset"] = offset
+	}
+	env, err := c.Invoke(ctx, "objects", args)
+	if err != nil {
+		return nil, err
+	}
+	if err := envelopeErr(env); err != nil {
+		return nil, err
+	}
+	var out ObjectsResult
+	if err := json.Unmarshal(env.Data, &out); err != nil {
+		return nil, fmt.Errorf("decode objects: %w", err)
+	}
+	return &out, nil
 }
 
 // Read runs enriched read (includes data.links).

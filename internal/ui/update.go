@@ -32,6 +32,8 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.onSearch(msg)
 	case dateMsg:
 		return m.onDate(msg)
+	case objectsMsg:
+		return m.onObjects(msg)
 	case prefetchMsg:
 		return m.onPrefetch(msg)
 	case editorDoneMsg:
@@ -56,11 +58,17 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 	m.ready = true
 	m.loading = false
 	m.needPrefetch = true
+	m.corpusDone = false
 	m.status = fmt.Sprintf("%d types", len(m.schema.Types))
 	if len(m.nav) == 0 {
-		return m, m.prefetchCmd()
+		m.corpusLoading = true
+		return m, m.corpusCmd()
 	}
 	return m.loadNav(m.navCur)
+}
+
+func (m Model) corpusCmd() tea.Cmd {
+	return fetchObjectsPage(m.client, 0, objectsPageSize)
 }
 
 func (m Model) prefetchCmd() tea.Cmd {
@@ -70,6 +78,25 @@ func (m Model) prefetchCmd() tea.Cmd {
 	}
 	rest := names[1:]
 	return fetchPrefetch(m.client, names[0], rest, m.queryLimit, m.schema.Types[names[0]])
+}
+
+func (m Model) onObjects(msg objectsMsg) (Model, tea.Cmd) {
+	if msg.fallback || (msg.err != nil && len(msg.objects) == 0) {
+		m.corpusDone = true
+		m.corpusLoading = false
+		return m, m.prefetchCmd()
+	}
+	m.mergeNotes(msg.objects)
+	if m.overlay == overlayPicker && m.pickerKind == pickerNotes {
+		m.rebuildNotePicks()
+		m.refilterPicker()
+	}
+	if msg.hasMore && msg.nextOffset > msg.offset {
+		return m, fetchObjectsPage(m.client, msg.nextOffset, objectsPageSize)
+	}
+	m.corpusDone = true
+	m.corpusLoading = false
+	return m, nil
 }
 
 func (m Model) onPrefetch(msg prefetchMsg) (Model, tea.Cmd) {
@@ -136,7 +163,8 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 	}
 	if m.needPrefetch {
 		m.needPrefetch = false
-		if c := m.prefetchCmd(); c != nil {
+		m.corpusLoading = true
+		if c := m.corpusCmd(); c != nil {
 			cmds = append(cmds, c)
 		}
 	}
@@ -261,7 +289,7 @@ func (m Model) onDate(msg dateMsg) (Model, tea.Cmd) {
 	}
 	m.loading = false
 	if msg.err != nil {
-		// Fall back to the date type list. Session/schema do not expose daily config.
+		// Older rvn: no session.daily and no date command.
 		m.errMsg = "daily: " + msg.err.Error()
 		return m.loadType("date")
 	}
@@ -315,6 +343,8 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.keysLeader(msg)
 	case overlayRQL:
 		return m.keysRQL(msg)
+	case overlayArgs:
+		return m.keysArgs(msg)
 	}
 	if key == "e" {
 		return m.openEditor()
@@ -667,10 +697,18 @@ func (m Model) previewCmd() tea.Cmd {
 }
 
 func (m Model) openDaily() (Model, tea.Cmd) {
+	m.overlay = overlayNone
+	if m.daily != nil && strings.TrimSpace(m.daily.TodayID) != "" {
+		if m.daily.TodayExists {
+			m.status = "daily " + m.daily.TodayID
+			return m.openNote(m.daily.TodayID)
+		}
+		m.status = "no daily note for " + m.daily.TodayID + " (rvn daily creates it)"
+		return m.loadType("date")
+	}
 	gen := m.nextGen()
 	m.loading = true
 	m.status = "daily…"
-	m.overlay = overlayNone
 	return m, fetchDate(m.client, gen, "today")
 }
 
@@ -796,12 +834,12 @@ func (m Model) loadSource(label, query, typeName string, spec layout.Spec, q *ap
 	m.overlay = overlayNone
 	m.filterReset()
 
-	if q != nil && len(q.Args) > 0 {
-		m.objects = nil
-		m.applySpec(spec)
-		m.errMsg = fmt.Sprintf("saved query %q needs arguments: %s", q.Name, strings.Join(q.Args, ", "))
-		m.status = label
-		return m, nil
+	keepInputs := isQuery && q != nil && len(q.Args) > 0 && inputsComplete(q.Args, m.sourceInputs)
+	if !keepInputs {
+		m.sourceInputs = nil
+	}
+	if q != nil && len(q.Args) > 0 && !inputsComplete(q.Args, m.sourceInputs) {
+		return m.startArgsPrompt(q)
 	}
 	m.errMsg = ""
 	m.applySpec(spec)
@@ -814,7 +852,7 @@ func (m Model) loadSource(label, query, typeName string, spec layout.Spec, q *ap
 		m.sortField = m.spec.Sort
 	}
 
-	if ent, ok := m.queryCache[query]; ok {
+	if ent, ok := m.queryCache[cacheKey(query, m.sourceInputs)]; ok {
 		m.objects = ent.objects
 		if m.typeName == "" {
 			m.typeName = ent.typeName
@@ -830,7 +868,7 @@ func (m Model) loadSource(label, query, typeName string, spec layout.Spec, q *ap
 	if m.status == "" || !strings.HasPrefix(m.status, "cached") {
 		m.status = "loading " + label + "…"
 	}
-	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, m.typeSchema())
+	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, m.typeSchema(), m.sourceInputs)
 }
 
 func (m *Model) filterReset() {
@@ -863,11 +901,11 @@ func (m Model) refresh() (Model, tea.Cmd) {
 		return m, fetchSchema(m.client)
 	}
 	if m.queryCache != nil {
-		delete(m.queryCache, m.sourceQuery)
+		delete(m.queryCache, cacheKey(m.sourceQuery, m.sourceInputs))
 	}
 	gen := m.nextGen()
 	m.loading = true
-	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, m.typeSchema())
+	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, m.typeSchema(), m.sourceInputs)
 }
 
 func (m Model) openSelectedNote() (Model, tea.Cmd) {
@@ -946,6 +984,9 @@ func (m *Model) applySession(sess *api.Session) {
 		}
 		if strings.TrimSpace(sess.EditorMode) != "" {
 			m.editorMode = sess.EditorMode
+		}
+		if sess.Daily != nil && strings.TrimSpace(sess.Daily.TodayID) != "" {
+			m.daily = sess.Daily
 		}
 	}
 	if strings.TrimSpace(m.editor) == "" {

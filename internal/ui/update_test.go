@@ -192,7 +192,7 @@ func TestBoardFromSavedView(t *testing.T) {
 	}
 }
 
-func TestSavedQueryNeedsArgs(t *testing.T) {
+func TestSavedQueryArgsPrompt(t *testing.T) {
 	m := loadBrowse(t)
 	for i, n := range m.nav {
 		if n.Label == "need" {
@@ -202,10 +202,18 @@ func TestSavedQueryNeedsArgs(t *testing.T) {
 	}
 	m, cmd := m.update(key("enter"))
 	if cmd != nil {
-		t.Fatal("should not query")
+		t.Fatal("should prompt, not query")
 	}
-	if m.errMsg == "" {
-		t.Fatal("expected args error")
+	if m.overlay != overlayArgs || len(m.argsNames) != 1 || m.argsNames[0] != "x" {
+		t.Fatalf("overlay=%v names=%v", m.overlay, m.argsNames)
+	}
+	m, _ = m.update(runeKey('p'))
+	m, cmd = m.update(key("enter"))
+	if cmd == nil {
+		t.Fatal("expected query with inputs")
+	}
+	if m.sourceInputs["x"] != "p" || m.sourceQuery != "need" {
+		t.Fatalf("inputs=%v source=%s", m.sourceInputs, m.sourceQuery)
 	}
 }
 
@@ -221,10 +229,14 @@ func TestSessionAppliedFromSchemaMsg(t *testing.T) {
 		schema: ptrSchema(sampleSchema()),
 		session: &api.Session{
 			VaultPath: "/from-session", Editor: "hx", EditorMode: "terminal",
+			Daily: &api.DailyInfo{TodayID: "2026-10-15", TodayExists: false, Directory: "daily"},
 		},
 	})
 	if m.vaultPath != "/from-session" || m.editor != "hx" || m.editorMode != "terminal" {
 		t.Fatalf("vault=%q editor=%q mode=%q", m.vaultPath, m.editor, m.editorMode)
+	}
+	if m.daily == nil || m.daily.TodayID != "2026-10-15" {
+		t.Fatalf("daily %+v", m.daily)
 	}
 }
 

@@ -31,6 +31,8 @@ func (m Model) View() string {
 		return overlayOn(frame, m.width, m.height, m.viewLeader())
 	case overlayRQL:
 		return overlayOn(frame, m.width, m.height, m.viewRQL())
+	case overlayArgs:
+		return overlayOn(frame, m.width, m.height, m.viewArgs())
 	case overlaySearch:
 		return frame
 	}
@@ -481,6 +483,30 @@ func (m Model) viewRQL() string {
 	return styleModal.Width(min(64, m.width-4)).Render(
 		styleMuted.Render("query  ") + m.rql + "█",
 	)
+}
+
+func (m Model) viewArgs() string {
+	name := ""
+	if m.argsQuery != nil {
+		name = m.argsQuery.Name
+	}
+	arg := ""
+	if m.argsIdx >= 0 && m.argsIdx < len(m.argsNames) {
+		arg = m.argsNames[m.argsIdx]
+	}
+	var b strings.Builder
+	b.WriteString(styleMuted.Render("saved query  ") + name + "\n")
+	for i, n := range m.argsNames {
+		val := m.argsVals[n]
+		if i == m.argsIdx {
+			val = m.argsBuf + "█"
+		}
+		b.WriteString(n + ": " + val + "\n")
+	}
+	if arg != "" {
+		b.WriteString(styleDim.Render(fmt.Sprintf("%d/%d  %s", m.argsIdx+1, len(m.argsNames), arg)))
+	}
+	return styleModal.Width(min(64, m.width-4)).Render(strings.TrimRight(b.String(), "\n"))
 }
 
 func (m Model) viewPreview(width, height int) string {
