@@ -38,19 +38,31 @@ pass a token, Perch connects and leaves it running.
 ## Layouts
 
 Every source — a type, a saved query, or an ad-hoc RQL string — renders
-through one `Spec`: **list**, **board** (grouped by an enum or ref field),
-or **date** (grouped by a date/datetime field). Config chooses the default;
-`L` cycles at runtime.
+through a named `Spec`: **list**, **board** (grouped by an enum or ref
+field), or **date** (grouped by a date/datetime field). Each type and each
+saved query has an **ordered list** of named layouts. The first is the
+default. The header shows the layout name.
 
-Zero-config heuristics (first match wins; kept small on purpose):
+`L` cycles forward through that list only; `gL` cycles backward.
+(`L` is already shift+l in the terminal, so reverse cannot be shift-L.)
+`gl` or `space l` opens a fuzzy layout picker. Number keys `1`–`9` jump
+to layout N (1-based). `.` cycles date granularity (day → week → month)
+inside a date layout and no longer invents extra group-by fields.
 
-1. Scalar enum field named `status` → board grouped by `status`
-2. Type named `date` with a date/datetime field (prefer `date`) → date grouping by day
-3. Otherwise list
+Zero-config: when a type has no `[[layouts]]`, Perch synthesizes a small
+set from the live schema (this is the entire L-cycle):
 
-`L` then walks every viable option for the current type: list, each enum/ref
-board, then each date field. `.` cycles board group-by, or date granularity
-(day → week → month).
+1. **List** always (and it is the default)
+2. **Board** if the type has a scalar enum field, grouped by the first
+   enum, preferring a field named `status` (named "Board" when the field
+   is `status`, else "By \<enum\>")
+3. **Date** if the type has a scalar date/datetime field, grouped by the
+   first such field, preferring `date` (named "Date" when the field is
+   `date`, else "By \<field\>"; granularity day)
+
+Ref fields do not produce a synthesized board. Saved queries with no
+configured layouts start as List and pick up the same synthesis once the
+result type is known.
 
 ## Config
 
@@ -58,41 +70,53 @@ Defaults live in Perch's own file (Raven never reads it), defaulting to
 `~/.config/perch/config.toml`. See `examples/config.toml`.
 
 ```toml
-[types.project]
-layout = "board"
+[[types.project.layouts]]
+name = "Board"
+kind = "board"
 group_by = "status"
 fields = ["status", "due"]
-sort = "name"
 
-[types.date]
-layout = "date"
+[[types.project.layouts]]
+name = "By due"
+kind = "list"
+fields = ["status", "due"]
+sort = "due"
+
+[[types.project.layouts]]
+name = "Active"
+kind = "list"
+filter = ".status==active"
+
+[[types.date.layouts]]
+name = "Week"
+kind = "date"
 group_by = "date"
 granularity = "week"
 
-[queries.open]
-layout = "list"
-
-[[views]]
-name = "This month"
-source = "type:date"
-layout = "date"
-group_by = "date"
-granularity = "month"
+[[queries.open.layouts]]
+name = "Open"
+kind = "list"
 ```
 
-`layout` is `list`, `board`, or `date`. `kind` is accepted as an alias.
-Board `group_by` is an enum or ref field. Date `group_by` is a date/datetime
-field; `granularity` is `day`, `week`, or `month`.
+`kind` is `list`, `board`, or `date`. Board `group_by` is an enum or ref
+field. Date `group_by` is a date/datetime field; `granularity` is `day`,
+`week`, or `month`. Optional `filter` is an RQL predicate appended to the
+type source (`type:project` + `.status==active`). For a saved query it is
+appended to the query's RQL text.
 
-Named `[[views]]` rows still appear in the sidebar and the query picker.
-They are extra sources, not a second layout system.
+The old single `layout =` per type and the `[[views]]` table are removed.
+If they appear, Perch prints an error pointing at this shape.
+
+At startup Perch validates configured layouts against `GET /v1/schema`
+and shows warnings in the footer for unknown types, queries, or fields.
 
 ## Pickers and search
 
 | Key | Opens |
 | --- | --- |
 | `t` / `space t` | Types (fuzzy) |
-| `q` / `space q` | Saved queries and named views (fuzzy) |
+| `q` / `space q` | Saved queries (fuzzy) |
+| `gl` / `space l` | Named layouts for the current source |
 | `ctrl-p` / `space f` | Notes: fuzzy over the `objects` corpus (paginated, cached, background), plus Raven `search` after two characters |
 | `/` | Fuzzy search in the current view; `n` / `N` next/previous hit |
 | `:` | Ad-hoc RQL |
@@ -101,8 +125,8 @@ They are extra sources, not a second layout system.
 Saved queries that declare `args` open an argument prompt. Values are sent as
 `query` `inputs` (`{{args.*}}`). Esc cancels.
 
-The sidebar is still generated from `GET /v1/schema` (types, saved queries,
-named views). `section` is omitted because Raven cannot query `type:section`.
+The sidebar is generated from `GET /v1/schema` (types and saved queries).
+`section` is omitted because Raven cannot query `type:section`.
 
 ## Preview and editor
 
@@ -131,8 +155,11 @@ note; from browse, `q` is the query picker. `ctrl+c` quits.
 | `/` | Fuzzy search in view |
 | `n` / `N` | Next / previous search hit |
 | `d` | Daily note |
-| `L` | Cycle layout |
-| `.` | Cycle group-by / date granularity |
+| `L` | Next named layout |
+| `gL` | Previous named layout |
+| `gl` / `space l` | Layout picker |
+| `1`–`9` | Jump to layout N |
+| `.` | Cycle date granularity |
 | `p` | Toggle preview |
 | `:` | Ad-hoc RQL |
 | `e` | Open in editor |

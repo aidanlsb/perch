@@ -50,6 +50,7 @@ const (
 	pickerTypes pickerKind = iota
 	pickerQueries
 	pickerNotes
+	pickerLayouts
 )
 
 type navKind int
@@ -57,14 +58,12 @@ type navKind int
 const (
 	navType navKind = iota
 	navQuery
-	navView
 )
 
 type navItem struct {
 	Kind   navKind
 	Label  string
 	Source string
-	View   *config.View
 	Type   string
 	Query  *api.SavedQuery
 }
@@ -111,29 +110,34 @@ type Model struct {
 	nav    []navItem
 	navCur int
 
-	spec          layout.Spec
-	layoutLocked  bool
-	viewKind      string
-	sourceQuery   string
-	sourceLabel   string
-	sourceIsQuery bool
-	typeName      string
-	groupBy       string
-	granularity   string
-	listFields    []string
-	sortField     string
-	objects       []api.Object
-	filtered      []api.Object
-	hasMore       bool
-	total         int
-	listCur       int
-	listOff       int
-	board         []group.Column
-	boardCol      int
-	boardRow      int
-	dateCols      []group.Column
-	dateSec       int
-	dateRow       int
+	spec              layout.Spec
+	layouts           []layout.Spec
+	layoutIdx         int
+	layoutsConfigured bool
+	viewKind          string
+	sourceQuery       string
+	sourceBase        string
+	sourceRQL         string
+	sourceLabel       string
+	sourceIsQuery     bool
+	typeName          string
+	cfgWarnings       []string
+	groupBy           string
+	granularity       string
+	listFields        []string
+	sortField         string
+	objects           []api.Object
+	filtered          []api.Object
+	hasMore           bool
+	total             int
+	listCur           int
+	listOff           int
+	board             []group.Column
+	boardCol          int
+	boardRow          int
+	dateCols          []group.Column
+	dateSec           int
+	dateRow           int
 
 	searchQ    string
 	searchHits []int
@@ -238,6 +242,9 @@ func (m *Model) applySpec(s layout.Spec) {
 	m.granularity = s.Granularity
 	if len(s.Fields) > 0 {
 		m.listFields = s.Fields
+	} else if m.typeName != "" {
+		m.listFields = defaultFields(m.typeSchema())
+		m.spec.Fields = m.listFields
 	}
 	m.sortField = s.Sort
 	m.applyFilterAndGroup()
@@ -262,17 +269,6 @@ func (m *Model) rebuildNav() {
 			Source: q.Name,
 			Query:  &queries[i],
 		})
-	}
-	if m.cfg != nil {
-		for i := range m.cfg.Views {
-			v := m.cfg.Views[i]
-			m.nav = append(m.nav, navItem{
-				Kind:   navView,
-				Label:  v.Name,
-				Source: v.Source,
-				View:   &m.cfg.Views[i],
-			})
-		}
 	}
 	if m.navCur >= len(m.nav) {
 		m.navCur = max(0, len(m.nav)-1)
@@ -436,27 +432,40 @@ func (m Model) pageSize() int {
 	return max(1, h/2)
 }
 
-func (m Model) specForNav(item navItem) layout.Spec {
-	switch item.Kind {
-	case navView:
-		if item.View != nil {
-			return item.View.Spec()
+func (m Model) resolveLayouts(typeName, queryName string) ([]layout.Spec, bool) {
+	if queryName != "" && m.cfg != nil {
+		if ls := m.cfg.QueryLayouts(queryName); len(ls) > 0 {
+			return ls, true
 		}
-	case navQuery:
-		if m.cfg != nil {
-			if s, ok := m.cfg.QuerySpec(item.Label); ok {
-				return s
-			}
-		}
-	case navType:
-		if m.cfg != nil {
-			if s, ok := m.cfg.TypeSpec(item.Type); ok {
-				return s
-			}
-		}
-		return layout.Infer(m.schema.Types[item.Type])
 	}
-	return layout.Spec{Kind: kindList}.Normalize()
+	if typeName != "" && m.cfg != nil {
+		if ls := m.cfg.TypeLayouts(typeName); len(ls) > 0 {
+			return ls, true
+		}
+	}
+	if typeName != "" {
+		return layout.Synthesize(m.schema.Types[typeName]), false
+	}
+	return []layout.Spec{layout.Spec{Name: "List", Kind: kindList}.Normalize()}, false
+}
+
+func (m Model) queryForSpec(s layout.Spec) string {
+	filter := strings.TrimSpace(s.Filter)
+	if filter == "" {
+		return m.sourceBase
+	}
+	base := m.sourceBase
+	if m.sourceIsQuery && strings.TrimSpace(m.sourceRQL) != "" {
+		base = m.sourceRQL
+	}
+	return layout.AppendFilter(base, filter)
+}
+
+func (m Model) currentLayoutName() string {
+	if m.layoutIdx >= 0 && m.layoutIdx < len(m.layouts) {
+		return m.layouts[m.layoutIdx].DisplayName()
+	}
+	return m.spec.DisplayName()
 }
 
 func dropLastRune(s string) string {

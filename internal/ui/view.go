@@ -43,11 +43,9 @@ func (m Model) viewHeader() string {
 	left := styleHeader.Render("perch")
 	mid := styleMuted.Render(" · " + m.sourceLabel)
 	if m.viewKind != "" && m.screen != kindNote {
-		mid += styleDim.Render("  " + m.viewKind)
-		if m.groupBy != "" {
-			mid += styleDim.Render(" by " + m.groupBy)
-		}
-		if m.viewKind == kindDate {
+		name := m.currentLayoutName()
+		mid += styleMuted.Render("  " + name)
+		if m.viewKind == kindDate && m.granularity != "" {
 			mid += styleDim.Render(" / " + m.granularity)
 		}
 	}
@@ -79,6 +77,9 @@ func (m Model) viewFooter() string {
 	if m.errMsg != "" {
 		return styleErr.Render(truncate(m.errMsg, m.width))
 	}
+	if len(m.cfgWarnings) > 0 {
+		return styleWarn.Render(truncate(strings.Join(m.cfgWarnings, "; "), m.width))
+	}
 	keys := footerKeys(m.overlay, m.screen, m.previewOn)
 	return styleFooter.Render(truncate(keys, m.width))
 }
@@ -107,7 +108,6 @@ func (m Model) viewSidebar(height int) string {
 	titles := map[navKind]string{
 		navType:  "types",
 		navQuery: "queries",
-		navView:  "views",
 	}
 	visible := 0
 	start := 0
@@ -428,7 +428,7 @@ func (m Model) viewHelp() string {
 		keys := padTrunc(bind.Keys, 26)
 		b.WriteString(styleMuted.Render(keys) + "  " + bind.Desc + "\n")
 	}
-	b.WriteString("\n" + styleDim.Render("config sets layout defaults; L cycles at runtime"))
+	b.WriteString("\n" + styleDim.Render("named layouts on the type; L / gL cycle; gl picker; 1-9 jump"))
 	w := min(72, max(40, m.width-4))
 	return styleHelpBox.Width(w).Render(strings.TrimRight(b.String(), "\n"))
 }
@@ -440,6 +440,8 @@ func (m Model) viewPicker() string {
 		title = "saved queries"
 	case pickerNotes:
 		title = "notes"
+	case pickerLayouts:
+		title = "layouts"
 	}
 	var b strings.Builder
 	b.WriteString(styleMuted.Render(title+"  ") + m.pickerQ + "█\n")

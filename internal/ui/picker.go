@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -19,6 +20,7 @@ type pickItem struct {
 	Query  *api.SavedQuery
 	Object *api.Object
 	Needs  []string
+	Index  int
 }
 
 func (m Model) openTypePicker() (Model, tea.Cmd) {
@@ -28,16 +30,18 @@ func (m Model) openTypePicker() (Model, tea.Cmd) {
 	m.pickerCur = 0
 	var items []pickItem
 	for _, name := range m.schema.SortedTypeNames() {
-		spec := layout.Infer(m.schema.Types[name])
-		if m.cfg != nil {
-			if s, ok := m.cfg.TypeSpec(name); ok {
-				spec = s
+		ls, _ := m.resolveLayouts(name, "")
+		sub := "List"
+		if len(ls) > 0 {
+			sub = ls[0].DisplayName()
+			if len(ls) > 1 {
+				sub = fmt.Sprintf("%s · %d layouts", ls[0].DisplayName(), len(ls))
 			}
 		}
 		items = append(items, pickItem{
 			Kind:  pickerTypes,
 			Label: name,
-			Sub:   spec.Label(),
+			Sub:   sub,
 			ID:    name,
 			Type:  name,
 		})
@@ -68,19 +72,41 @@ func (m Model) openQueryPicker() (Model, tea.Cmd) {
 			Needs: q.Args,
 		})
 	}
-	if m.cfg != nil {
-		for i := range m.cfg.Views {
-			v := m.cfg.Views[i]
-			items = append(items, pickItem{
-				Kind:  pickerQueries,
-				Label: v.Name,
-				Sub:   "view " + v.Source,
-				ID:    "view:" + v.Name,
-			})
+	m.pickerAll = items
+	m.refilterPicker()
+	return m, nil
+}
+
+func (m Model) openLayoutPicker() (Model, tea.Cmd) {
+	m.overlay = overlayPicker
+	m.pickerKind = pickerLayouts
+	m.pickerQ = ""
+	m.pickerCur = m.layoutIdx
+	var items []pickItem
+	for i, s := range m.layouts {
+		sub := s.Kind
+		if s.GroupBy != "" {
+			sub += " by " + s.GroupBy
 		}
+		if s.Kind == layout.KindDate && s.Granularity != "" {
+			sub += " / " + s.Granularity
+		}
+		if s.Filter != "" {
+			sub += "  " + s.Filter
+		}
+		items = append(items, pickItem{
+			Kind:  pickerLayouts,
+			Label: s.DisplayName(),
+			Sub:   sub,
+			ID:    s.DisplayName(),
+			Index: i,
+		})
 	}
 	m.pickerAll = items
 	m.refilterPicker()
+	if m.layoutIdx >= 0 && m.layoutIdx < len(m.pickerHit) && m.pickerQ == "" {
+		m.pickerCur = m.layoutIdx
+	}
 	return m, nil
 }
 
@@ -167,18 +193,12 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 	case pickerTypes:
 		return m.loadType(it.Type)
 	case pickerQueries:
-		if strings.HasPrefix(it.ID, "view:") {
-			name := strings.TrimPrefix(it.ID, "view:")
-			for i, n := range m.nav {
-				if n.Kind == navView && n.Label == name {
-					return m.loadNav(i)
-				}
-			}
-		}
 		if it.Query != nil {
 			return m.loadQuery(it.Query)
 		}
 		return m, nil
+	case pickerLayouts:
+		return m.selectLayout(it.Index)
 	default:
 		id := it.ID
 		if it.Object != nil && it.Object.ID != "" {
@@ -194,13 +214,7 @@ func (m Model) loadType(name string) (Model, tea.Cmd) {
 			return m.loadNav(i)
 		}
 	}
-	spec := layout.Infer(m.schema.Types[name])
-	if m.cfg != nil {
-		if s, ok := m.cfg.TypeSpec(name); ok {
-			spec = s
-		}
-	}
-	return m.loadSource(name, "type:"+name, name, spec, nil, false)
+	return m.loadSource(name, "type:"+name, name, nil, false)
 }
 
 func inputsComplete(names []string, inputs map[string]string) bool {
@@ -287,13 +301,7 @@ func (m Model) loadQuery(q *api.SavedQuery) (Model, tea.Cmd) {
 			return m.loadNav(i)
 		}
 	}
-	spec := layout.Spec{Kind: kindList}.Normalize()
-	if m.cfg != nil {
-		if s, ok := m.cfg.QuerySpec(q.Name); ok {
-			spec = s
-		}
-	}
-	return m.loadSource(q.Name, q.Name, "", spec, q, true)
+	return m.loadSource(q.Name, q.Name, "", q, true)
 }
 
 func (m Model) keysPicker(msg tea.KeyMsg) (Model, tea.Cmd) {

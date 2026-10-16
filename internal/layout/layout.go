@@ -1,6 +1,7 @@
 // Package layout is Perch's presentation primitive: list, board, or date grouping.
-// Any source (type, saved query, ad-hoc RQL) renders through a Spec. Config supplies
-// defaults; the TUI cycles Specs at runtime. Grouping itself lives in package group.
+// Any source (type, saved query, ad-hoc RQL) renders through a named Spec. Config
+// supplies an ordered list; the TUI cycles that list at runtime. Grouping itself
+// lives in package group.
 package layout
 
 import (
@@ -19,21 +20,37 @@ const (
 	GranMonth = "month"
 )
 
-// Spec is one way to show a set of objects.
+// Spec is one named way to show a set of objects.
 type Spec struct {
+	Name        string   // display name (status bar, picker)
 	Kind        string   // list, board, date
 	GroupBy     string   // enum/ref field (board) or date field (date)
 	Granularity string   // day, week, month (date)
 	Fields      []string // list columns (excluding id)
 	Sort        string
+	Filter      string // RQL predicate appended to the type source
+}
+
+// DefaultName is the synthesized name for a kind.
+func DefaultName(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case KindBoard:
+		return "Board"
+	case KindDate:
+		return "Date"
+	default:
+		return "List"
+	}
 }
 
 // Normalize fills defaults and validates kind/granularity. Empty kind becomes list.
 func (s Spec) Normalize() Spec {
+	s.Name = strings.TrimSpace(s.Name)
 	s.Kind = strings.ToLower(strings.TrimSpace(s.Kind))
 	s.GroupBy = strings.TrimSpace(s.GroupBy)
 	s.Granularity = strings.ToLower(strings.TrimSpace(s.Granularity))
 	s.Sort = strings.TrimSpace(s.Sort)
+	s.Filter = strings.TrimSpace(s.Filter)
 	if s.Kind == "" {
 		if s.GroupBy != "" && s.Granularity != "" {
 			s.Kind = KindDate
@@ -47,6 +64,9 @@ func (s Spec) Normalize() Spec {
 	case KindList, KindBoard, KindDate:
 	default:
 		s.Kind = KindList
+	}
+	if s.Name == "" {
+		s.Name = DefaultName(s.Kind)
 	}
 	if s.Kind == KindDate && s.Granularity == "" {
 		s.Granularity = GranDay
@@ -66,11 +86,23 @@ func (s Spec) Equal(o Spec) bool {
 	if s.Kind != o.Kind || s.GroupBy != o.GroupBy || s.Granularity != o.Granularity {
 		return false
 	}
-	return true
+	return s.Name == o.Name && s.Filter == o.Filter
+}
+
+// DisplayName is the status-bar / picker label.
+func (s Spec) DisplayName() string {
+	s = s.Normalize()
+	if s.Name != "" {
+		return s.Name
+	}
+	return DefaultName(s.Kind)
 }
 
 func (s Spec) Label() string {
 	s = s.Normalize()
+	if s.Name != "" && s.Name != DefaultName(s.Kind) {
+		return s.Name
+	}
 	switch s.Kind {
 	case KindBoard:
 		if s.GroupBy != "" {
@@ -88,93 +120,73 @@ func (s Spec) Label() string {
 	}
 }
 
-// Infer picks a zero-config Spec from a type schema. Heuristics are intentionally
-// small and documented in README:
+// Synthesize builds the zero-config layout list for a type:
 //
-//  1. scalar enum field named "status" → board grouped by status
-//  2. type named "date" with a date/datetime field (prefer "date") → date grouping by day
-//  3. otherwise list
-func Infer(ts api.TypeSchema) Spec {
-	if f, ok := ts.Fields["status"]; ok && f.IsEnum() && !f.IsArray() {
-		return Spec{Kind: KindBoard, GroupBy: "status", Sort: ts.NameField}.Normalize()
-	}
-	if strings.EqualFold(ts.Name, "date") {
-		field := "date"
-		if f, ok := ts.Fields[field]; !ok || !f.IsDate() || f.IsArray() {
-			dates := ts.DateFields()
-			if len(dates) == 0 {
-				return Spec{Kind: KindList, Sort: ts.NameField}.Normalize()
-			}
-			field = dates[0]
-		}
-		return Spec{Kind: KindDate, GroupBy: field, Granularity: GranDay, Sort: field}.Normalize()
-	}
-	return Spec{Kind: KindList, Sort: ts.NameField}.Normalize()
-}
+//  1. List always (first, so it is the default)
+//  2. Board if the type has a scalar enum field, grouped by the first enum,
+//     preferring a field named "status"
+//  3. Date if the type has a scalar date/datetime field, grouped by the first
+//     such field, preferring a field named "date" (granularity day)
+//
+// Names are "List", "Board" (or "By <enum>" when the field is not status),
+// and "Date" (or "By <date>" when the field is not date). Ref fields do not
+// produce a board. This list is the entire L-cycle; Perch does not invent
+// extra group-by options at runtime.
+func Synthesize(ts api.TypeSchema) []Spec {
+	list := Spec{Name: "List", Kind: KindList, Sort: ts.NameField}.Normalize()
+	out := []Spec{list}
 
-// Options is the cycle list for a type: list, then each board group-by, then each
-// date field at day granularity. Config/user Specs that are not in this list still
-// cycle back through it via Next.
-func Options(ts api.TypeSchema) []Spec {
-	first := Spec{Kind: KindList, Sort: ts.NameField}.Normalize()
-	out := []Spec{first}
-	seen := map[string]struct{}{first.cycleKey(): {}}
-	add := func(s Spec) {
-		s = s.Normalize()
-		k := s.cycleKey()
-		if _, ok := seen[k]; ok {
-			return
+	if field, ok := preferField(ts.EnumFields(), "status"); ok {
+		name := "Board"
+		if field != "status" {
+			name = "By " + field
 		}
-		seen[k] = struct{}{}
-		out = append(out, s)
+		out = append(out, Spec{
+			Name:    name,
+			Kind:    KindBoard,
+			GroupBy: field,
+			Sort:    ts.NameField,
+		}.Normalize())
 	}
-	for _, f := range ts.EnumFields() {
-		add(Spec{Kind: KindBoard, GroupBy: f, Sort: ts.NameField})
-	}
-	for _, f := range ts.RefFields() {
-		add(Spec{Kind: KindBoard, GroupBy: f, Sort: ts.NameField})
-	}
-	for _, f := range ts.DateFields() {
-		add(Spec{Kind: KindDate, GroupBy: f, Granularity: GranDay, Sort: f})
+
+	if field, ok := preferField(ts.DateFields(), "date"); ok {
+		name := "Date"
+		if field != "date" {
+			name = "By " + field
+		}
+		out = append(out, Spec{
+			Name:        name,
+			Kind:        KindDate,
+			GroupBy:     field,
+			Granularity: GranDay,
+			Sort:        field,
+		}.Normalize())
 	}
 	return out
 }
 
-func (s Spec) cycleKey() string {
-	s = s.Normalize()
-	switch s.Kind {
-	case KindBoard:
-		return KindBoard + ":" + s.GroupBy
-	case KindDate:
-		return KindDate + ":" + s.GroupBy
-	default:
-		return KindList
+func preferField(fields []string, preferred string) (string, bool) {
+	if len(fields) == 0 {
+		return "", false
 	}
-}
-
-// Next cycles to the next Option. Date granularity is not part of this cycle
-// (use NextGranularity). Fields/sort from current are preserved onto the next Spec.
-func Next(current Spec, ts api.TypeSchema) Spec {
-	opts := Options(ts)
-	current = current.Normalize()
-	idx := -1
-	for i, o := range opts {
-		if o.cycleKey() == current.cycleKey() {
-			idx = i
-			break
+	for _, f := range fields {
+		if f == preferred {
+			return f, true
 		}
 	}
-	next := opts[0]
-	if idx >= 0 {
-		next = opts[(idx+1)%len(opts)]
-	} else if len(opts) > 1 {
-		next = opts[1]
+	return fields[0], true
+}
+
+// Cycle walks an ordered named-layout list. delta is +1 (L) or -1 (gL).
+func Cycle(layouts []Spec, idx, delta int) (Spec, int) {
+	if len(layouts) == 0 {
+		s := Spec{Name: "List", Kind: KindList}.Normalize()
+		return s, 0
 	}
-	next.Fields = current.Fields
-	if current.Sort != "" && next.Sort == "" {
-		next.Sort = current.Sort
-	}
-	return next
+	n := len(layouts)
+	idx = (idx%n + n) % n
+	idx = (idx + delta%n + n) % n
+	return layouts[idx].Normalize(), idx
 }
 
 // NextGranularity cycles day → week → month → day. No-op for non-date specs.
@@ -194,31 +206,18 @@ func NextGranularity(current Spec) Spec {
 	return current
 }
 
-// NextGroupBy cycles board columns among enum then ref fields, or date fields
-// for date layouts. No-op when the type has fewer than two candidates.
-func NextGroupBy(current Spec, ts api.TypeSchema) Spec {
-	current = current.Normalize()
-	var fields []string
-	switch current.Kind {
-	case KindBoard:
-		fields = append(ts.EnumFields(), ts.RefFields()...)
-	case KindDate:
-		fields = ts.DateFields()
-	default:
-		return current
+// AppendFilter joins an RQL predicate onto a type source or query body.
+// Empty filter returns source unchanged.
+func AppendFilter(source, filter string) string {
+	source = strings.TrimSpace(source)
+	filter = strings.TrimSpace(filter)
+	if filter == "" {
+		return source
 	}
-	if len(fields) == 0 {
-		return current
+	if source == "" {
+		return filter
 	}
-	idx := 0
-	for i, f := range fields {
-		if f == current.GroupBy {
-			idx = i
-			break
-		}
-	}
-	current.GroupBy = fields[(idx+1)%len(fields)]
-	return current
+	return source + " " + filter
 }
 
 // Result is objects after sort + optional fuzzy filter, plus board/date columns.

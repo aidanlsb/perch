@@ -20,7 +20,7 @@ func TestKeymapHelpRenders(t *testing.T) {
 		t.Fatal("help")
 	}
 	out := m.View()
-	for _, want := range []string{"ctrl+c", "cycle layout", "daily"} {
+	for _, want := range []string{"ctrl+c", "next named layout", "daily"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help missing %q in %s", want, out)
 		}
@@ -45,7 +45,7 @@ func TestTypeAndQueryPickers(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("load type")
 	}
-	if m.sourceQuery != "type:project" || m.viewKind != kindBoard {
+	if m.sourceQuery != "type:project" || m.viewKind != kindList {
 		t.Fatalf("source=%s kind=%s group=%s", m.sourceQuery, m.viewKind, m.groupBy)
 	}
 
@@ -61,24 +61,99 @@ func TestTypeAndQueryPickers(t *testing.T) {
 
 func TestLayoutCycleAndPreview(t *testing.T) {
 	m := loadProjectBoard(t)
-	if m.viewKind != kindBoard {
-		t.Fatalf("infer board, got %s", m.viewKind)
+	if m.viewKind != kindList || m.currentLayoutName() != "List" {
+		t.Fatalf("zero-config default list, got %s %s", m.viewKind, m.currentLayoutName())
 	}
 	m, _ = m.update(key("L"))
-	if m.viewKind != kindBoard || m.groupBy != "owner" {
-		t.Fatalf("next group %+v", m.spec)
+	if m.viewKind != kindBoard || m.groupBy != "status" || m.currentLayoutName() != "Board" {
+		t.Fatalf("board %+v name=%s", m.spec, m.currentLayoutName())
 	}
 	m, _ = m.update(key("L"))
-	if m.viewKind != kindDate {
-		t.Fatalf("date %s", m.viewKind)
+	if m.viewKind != kindDate || m.groupBy != "due" {
+		t.Fatalf("date %s %+v", m.viewKind, m.spec)
 	}
 	m, _ = m.update(key("."))
 	if m.granularity != layout.GranWeek {
 		t.Fatalf("gran %s", m.granularity)
 	}
+	m, _ = m.update(key("g"))
+	m, _ = m.update(key("L"))
+	if m.viewKind != kindBoard {
+		t.Fatalf("gL previous %s", m.viewKind)
+	}
 	m, _ = m.update(key("p"))
 	if !m.previewOn {
 		t.Fatal("preview")
+	}
+}
+
+func TestLayoutPickerAndJump(t *testing.T) {
+	m := loadProjectBoard(t)
+	m, _ = m.update(key("g"))
+	m, _ = m.update(key("l"))
+	if m.overlay != overlayPicker || m.pickerKind != pickerLayouts {
+		t.Fatalf("gl picker overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+	if len(m.pickerHit) != 3 {
+		t.Fatalf("layouts %v", labelsOf(m.pickerHit))
+	}
+	m.pickerCur = 1
+	m, _ = m.update(key("enter"))
+	if m.viewKind != kindBoard || m.currentLayoutName() != "Board" {
+		t.Fatalf("picked %+v %s", m.spec, m.currentLayoutName())
+	}
+
+	m, _ = m.update(key(" "))
+	m, _ = m.update(key("l"))
+	if m.overlay != overlayPicker || m.pickerKind != pickerLayouts {
+		t.Fatal("space l picker")
+	}
+	m, _ = m.update(key("esc"))
+
+	m, _ = m.update(key("1"))
+	if m.currentLayoutName() != "List" || m.layoutIdx != 0 {
+		t.Fatalf("jump 1 %s %d", m.currentLayoutName(), m.layoutIdx)
+	}
+	m, _ = m.update(key("3"))
+	if m.currentLayoutName() != "By due" || m.viewKind != kindDate {
+		t.Fatalf("jump 3 %s %s", m.currentLayoutName(), m.viewKind)
+	}
+	m, _ = m.update(key("9"))
+	if m.status != "no layout 9" {
+		t.Fatalf("status %q", m.status)
+	}
+}
+
+func TestLayoutFilterRefetch(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{
+		Types: map[string]config.Source{
+			"project": {Layouts: []config.Layout{
+				{Name: "All", Kind: kindList},
+				{Name: "Active", Kind: kindList, Filter: ".status==active"},
+			}},
+		},
+	}})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	for i, n := range m.nav {
+		if n.Type == "project" {
+			m.navCur = i
+			break
+		}
+	}
+	m, _ = m.update(key("enter"))
+	m, _ = m.update(queryMsg{gen: m.gen, typeName: "project", objects: nil})
+	if m.sourceQuery != "type:project" {
+		t.Fatalf("base %s", m.sourceQuery)
+	}
+	m, cmd := m.update(key("L"))
+	if m.sourceQuery != "type:project .status==active" {
+		t.Fatalf("filtered %s", m.sourceQuery)
+	}
+	if m.currentLayoutName() != "Active" {
+		t.Fatalf("name %s", m.currentLayoutName())
+	}
+	if cmd == nil {
+		t.Fatal("expected refetch")
 	}
 }
 
@@ -238,15 +313,33 @@ func TestEditorFromBrowseUsesSelectedRow(t *testing.T) {
 
 func TestConfigTypeLayoutUsed(t *testing.T) {
 	m := NewModel(Options{Config: &config.File{
-		Types: map[string]config.Layout{
-			"person": {Layout: "list", Sort: "name"},
+		Types: map[string]config.Source{
+			"person": {Layouts: []config.Layout{
+				{Name: "People", Kind: "list", Sort: "name"},
+			}},
 		},
 	}})
 	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
 	m, _ = m.update(queryMsg{gen: m.gen, typeName: "person", objects: nil})
-	// first nav is person; list not board
-	if m.viewKind != kindList {
-		t.Fatalf("%s", m.viewKind)
+	if m.viewKind != kindList || m.currentLayoutName() != "People" {
+		t.Fatalf("%s %s", m.viewKind, m.currentLayoutName())
+	}
+}
+
+func TestConfigWarningsOnSchema(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{
+		Types: map[string]config.Source{
+			"ghost": {Layouts: []config.Layout{{Name: "List", Kind: "list"}}},
+		},
+	}})
+	m.width, m.height = 80, 24
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if len(m.cfgWarnings) == 0 {
+		t.Fatal("expected warnings")
+	}
+	out := m.View()
+	if !strings.Contains(out, "unknown type") {
+		t.Fatalf("footer missing warning: %s", out)
 	}
 }
 
