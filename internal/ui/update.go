@@ -60,6 +60,12 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 	m.needPrefetch = true
 	m.corpusDone = false
 	m.status = fmt.Sprintf("%d types", len(m.schema.Types))
+	if m.cfg != nil {
+		m.cfgWarnings = m.cfg.Validate(m.schema)
+		if len(m.cfgWarnings) > 0 {
+			m.status = "config: " + m.cfgWarnings[0]
+		}
+	}
 	if len(m.nav) == 0 {
 		m.corpusLoading = true
 		return m, m.corpusCmd()
@@ -138,11 +144,19 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 	m.boardRow = 0
 	m.dateSec = 0
 	m.dateRow = 0
-	if !m.layoutLocked && m.sourceIsQuery {
-		if m.cfg == nil {
-			m.applySpec(layout.Infer(m.typeSchema()))
-		} else if _, ok := m.cfg.QuerySpec(m.sourceLabel); !ok {
-			m.applySpec(layout.Infer(m.typeSchema()))
+	if !m.layoutsConfigured && m.typeName != "" {
+		syn := layout.Synthesize(m.typeSchema())
+		if len(syn) > len(m.layouts) {
+			cur := m.spec.DisplayName()
+			m.layouts = syn
+			m.layoutIdx = 0
+			for i, s := range syn {
+				if s.DisplayName() == cur {
+					m.layoutIdx = i
+					break
+				}
+			}
+			m.applySpec(m.layouts[m.layoutIdx])
 		}
 	}
 	if len(m.listFields) == 0 {
@@ -372,7 +386,7 @@ func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "d":
 		return m.openDaily()
 	case "l":
-		return m.cycleLayout()
+		return m.openLayoutPicker()
 	case "esc", " ":
 		return m, nil
 	}
@@ -392,8 +406,7 @@ func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if q == "" {
 			return m, nil
 		}
-		spec := layout.Spec{Kind: kindList}.Normalize()
-		return m.loadSource(q, q, "", spec, nil, true)
+		return m.loadSource(q, q, "", nil, true)
 	case "backspace":
 		m.rql = dropLastRune(m.rql)
 		return m, nil
@@ -435,10 +448,18 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := msg.String()
 	if m.pending == "g" {
 		m.pending = ""
-		if key == "g" {
+		switch key {
+		case "g":
 			m.moveToStart()
 			return m, m.previewCmd()
+		case "l":
+			return m.openLayoutPicker()
+		case "L":
+			return m.cycleLayout(-1)
 		}
+	}
+	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+		return m.jumpLayout(int(key[0] - '0'))
 	}
 	switch key {
 	case "q":
@@ -469,7 +490,7 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "d":
 		return m.openDaily()
 	case "L":
-		return m.cycleLayout()
+		return m.cycleLayout(1)
 	case ".":
 		return m.cycleGroup()
 	case "p":
@@ -643,22 +664,55 @@ func (m Model) cyclePane(delta int) Model {
 	return m
 }
 
-func (m Model) cycleLayout() (Model, tea.Cmd) {
-	next := layout.Next(m.spec, m.typeSchema())
-	m.layoutLocked = true
-	m.applySpec(next)
-	m.status = next.Label()
-	return m, m.previewCmd()
+func (m Model) cycleLayout(delta int) (Model, tea.Cmd) {
+	if len(m.layouts) == 0 {
+		return m, nil
+	}
+	_, idx := layout.Cycle(m.layouts, m.layoutIdx, delta)
+	return m.selectLayout(idx)
+}
+
+func (m Model) jumpLayout(n int) (Model, tea.Cmd) {
+	if n < 1 || n > len(m.layouts) {
+		m.status = fmt.Sprintf("no layout %d", n)
+		return m, nil
+	}
+	return m.selectLayout(n - 1)
+}
+
+func (m Model) selectLayout(idx int) (Model, tea.Cmd) {
+	if idx < 0 || idx >= len(m.layouts) {
+		return m, nil
+	}
+	spec := m.layouts[idx]
+	m.layoutIdx = idx
+	query := m.queryForSpec(spec)
+	changed := query != m.sourceQuery
+	m.applySpec(spec)
+	m.sourceQuery = query
+	m.status = spec.DisplayName()
+	if !changed {
+		return m, m.previewCmd()
+	}
+	m.filterReset()
+	gen := m.nextGen()
+	m.loading = true
+	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, m.typeSchema(), m.sourceInputs)
 }
 
 func (m Model) cycleGroup() (Model, tea.Cmd) {
-	m.layoutLocked = true
-	if m.spec.Kind == layout.KindDate {
-		m.applySpec(layout.NextGranularity(m.spec))
-	} else {
-		m.applySpec(layout.NextGroupBy(m.spec, m.typeSchema()))
+	if m.spec.Kind != layout.KindDate {
+		m.status = m.spec.DisplayName()
+		return m, nil
 	}
-	m.status = m.spec.Label()
+	next := layout.NextGranularity(m.spec)
+	m.applySpec(next)
+	if m.layoutIdx >= 0 && m.layoutIdx < len(m.layouts) {
+		cur := m.layouts[m.layoutIdx]
+		cur.Granularity = next.Granularity
+		m.layouts[m.layoutIdx] = cur
+	}
+	m.status = next.DisplayName() + " / " + next.Granularity
 	return m, m.previewCmd()
 }
 
@@ -816,21 +870,35 @@ func (m Model) loadNav(index int) (Model, tea.Cmd) {
 	}
 	item := m.nav[index]
 	m.navCur = index
-	spec := m.specForNav(item)
 	isQuery := item.Kind == navQuery
-	return m.loadSource(item.Label, item.Source, item.Type, spec, item.Query, isQuery)
+	return m.loadSource(item.Label, item.Source, item.Type, item.Query, isQuery)
 }
 
-func (m Model) loadSource(label, query, typeName string, spec layout.Spec, q *api.SavedQuery, isQuery bool) (Model, tea.Cmd) {
+func (m Model) loadSource(label, base, typeName string, q *api.SavedQuery, isQuery bool) (Model, tea.Cmd) {
 	m.screen = "browse"
 	m.note = nil
 	m.searchQ = ""
 	m.searchHits = nil
 	m.sourceLabel = label
-	m.sourceQuery = query
+	m.sourceBase = base
+	m.sourceRQL = ""
+	if q != nil {
+		m.sourceRQL = q.Query
+	}
 	m.sourceIsQuery = isQuery
 	m.typeName = typeName
-	m.layoutLocked = false
+	queryName := ""
+	if q != nil {
+		queryName = q.Name
+	}
+	m.layouts, m.layoutsConfigured = m.resolveLayouts(typeName, queryName)
+	if len(m.layouts) == 0 {
+		m.layouts = []layout.Spec{layout.Spec{Name: "List", Kind: kindList}.Normalize()}
+		m.layoutsConfigured = false
+	}
+	m.layoutIdx = 0
+	spec := m.layouts[0]
+	m.sourceQuery = m.queryForSpec(spec)
 	m.overlay = overlayNone
 	m.filterReset()
 
@@ -843,16 +911,12 @@ func (m Model) loadSource(label, query, typeName string, spec layout.Spec, q *ap
 	}
 	m.errMsg = ""
 	m.applySpec(spec)
-	if typeName != "" && len(m.listFields) == 0 {
-		m.listFields = defaultFields(m.typeSchema())
-		m.spec.Fields = m.listFields
-	}
 	if typeName != "" && m.spec.Sort == "" && m.typeSchema().NameField != "" {
 		m.spec.Sort = m.typeSchema().NameField
 		m.sortField = m.spec.Sort
 	}
 
-	if ent, ok := m.queryCache[cacheKey(query, m.sourceInputs)]; ok {
+	if ent, ok := m.queryCache[cacheKey(m.sourceQuery, m.sourceInputs)]; ok {
 		m.objects = ent.objects
 		if m.typeName == "" {
 			m.typeName = ent.typeName

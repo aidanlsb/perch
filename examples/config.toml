@@ -1,34 +1,47 @@
 # Perch config. Raven does not read this file.
 # Default location: ~/.config/perch/config.toml
 #
-# Layouts are a presentation primitive (list / board / date) applied to any
-# source: a type, a saved query, or an ad-hoc RQL string. Config sets the
-# default only. Press L in the TUI to cycle; . cycles group-by / granularity.
+# Each type (and each saved query) has an ordered list of named layouts.
+# The first is the default. L / gL cycle only this list; gl or space l opens
+# the layout picker; 1-9 jump to layout N.
+#
+# kind: list | board | date
+# date takes group_by and granularity (day/week/month). . cycles granularity
+# inside a date layout and does not invent extra group-by fields.
+# Optional filter is an RQL predicate appended to the type source.
+#
+# Zero-config (when a type has no [[layouts]]):
+#   1. List always (the default)
+#   2. Board if the type has a scalar enum, grouped by the first enum,
+#      preferring a field named "status"
+#   3. Date if the type has a scalar date/datetime field, grouped by the first
+#      such field, preferring a field named "date" (granularity day)
 
-# Zero-config heuristics (if you omit these tables):
-#   1. scalar enum field named "status" → board by status
-#   2. type named "date" with a date field → date grouping by day
-#   3. otherwise list
-
-[types.project]
-layout = "board"
+[[types.project.layouts]]
+name = "Board"
+kind = "board"
 group_by = "status"
 fields = ["status", "due"]
-sort = "name"
 
-[types.date]
-layout = "date"
+[[types.project.layouts]]
+name = "By due"
+kind = "list"
+fields = ["status", "due"]
+sort = "due"
+
+[[types.project.layouts]]
+name = "Active"
+kind = "list"
+filter = ".status==active"
+fields = ["status", "due"]
+
+[[types.date.layouts]]
+name = "Week"
+kind = "date"
 group_by = "date"
 granularity = "week"
 
-[queries.open]
-layout = "list"
+[[queries.open.layouts]]
+name = "Open"
+kind = "list"
 sort = "name"
-
-# Optional extra named sources for the sidebar / query picker.
-[[views]]
-name = "This month"
-source = "type:date"
-layout = "date"
-group_by = "date"
-granularity = "month"

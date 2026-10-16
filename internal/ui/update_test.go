@@ -34,9 +34,7 @@ func sampleSchema() api.Schema {
 
 func loadBrowse(t *testing.T) Model {
 	t.Helper()
-	m := NewModel(Options{Config: &config.File{Views: []config.View{{
-		Name: "Kanban", Source: "type:project", Kind: "board", GroupBy: "status",
-	}}}})
+	m := NewModel(Options{Config: &config.File{}})
 	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
 	if cmd == nil {
 		t.Fatal("expected query cmd")
@@ -167,10 +165,21 @@ func TestOpenNoteTabFollowHistory(t *testing.T) {
 	}
 }
 
-func TestBoardFromSavedView(t *testing.T) {
-	m := loadBrowse(t)
-	// last nav item is Kanban
-	m.navCur = len(m.nav) - 1
+func TestBoardFromNamedLayout(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{
+		Types: map[string]config.Source{
+			"project": {Layouts: []config.Layout{
+				{Name: "Board", Kind: kindBoard, GroupBy: "status"},
+			}},
+		},
+	}})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	for i, n := range m.nav {
+		if n.Type == "project" {
+			m.navCur = i
+			break
+		}
+	}
 	m, _ = m.update(key("enter"))
 	m, _ = m.update(queryMsg{
 		gen: m.gen, typeName: "project",
@@ -179,8 +188,8 @@ func TestBoardFromSavedView(t *testing.T) {
 			{ID: "projects/b", Title: "Beta", Fields: map[string]any{"status": "idea"}},
 		},
 	})
-	if m.viewKind != kindBoard {
-		t.Fatalf("kind %s", m.viewKind)
+	if m.viewKind != kindBoard || m.currentLayoutName() != "Board" {
+		t.Fatalf("kind %s name %s", m.viewKind, m.currentLayoutName())
 	}
 	if len(m.board) < 3 {
 		t.Fatalf("cols %d", len(m.board))

@@ -24,8 +24,11 @@ var Keymap = []Binding{
 	{"browse", "/", "fuzzy search in current view"},
 	{"browse", "n / N", "next / previous search hit"},
 	{"browse", "d", "today's daily note (or date list)"},
-	{"browse", "L", "cycle layout (list / board / date)"},
-	{"browse", ".", "cycle group-by or date granularity"},
+	{"browse", "L", "next named layout"},
+	{"browse", "gL", "previous named layout"},
+	{"browse", "gl / space l", "layout picker"},
+	{"browse", "1-9", "jump to layout N"},
+	{"browse", ".", "cycle date granularity (day/week/month)"},
 	{"browse", "p", "toggle preview pane"},
 	{"browse", ":", "run an ad-hoc RQL query"},
 	{"browse", "r", "refresh"},
@@ -36,7 +39,7 @@ var Keymap = []Binding{
 	{"leader", "space q", "saved query picker"},
 	{"leader", "space f", "notes picker"},
 	{"leader", "space d", "daily note"},
-	{"leader", "space l", "cycle layout"},
+	{"leader", "space l", "layout picker"},
 
 	{"note", "q / esc / backspace", "back to browse"},
 	{"note", "hjkl / arrows", "scroll / backlinks"},
@@ -72,7 +75,7 @@ func footerKeys(overlay overlay, screen string, preview bool) string {
 	case overlayPicker:
 		return "picker  j/k  enter  e edit  esc"
 	case overlayLeader:
-		return "t types  q queries  f notes  d daily  l layout  esc"
+		return "t types  q queries  f notes  d daily  l layouts  esc"
 	case overlayRQL:
 		return "query  enter run  esc"
 	case overlayArgs:

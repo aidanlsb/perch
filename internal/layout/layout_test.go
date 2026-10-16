@@ -11,22 +11,32 @@ func projectSchema() api.TypeSchema {
 		Name:      "project",
 		NameField: "name",
 		Fields: map[string]api.FieldSchema{
-			"name":   {Type: "string"},
-			"status": {Type: "enum", Values: []string{"idea", "active", "done"}},
-			"due":    {Type: "date"},
-			"owner":  {Type: "ref", Target: "person"},
+			"name":     {Type: "string"},
+			"status":   {Type: "enum", Values: []string{"idea", "active", "done"}},
+			"priority": {Type: "enum", Values: []string{"low", "high"}},
+			"due":      {Type: "date"},
+			"owner":    {Type: "ref", Target: "person"},
 		},
 	}
 }
 
-func TestInferStatusBoard(t *testing.T) {
-	s := Infer(projectSchema())
-	if s.Kind != KindBoard || s.GroupBy != "status" {
-		t.Fatalf("%+v", s)
+func TestSynthesizeProject(t *testing.T) {
+	ls := Synthesize(projectSchema())
+	if len(ls) != 3 {
+		t.Fatalf("%d %+v", len(ls), ls)
+	}
+	if ls[0].Name != "List" || ls[0].Kind != KindList {
+		t.Fatalf("list %+v", ls[0])
+	}
+	if ls[1].Name != "Board" || ls[1].Kind != KindBoard || ls[1].GroupBy != "status" {
+		t.Fatalf("board prefers status, got %+v", ls[1])
+	}
+	if ls[2].Name != "By due" || ls[2].Kind != KindDate || ls[2].GroupBy != "due" || ls[2].Granularity != GranDay {
+		t.Fatalf("date %+v", ls[2])
 	}
 }
 
-func TestInferDateType(t *testing.T) {
+func TestSynthesizePrefersDateField(t *testing.T) {
 	ts := api.TypeSchema{
 		Name: "date",
 		Fields: map[string]api.FieldSchema{
@@ -34,13 +44,16 @@ func TestInferDateType(t *testing.T) {
 			"name": {Type: "string"},
 		},
 	}
-	s := Infer(ts)
-	if s.Kind != KindDate || s.GroupBy != "date" || s.Granularity != GranDay {
-		t.Fatalf("%+v", s)
+	ls := Synthesize(ts)
+	if len(ls) != 2 {
+		t.Fatalf("%d", len(ls))
+	}
+	if ls[1].Name != "Date" || ls[1].Kind != KindDate || ls[1].GroupBy != "date" {
+		t.Fatalf("%+v", ls[1])
 	}
 }
 
-func TestInferListOtherwise(t *testing.T) {
+func TestSynthesizeListOnly(t *testing.T) {
 	ts := api.TypeSchema{
 		Name: "person",
 		Fields: map[string]api.FieldSchema{
@@ -48,30 +61,43 @@ func TestInferListOtherwise(t *testing.T) {
 			"email": {Type: "string"},
 		},
 	}
-	s := Infer(ts)
-	if s.Kind != KindList {
-		t.Fatalf("%+v", s)
+	ls := Synthesize(ts)
+	if len(ls) != 1 || ls[0].Kind != KindList {
+		t.Fatalf("%+v", ls)
 	}
 }
 
-func TestNextCyclesListBoardDate(t *testing.T) {
-	ts := projectSchema()
-	s := Spec{Kind: KindList}
-	s = Next(s, ts)
-	if s.Kind != KindBoard || s.GroupBy != "status" {
-		t.Fatalf("first board %+v", s)
+func TestSynthesizeBoardWithoutStatus(t *testing.T) {
+	ts := api.TypeSchema{
+		Name: "task",
+		Fields: map[string]api.FieldSchema{
+			"name": {Type: "string"},
+			"kind": {Type: "enum", Values: []string{"a", "b"}},
+		},
 	}
-	s = Next(s, ts)
-	if s.Kind != KindBoard || s.GroupBy != "owner" {
-		t.Fatalf("ref board %+v", s)
+	ls := Synthesize(ts)
+	if len(ls) != 2 || ls[1].Name != "By kind" || ls[1].GroupBy != "kind" {
+		t.Fatalf("%+v", ls)
 	}
-	s = Next(s, ts)
-	if s.Kind != KindDate || s.GroupBy != "due" {
-		t.Fatalf("date %+v", s)
+}
+
+func TestCycleForwardAndBack(t *testing.T) {
+	ls := Synthesize(projectSchema())
+	s, i := Cycle(ls, 0, 1)
+	if s.Kind != KindBoard || i != 1 {
+		t.Fatalf("fwd %+v %d", s, i)
 	}
-	s = Next(s, ts)
-	if s.Kind != KindList {
-		t.Fatalf("wrap %+v", s)
+	s, i = Cycle(ls, i, 1)
+	if s.Kind != KindDate || i != 2 {
+		t.Fatalf("date %+v %d", s, i)
+	}
+	s, i = Cycle(ls, i, 1)
+	if s.Kind != KindList || i != 0 {
+		t.Fatalf("wrap %+v %d", s, i)
+	}
+	s, i = Cycle(ls, 0, -1)
+	if s.Kind != KindDate || i != 2 {
+		t.Fatalf("back %+v %d", s, i)
 	}
 }
 
@@ -92,6 +118,15 @@ func TestNextGranularity(t *testing.T) {
 	list := NextGranularity(Spec{Kind: KindList})
 	if list.Kind != KindList {
 		t.Fatal(list)
+	}
+}
+
+func TestAppendFilter(t *testing.T) {
+	if got := AppendFilter("type:project", ".status==active"); got != "type:project .status==active" {
+		t.Fatal(got)
+	}
+	if got := AppendFilter("type:project", ""); got != "type:project" {
+		t.Fatal(got)
 	}
 }
 
