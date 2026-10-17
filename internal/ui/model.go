@@ -65,7 +65,6 @@ const (
 type navItem struct {
 	Kind     navKind
 	Label    string
-	Source   string
 	Type     string
 	View     string
 	Layout   string

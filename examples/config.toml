@@ -4,8 +4,9 @@
 # Names below (item, task, state, when, inbox, …) are examples. They are not
 # reserved. Perch does not assume a vault schema.
 #
-# A view is a source plus one list/board/date presentation.
-# source is a type name, a saved query name, or an RQL string.
+# A view is exactly one of type (a schema type name) or query (a Raven saved
+# query name), plus one list/board/date presentation. Inline RQL is not
+# allowed here; use `:` in the TUI for ad-hoc queries.
 # {{selected}} is filled from the panel named in bind.
 #
 # A layout is a nested split of panels. Panels reference views by name.
@@ -15,27 +16,27 @@
 # those you declare here.
 
 [views.projects]
-source = "item"
+type = "item"
 layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
 
 [views.by-when]
-source = "item"
+type = "item"
 layout = { kind = "list", fields = ["state", "when"], sort = "when" }
 
 [views.open]
-source = "item"
+type = "item"
 layout = { kind = "list", filter = ".state==open", fields = ["state", "when"] }
 
 [views.week]
-source = "event"
+type = "event"
 layout = { kind = "date", group_by = "when", granularity = "week" }
 
 [views.inbox]
-source = "inbox"
+query = "inbox"
 layout = { kind = "list", sort = "label" }
 
 [views.tasks]
-source = "task"
+type = "task"
 inputs = { item = "{{selected}}" }
 layout = { kind = "list", fields = ["state"] }
 

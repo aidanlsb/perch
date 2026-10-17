@@ -60,7 +60,7 @@ func TestUnknownCommandJSON(t *testing.T) {
 func TestOpenMissingJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(`[views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestSkillListThroughMain(t *testing.T) {
 func TestConfigCheckThroughMain(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(`[views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `), 0o644); err != nil {
 		t.Fatal(err)

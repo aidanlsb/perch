@@ -43,16 +43,19 @@ stay in the main area and never enter the sidebar. In-panel scrolling is
 
 ## Views
 
-A view is a source plus one presentation: **list**, **board** (grouped by an
-enum or ref field), or **date** (grouped by a date/datetime field). `source` is
-a type name, a saved query name, or an RQL string. Optional `inputs` are sent
-with saved-query `query` calls.
+A view is exactly one of **type** (a schema type name) or **query** (a Raven
+saved query name), plus one presentation: **list**, **board** (grouped by an
+enum or ref field), or **date** (grouped by a date/datetime field). Inline
+RQL is not allowed in config. Optional `inputs` are sent with saved-query
+`query` calls. Exactly one of `--type` or `--query` is required; `--source`
+is rejected.
 
 ```bash
 perch views list --json
 perch views show projects --json
-perch views add projects --source item --layout kind=board,group_by=state,fields=state,when --json
-perch views add tasks --source task --inputs item='{{selected}}' --layout kind=list --json
+perch views add projects --type item --layout kind=board,group_by=state,fields=state,when --json
+perch views add tasks --type task --inputs item='{{selected}}' --layout kind=list --json
+perch views add inbox --query inbox --layout kind=list --json
 perch views rm projects --json
 perch views rm projects --force --json
 ```
@@ -83,12 +86,12 @@ splits belong in `--from`.
 
 ## Bindings and `{{selected}}`
 
-`{{selected}}` in a view's `source` or `inputs` is filled from another panel's
+`{{selected}}` in a view's `inputs` or `filter` is filled from another panel's
 current selection. The bound panel names that driver in `bind`. For trait,
 section, and link rows this is the containing file object, not the row id.
 
 ```bash
-perch views add tasks --source task --inputs item='{{selected}}' --layout kind=list --json
+perch views add tasks --type task --inputs item='{{selected}}' --layout kind=list --json
 perch layouts add workspace --split row --panel view=projects --panel view=tasks,bind=projects --json
 ```
 
@@ -127,7 +130,7 @@ perch open projects --json
 | Code | When |
 | --- | --- |
 | `INVALID_ARGS` | Bad flags or extra arguments |
-| `MISSING_ARGUMENT` | Required name or `--source` / `--panel` missing |
+| `MISSING_ARGUMENT` | Required name or `--type` / `--query` / `--panel` missing |
 | `NOT_FOUND` | Unknown view, layout, or `open` target |
 | `DUPLICATE_NAME` | `add` when the name already exists |
 | `VALIDATION_FAILED` | Config fails the loader (kinds, `group_by`, layout trees) |
