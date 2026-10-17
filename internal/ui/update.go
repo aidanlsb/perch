@@ -25,6 +25,12 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 	case schemaMsg:
 		return m.onSchema(msg)
+	case revisionMsg:
+		return m.onRevision(msg)
+	case pollTickMsg:
+		return m.onPollTick()
+	case debounceMsg:
+		return m.onDebounce(msg)
 	case queryMsg:
 		return m.onQuery(msg)
 	case readMsg:
@@ -46,13 +52,24 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 	m.applySession(msg.session)
 	if msg.err != nil {
-		m.errMsg = msg.err.Error()
 		m.loading = false
+		if m.ready || msg.reload {
+			m.pollFails++
+			m.liveErr = liveErrRefresh
+			return m, m.pollCmd()
+		}
+		m.errMsg = msg.err.Error()
 		return m, nil
+	}
+	if msg.reload || m.ready {
+		m.liveErr = ""
+		m.pollFails = 0
+		return m.reloadFromSchema(msg)
 	}
 	if msg.schema != nil {
 		m.schema = *msg.schema
 	}
+	m.applyRevision(msg.revision)
 	m.rebuildNav()
 	m.ready = true
 	m.loading = false
@@ -66,14 +83,20 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 		}
 	}
 	if m.open != "" {
-		return m.openNamed(m.open)
+		m, cmd := m.openNamed(m.open)
+		return m, batchCmds([]tea.Cmd{cmd, m.pollCmd()})
 	}
 	names := m.schema.SortedTypeNames()
+	var load tea.Cmd
 	if len(names) == 0 {
 		m.corpusLoading = true
-		return m, m.corpusCmd()
+		load = m.corpusCmd()
+	} else {
+		var cmd tea.Cmd
+		m, cmd = m.loadType(names[0])
+		load = cmd
 	}
-	return m.loadType(names[0])
+	return m, batchCmds([]tea.Cmd{load, m.pollCmd()})
 }
 
 func (m Model) openNamed(name string) (Model, tea.Cmd) {
@@ -147,12 +170,23 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 	}
 	p.loading = false
 	if msg.err != nil {
+		if p.live {
+			m.liveErr = liveErrRefresh
+			p.live = false
+			p.keepCursor = false
+			return m, nil
+		}
 		m.errMsg = msg.err.Error()
 		p.objects = nil
 		p.applyFilterAndGroup(m.typeSchemaFor(p))
 		return m, nil
 	}
 	m.errMsg = ""
+	if p.live {
+		m.liveErr = ""
+	}
+	keep := p.keepCursor
+	live := p.live
 	p.objects = msg.objects
 	if msg.typeName != "" {
 		p.typeName = msg.typeName
@@ -162,13 +196,17 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 	if msg.vault != "" {
 		m.vaultPath = msg.vault
 	}
-	p.resetCursor()
+	if !keep {
+		p.resetCursor()
+	}
 	ts := m.typeSchemaFor(p)
 	if len(p.listFields) == 0 {
 		p.listFields = defaultFields(ts)
 		p.spec.Fields = p.listFields
 	}
 	p.applyFilterAndGroup(ts)
+	m.restorePaneCursor(p)
+	p.live = false
 	m.mergeNotes(p.objects)
 	if m.queryCache != nil {
 		m.queryCache[cacheKey(p.sourceQuery, p.sourceInputs)] = queryCacheEntry{
@@ -178,6 +216,7 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 			total:    p.total,
 		}
 	}
+	m.recomputeSearchHits()
 	n := len(p.filtered)
 	m.status = fmt.Sprintf("%d objects", n)
 	if p.hasMore {
@@ -197,7 +236,7 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 		}
 	}
 	if p.bind == "" {
-		m2, bound := m.refreshBound(p.id)
+		m2, bound := m.refreshBoundOpts(p.id, keep, live)
 		m = m2
 		if bound != nil {
 			cmds = append(cmds, bound)
@@ -232,10 +271,18 @@ func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
 	}
 	m.loading = false
 	if msg.err != nil {
+		if msg.live {
+			m.liveErr = liveErrRefresh
+			return m, nil
+		}
 		m.errMsg = msg.err.Error()
 		return m, nil
 	}
 	m.errMsg = ""
+	if msg.live {
+		m.liveErr = ""
+	}
+	scroll, link, back := m.noteScroll, m.linkIdx, m.backIdx
 	m.note = msg.result
 	if msg.result != nil && m.readCache != nil {
 		m.readCache[msg.result.ObjectID] = msg.result
@@ -246,13 +293,21 @@ func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
 	m.noteDoc = frontmatter.Split(msg.result.Content)
 	width := m.noteBodyWidth()
 	m.noteBody = md.Render(m.noteDoc.Body, width)
-	m.noteScroll = sourceLineScroll(msg.result.Content, m.noteBody, m.currentNoteLine())
-	m.linkIdx = 0
-	m.backIdx = 0
-	m.screen = kindNote
-	m.pane = paneMain
-	if len(msg.result.Links) == 0 && len(msg.result.Backlinks) > 0 {
-		m.pane = paneBacklinks
+	if msg.keep {
+		m.noteScroll = scroll
+		m.linkIdx = clamp(link, 0, max(0, len(msg.result.Links)-1))
+		m.backIdx = clamp(back, 0, max(0, len(msg.result.Backlinks)-1))
+	} else {
+		m.noteScroll = sourceLineScroll(msg.result.Content, m.noteBody, m.currentNoteLine())
+		m.linkIdx = 0
+		m.backIdx = 0
+		if !msg.live {
+			m.screen = kindNote
+			m.pane = paneMain
+			if len(msg.result.Links) == 0 && len(msg.result.Backlinks) > 0 {
+				m.pane = paneBacklinks
+			}
+		}
 	}
 	m.status = msg.result.ObjectID
 	return m, nil
@@ -264,6 +319,10 @@ func (m Model) onPreviewRead(msg readMsg) (Model, tea.Cmd) {
 	}
 	m.previewLoading = false
 	if msg.err != nil {
+		if msg.live {
+			m.liveErr = liveErrRefresh
+			return m, nil
+		}
 		m.preview = nil
 		m.previewBody = styleErr.Render(msg.err.Error())
 		return m, nil
@@ -272,9 +331,16 @@ func (m Model) onPreviewRead(msg readMsg) (Model, tea.Cmd) {
 		if m.readCache != nil {
 			m.readCache[msg.result.ObjectID] = msg.result
 		}
+		scroll := m.previewScroll
 		m.setPreview(msg.result)
+		if msg.keep {
+			m.previewScroll = scroll
+		}
 		if msg.vault != "" {
 			m.vaultPath = msg.vault
+		}
+		if msg.live {
+			m.liveErr = ""
 		}
 	}
 	return m, nil

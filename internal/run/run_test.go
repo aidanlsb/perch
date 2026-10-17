@@ -3,6 +3,8 @@ package run
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +36,9 @@ func TestHelp(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "perch skill") {
 		t.Fatalf("want skill usage, got %s", out.String())
+	}
+	if !strings.Contains(out.String(), "poll-interval") {
+		t.Fatalf("missing poll-interval flag:\n%s", out.String())
 	}
 }
 
@@ -102,5 +107,31 @@ layout = { kind = "list" }
 	}
 	if !strings.Contains(out.String(), `"ok": true`) && !strings.Contains(out.String(), `"ok":true`) {
 		t.Fatalf("%s", out.String())
+	}
+}
+
+func TestMainRequiresRevision(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/health" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true, "data": map[string]any{"status": "ok", "api_version": "1"},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfg, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := Main([]string{
+		"--url", srv.URL, "--token", "t", "--no-start", "--config", cfg,
+	}, &out, &out)
+	if err == nil || !strings.Contains(err.Error(), "revision") {
+		t.Fatalf("got %v out=%s", err, out.String())
 	}
 }

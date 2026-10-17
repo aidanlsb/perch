@@ -29,7 +29,13 @@ From a vault, or with an explicit path:
 perch
 perch --vault-path /path/to/vault
 perch --url http://127.0.0.1:7438 --token "$RAVEN_API_TOKEN" --no-start
+perch --poll-interval 2s
 ```
+
+Perch requires an `rvn api` that reports an index revision (`GET /v1/revision`,
+Raven PR 312). Older servers are a startup error. The TUI polls that endpoint
+about once a second (`--poll-interval`, or `PERCH_POLL_INTERVAL`) and refreshes
+visible panels when the vault changes.
 
 If nothing is listening, Perch starts `rvn api --json --port 0` as a child
 and sends SIGTERM to that child on exit. If a server is already up and you
@@ -290,17 +296,24 @@ Perch falls back to `$VISUAL`, then `$EDITOR`.
 perch  →  HTTP 127.0.0.1  →  rvn api  →  commandexec.Invoker
 ```
 
-Endpoints used: `GET /v1/health`, `GET /v1/session` (including `daily`),
-`GET /v1/schema`, `POST /v1/invoke` with `query` (and `inputs` for saved-query
-args), `query_saved_list`, `objects`, `read`, `search`, and `backlinks`.
-Write commands (`set`, `unset`, `new`, `move`) and `daily` (which may
-create a file) are rejected in the client.
+Endpoints used: `GET /v1/health`, `GET /v1/session` (including `daily` and
+`revision`), `GET /v1/revision`, `GET /v1/schema`, `POST /v1/invoke` with
+`query` (and `inputs` for saved-query args), `query_saved_list`, `objects`,
+`read`, `search`, and `backlinks`. Write commands (`set`, `unset`, `new`,
+`move`) and `daily` (which may create a file) are rejected in the client.
 
 Query, `read`, and `objects` rows are cached in memory. The notes picker is
 backed by paginated `objects` loaded in the background. Older `rvn` without
 `objects` falls back to per-type query prefetch. Daily notes use only
 `session.daily`. If that field is missing or today's file does not exist,
 Perch reports it and does not call `date` or open a type.
+
+Live refresh polls `GET /v1/revision` for `{generation, counter}`. A new
+generation drops the in-memory cache and refetches schema plus every visible
+panel. A higher counter refetches visible panels and any open note, debounced,
+keeping cursor, selection, and scroll by object id. Bound panels re-resolve
+`{{selected}}` after that refetch. Poll and refresh failures show a short
+status-line mark and back off; they do not take over the footer.
 
 The note view renders Markdown, shows frontmatter as a header, and cycles
 wiki links from `read --json` `data.links` using UTF-8 byte offsets. Perch
@@ -318,6 +331,9 @@ A backlinks pane lists `data.backlinks`.
 Closed by Raven PR 308 (consumed here): `GET /v1/session` `daily`, `query`
 `inputs` for saved-query args, and the paginated `objects` corpus. Perch
 still never invokes `daily` because it may create files.
+
+Closed by Raven PR 312 (consumed here): `GET /v1/revision` and
+`session.revision`. Perch will not start against an `rvn api` that omits them.
 
 ## Develop
 

@@ -3,6 +3,7 @@ package ui
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/config"
@@ -93,6 +94,9 @@ type Options struct {
 	Editor     string
 	EditorMode string
 	Open       string
+	// PollInterval is how often to GET /v1/revision. Zero means 1s.
+	// Negative disables polling (tests).
+	PollInterval time.Duration
 }
 
 // Model is the Bubble Tea application state. Update is a pure-ish reducer
@@ -181,10 +185,17 @@ type Model struct {
 
 	status  string
 	errMsg  string
+	liveErr string
 	loading bool
 	gen     int
 	ready   bool
 	open    string
+
+	pollInterval  time.Duration
+	revGeneration string
+	revCounter    int64
+	pollFails     int
+	refreshSeq    int
 }
 
 // NewModel constructs an empty UI. Call Init to fetch the schema.
@@ -193,22 +204,30 @@ func NewModel(opts Options) Model {
 	if cfg == nil {
 		cfg = &config.File{}
 	}
+	poll := opts.PollInterval
+	switch {
+	case opts.PollInterval < 0:
+		poll = 0
+	case opts.PollInterval == 0:
+		poll = defaultPollInterval
+	}
 	return Model{
-		client:     opts.Client,
-		cfg:        cfg,
-		cfgPath:    opts.ConfigPath,
-		vaultPath:  opts.VaultPath,
-		editor:     opts.Editor,
-		editorMode: opts.EditorMode,
-		queryLimit: queryLimit,
-		screen:     "browse",
-		focus:      focusSidebar,
-		pane:       paneSidebar,
-		notePtr:    -1,
-		queryCache: map[string]queryCacheEntry{},
-		readCache:  map[string]*api.ReadResult{},
-		noteIndex:  map[string]api.Object{},
-		open:       strings.TrimSpace(opts.Open),
+		client:       opts.Client,
+		cfg:          cfg,
+		cfgPath:      opts.ConfigPath,
+		vaultPath:    opts.VaultPath,
+		editor:       opts.Editor,
+		editorMode:   opts.EditorMode,
+		queryLimit:   queryLimit,
+		screen:       "browse",
+		focus:        focusSidebar,
+		pane:         paneSidebar,
+		notePtr:      -1,
+		queryCache:   map[string]queryCacheEntry{},
+		readCache:    map[string]*api.ReadResult{},
+		noteIndex:    map[string]api.Object{},
+		open:         strings.TrimSpace(opts.Open),
+		pollInterval: poll,
 	}
 }
 

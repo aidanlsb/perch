@@ -47,6 +47,10 @@ type viewState struct {
 	savedQuery    *api.SavedQuery
 	gen           int
 	loading       bool
+	keepCursor    bool
+	restoreID     string
+	restoreOff    int
+	live          bool
 }
 
 type layoutTree struct {
@@ -297,6 +301,13 @@ func (v *viewState) selectedID() string {
 	return ""
 }
 
+func (v *viewState) selectedRowID() string {
+	if o := v.selectedObject(); o != nil {
+		return o.ID
+	}
+	return ""
+}
+
 func (m Model) selectedObject() *api.Object {
 	if m.overlay == overlayPicker && m.pickerKind == pickerNotes {
 		if m.pickerCur >= 0 && m.pickerCur < len(m.pickerHit) {
@@ -381,13 +392,27 @@ func (m *Model) setSinglePane(p *viewState) {
 }
 
 func (m Model) startPaneQuery(p *viewState, selected string) (Model, tea.Cmd) {
+	return m.queryPane(p, selected, false, false)
+}
+
+func (m Model) queryPane(p *viewState, selected string, keep, live bool) (Model, tea.Cmd) {
 	if p == nil {
 		return m, nil
 	}
+	if keep {
+		p.restoreID = p.selectedRowID()
+		p.restoreOff = p.listOff
+		p.keepCursor = true
+	} else {
+		p.restoreID = ""
+		p.restoreOff = 0
+		p.keepCursor = false
+		p.resetCursor()
+	}
+	p.live = live
 	query, inputs := p.resolveWithSelected(selected)
 	p.sourceQuery = query
 	p.sourceInputs = inputs
-	p.resetCursor()
 	ts := m.typeSchemaFor(p)
 	if ent, ok := m.queryCache[cacheKey(query, inputs)]; ok {
 		p.objects = ent.objects
@@ -398,6 +423,9 @@ func (m Model) startPaneQuery(p *viewState, selected string) (Model, tea.Cmd) {
 		p.hasMore = ent.hasMore
 		p.total = ent.total
 		p.applyFilterAndGroup(ts)
+		if keep && p.restoreID != "" {
+			p.selectID(p.restoreID)
+		}
 	}
 	p.gen = m.nextGen()
 	p.loading = true
@@ -405,6 +433,10 @@ func (m Model) startPaneQuery(p *viewState, selected string) (Model, tea.Cmd) {
 }
 
 func (m Model) refreshBound(driver string) (Model, tea.Cmd) {
+	return m.refreshBoundOpts(driver, false, false)
+}
+
+func (m Model) refreshBoundOpts(driver string, keep, live bool) (Model, tea.Cmd) {
 	sel := ""
 	if d := m.viewByID(driver); d != nil {
 		sel = d.selectedID()
@@ -415,7 +447,7 @@ func (m Model) refreshBound(driver string) (Model, tea.Cmd) {
 			continue
 		}
 		var cmd tea.Cmd
-		m, cmd = m.startPaneQuery(p, sel)
+		m, cmd = m.queryPane(p, sel, keep, live)
 		cmds = append(cmds, cmd)
 	}
 	return m, batchCmds(cmds)
