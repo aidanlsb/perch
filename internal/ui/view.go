@@ -97,17 +97,24 @@ func (m Model) viewFooter() string {
 
 func (m Model) viewBrowse(height int) string {
 	if m.zoomed {
-		switch m.focus {
+		switch m.zoomTarget() {
 		case focusSidebar:
-			return m.viewSidebar(height)
+			if !m.sidebarHidden {
+				return m.viewSidebar(height)
+			}
+			return m.viewPaneBox(m.viewByID(m.mainFocusID()), m.width, height, true)
 		case focusPreview:
 			return m.viewPreview(m.width, height)
 		default:
-			return m.viewPaneBox(m.viewByID(m.focus), m.width, height, true)
+			return m.viewPaneBox(m.viewByID(m.zoomTarget()), m.width, height, true)
 		}
 	}
-	side := m.viewSidebar(height)
-	rest := max(10, m.width-lipgloss.Width(side))
+	rest := m.width
+	var side string
+	if !m.sidebarHidden {
+		side = m.viewSidebar(height)
+		rest = max(10, m.width-lipgloss.Width(side))
+	}
 	if m.previewOn {
 		pw := max(previewMinW, rest*2/5)
 		if pw > rest-16 {
@@ -116,9 +123,15 @@ func (m Model) viewBrowse(height int) string {
 		mainW := max(12, rest-pw)
 		main := m.viewTree(m.tree, mainW, height)
 		prev := m.viewPreview(pw, height)
+		if side == "" {
+			return lipgloss.JoinHorizontal(lipgloss.Top, main, prev)
+		}
 		return lipgloss.JoinHorizontal(lipgloss.Top, side, main, prev)
 	}
 	main := m.viewTree(m.tree, rest, height)
+	if side == "" {
+		return main
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, side, main)
 }
 
@@ -560,8 +573,8 @@ func (m Model) viewHelp() string {
 		keys := padTrunc(bind.Keys, 26)
 		b.WriteString(styleMuted.Render(keys) + "  " + bind.Desc + "\n")
 	}
-	w := min(72, max(40, m.width-4))
-	return styleHelpBox.Width(w).Render(strings.TrimRight(b.String(), "\n"))
+	w := min(84, max(40, m.width-2))
+	return styleHelpBox.Width(w).Padding(0, 2).Render(strings.TrimRight(b.String(), "\n"))
 }
 
 func (m Model) viewPicker() string {
@@ -689,6 +702,9 @@ func overlayOn(base string, width, height int, modal string) string {
 	mh := lipgloss.Height(modal)
 	x := max(0, (width-mw)/2)
 	y := max(0, (height-mh)/3)
+	if y+mh > height {
+		y = max(0, height-mh)
+	}
 	return placeOverlay(base, modal, x, y)
 }
 

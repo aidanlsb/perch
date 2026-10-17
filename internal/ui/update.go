@@ -541,6 +541,10 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.cycleFocus(1), nil
 	case "shift+tab":
 		return m.cycleFocus(-1), nil
+	case "ctrl+b":
+		return m.toggleSidebar(), nil
+	case "ctrl+e":
+		return m.toggleSidebarFocus(), nil
 	case "ctrl+w":
 		m.pending = "ctrlw"
 		return m, nil
@@ -607,8 +611,6 @@ func (m Model) keyH() (Model, tea.Cmd) {
 	if m.focus == focusPreview {
 		if len(m.panes) > 0 {
 			m.setFocus(m.panes[len(m.panes)-1].id)
-		} else {
-			m.setFocus(focusSidebar)
 		}
 		return m, nil
 	}
@@ -623,7 +625,6 @@ func (m Model) keyH() (Model, tea.Cmd) {
 		p.moveBoardCol(-1)
 		return m.afterMove()
 	}
-	m.setFocus(focusSidebar)
 	return m, nil
 }
 
@@ -631,9 +632,6 @@ func (m Model) keyL() (Model, tea.Cmd) {
 	if m.focus == focusSidebar {
 		if m.navCur >= 0 && m.navCur < len(m.nav) && m.nav[m.navCur].Kind == navCat {
 			return m.expandCategory(m.nav[m.navCur].Category, true), nil
-		}
-		if len(m.panes) > 0 {
-			m.setFocus(m.panes[0].id)
 		}
 		return m, nil
 	}
@@ -768,11 +766,7 @@ func (m Model) togglePreview() (Model, tea.Cmd) {
 	m.previewOn = !m.previewOn
 	if !m.previewOn {
 		if m.focus == focusPreview {
-			if len(m.panes) > 0 {
-				m.setFocus(m.panes[0].id)
-			} else {
-				m.setFocus(focusSidebar)
-			}
+			m.focusMainArea()
 		}
 		return m, nil
 	}

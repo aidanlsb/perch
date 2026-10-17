@@ -20,7 +20,7 @@ func TestKeymapHelpRenders(t *testing.T) {
 		t.Fatal("help")
 	}
 	out := m.View()
-	for _, want := range []string{"ctrl+c", "ctrl-h/j/k/l", "daily", "fuzzy search"} {
+	for _, want := range []string{"ctrl+c", "ctrl-b", "ctrl-e", "ctrl-h/j/k/l", "daily", "fuzzy search"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help missing %q in %s", want, out)
 		}

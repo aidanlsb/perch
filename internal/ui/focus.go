@@ -14,6 +14,9 @@ func (m *Model) setFocus(id string) {
 	if id == "" {
 		return
 	}
+	if id != focusSidebar {
+		m.lastMainFocus = id
+	}
 	m.focus = id
 	switch id {
 	case focusSidebar:
@@ -23,6 +26,73 @@ func (m *Model) setFocus(id string) {
 	default:
 		m.pane = paneMain
 	}
+}
+
+func (m Model) sidebarColWidth(width int) int {
+	if m.sidebarHidden {
+		return 0
+	}
+	return min(sidebarWidth, max(12, width/4))
+}
+
+func (m Model) validMainFocus(id string) string {
+	if id == "" || id == focusSidebar {
+		return ""
+	}
+	if id == focusPreview {
+		if m.previewOn {
+			return focusPreview
+		}
+		return ""
+	}
+	if m.viewByID(id) != nil {
+		return id
+	}
+	return ""
+}
+
+func (m Model) mainFocusID() string {
+	if id := m.validMainFocus(m.lastMainFocus); id != "" {
+		return id
+	}
+	if len(m.panes) > 0 {
+		return m.panes[0].id
+	}
+	if m.previewOn {
+		return focusPreview
+	}
+	return ""
+}
+
+func (m *Model) focusMainArea() {
+	m.setFocus(m.mainFocusID())
+}
+
+func (m Model) toggleSidebar() Model {
+	m.sidebarHidden = !m.sidebarHidden
+	if m.sidebarHidden {
+		if m.focus == focusSidebar {
+			if m.zoomed {
+				m.zoomed = false
+			}
+			m.focusMainArea()
+		}
+	}
+	m.recomputeRegions()
+	return m
+}
+
+func (m Model) toggleSidebarFocus() Model {
+	if m.focus == focusSidebar {
+		m.focusMainArea()
+		return m
+	}
+	if m.sidebarHidden {
+		m.sidebarHidden = false
+		m.recomputeRegions()
+	}
+	m.setFocus(focusSidebar)
+	return m
 }
 
 func (m *Model) recomputeRegions() {
@@ -37,10 +107,13 @@ func (m Model) browseRegions(width, height int) []region {
 		return []region{{id: m.zoomTarget(), x: 0, y: 0, w: width, h: height}}
 	}
 	var regs []region
-	sideW := min(sidebarWidth, max(12, width/4))
-	regs = append(regs, region{id: focusSidebar, x: 0, y: 0, w: sideW, h: height})
-	rest := max(10, width-sideW)
-	x := sideW
+	sideW := m.sidebarColWidth(width)
+	rest := width
+	x := 0
+	if sideW > 0 {
+		rest = max(10, width-sideW)
+		x = sideW
+	}
 	if m.previewOn {
 		pw := max(previewMinW, rest*2/5)
 		if pw > rest-16 {
@@ -107,17 +180,22 @@ func splitSizes(total, n int) []int {
 }
 
 func (m Model) zoomTarget() string {
+	if m.focus == focusSidebar && m.sidebarHidden {
+		if id := m.mainFocusID(); id != "" {
+			return id
+		}
+	}
 	if m.focus != "" {
 		return m.focus
 	}
-	if len(m.panes) > 0 {
-		return m.panes[0].id
+	if id := m.mainFocusID(); id != "" {
+		return id
 	}
 	return focusSidebar
 }
 
 func (m Model) focusOrder() []string {
-	order := []string{focusSidebar}
+	var order []string
 	var walk func(layoutTree)
 	walk = func(n layoutTree) {
 		if n.split == "" || len(n.kids) == 0 {
@@ -131,7 +209,7 @@ func (m Model) focusOrder() []string {
 		}
 	}
 	walk(m.tree)
-	if len(m.panes) > 0 && len(order) == 1 {
+	if len(m.panes) > 0 && len(order) == 0 {
 		order = append(order, m.panes[0].id)
 	}
 	if m.previewOn {
@@ -145,12 +223,16 @@ func (m Model) cycleFocus(delta int) Model {
 	if len(order) == 0 {
 		return m
 	}
-	idx := 0
+	idx := -1
 	for i, id := range order {
 		if id == m.focus {
 			idx = i
 			break
 		}
+	}
+	if idx < 0 {
+		m.focusMainArea()
+		return m
 	}
 	m.setFocus(order[(idx+delta+len(order))%len(order)])
 	return m
