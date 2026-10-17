@@ -42,6 +42,9 @@ by an enum or ref field), or **date** (grouped by a date/datetime field).
 `source` is a type name, a saved query name, or an RQL string. Optional
 `inputs` are sent with saved-query `query` calls. `{{selected}}` in
 `source` or `inputs` is filled from another panel's current selection.
+For trait, section, and link rows this is the containing file object
+(`object_id` / `file_object_id` / `source_id`), not the row id. A
+section-scoped id (`fileObject#slug`) is bound as the file object.
 
 A **layout** is a nested split of panels. Each leaf names a view. `split`
 is `row` (side by side) or `col` (stacked). `bind` names the panel whose
@@ -207,12 +210,19 @@ Saved queries that declare `args` open an argument prompt. Values are sent as
 
 ## Preview and editor
 
-`p` toggles a preview pane of the selected object's rendered Markdown.
-Reads are cached; moving the cursor does not block the UI.
+`p` toggles a preview pane of the selected row's rendered Markdown.
+Trait, section, and link rows preview the containing object, scrolled to
+the row's source line. Reads are cached; moving the cursor does not block
+the UI.
 
 `e` opens the selected row's file in the editor from browse, preview, note
-view, or the notes picker. Perch does not wait on `read` when `file_path`
-is already on the row.
+view, or the notes picker. When the row carries `file_path` and `line`
+(as trait queries do), the editor jumps to that location. Perch does not
+wait on `read` when `file_path` is already on the row.
+
+Enter on a nested row opens the containing object's note view, scrolled
+to the row's line. `S` saves the on-screen view's source and layout; it
+does not treat the selected row as an object.
 
 ## Keys
 
