@@ -184,8 +184,10 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 		m.status = fmt.Sprintf("%d of %d (truncated)", n, p.total)
 	}
 	var cmds []tea.Cmd
-	if c := m.previewCmd(); c != nil {
-		cmds = append(cmds, c)
+	var preview tea.Cmd
+	m, preview = m.previewCmd()
+	if preview != nil {
+		cmds = append(cmds, preview)
 	}
 	if m.needPrefetch {
 		m.needPrefetch = false
@@ -244,7 +246,7 @@ func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
 	m.noteDoc = frontmatter.Split(msg.result.Content)
 	width := m.noteBodyWidth()
 	m.noteBody = md.Render(m.noteDoc.Body, width)
-	m.noteScroll = 0
+	m.noteScroll = sourceLineScroll(msg.result.Content, m.noteBody, m.currentNoteLine())
 	m.linkIdx = 0
 	m.backIdx = 0
 	m.screen = kindNote
@@ -286,7 +288,22 @@ func (m *Model) setPreview(rd *api.ReadResult) {
 		w = 36
 	}
 	m.previewBody = md.Render(m.previewDoc.Body, w-2)
-	m.previewScroll = 0
+	m.applyPreviewScroll()
+}
+
+func (m *Model) applyPreviewScroll() {
+	if m.preview == nil {
+		m.previewScroll = 0
+		return
+	}
+	m.previewScroll = sourceLineScroll(m.preview.Content, m.previewBody, m.previewLine)
+}
+
+func (m Model) currentNoteLine() int {
+	if m.notePtr >= 0 && m.notePtr < len(m.noteStack) {
+		return m.noteStack[m.notePtr].Line
+	}
+	return 0
 }
 
 func (m Model) onSearch(msg searchMsg) (Model, tea.Cmd) {
@@ -632,11 +649,13 @@ func (m Model) keyL() (Model, tea.Cmd) {
 }
 
 func (m Model) afterMove() (Model, tea.Cmd) {
-	cmds := []tea.Cmd{m.previewCmd()}
+	var c tea.Cmd
+	m, c = m.previewCmd()
+	cmds := []tea.Cmd{c}
 	if p := m.focusedView(); p != nil {
-		var c tea.Cmd
-		m, c = m.refreshBound(p.id)
-		cmds = append(cmds, c)
+		var bound tea.Cmd
+		m, bound = m.refreshBound(p.id)
+		cmds = append(cmds, bound)
 	}
 	return m, batchCmds(cmds)
 }
@@ -669,7 +688,7 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.screen = "browse"
 		m.note = nil
 		m.status = m.p().sourceLabel
-		return m, m.previewCmd()
+		return m.previewCmd()
 	case "t":
 		return m.openTypePicker()
 	case "Q":
@@ -742,7 +761,7 @@ func (m Model) cycleGroup() (Model, tea.Cmd) {
 	next := layout.NextGranularity(p.spec)
 	p.applySpec(next, m.typeSchemaFor(p))
 	m.status = next.DisplayName() + " / " + next.Granularity
-	return m, m.previewCmd()
+	return m.previewCmd()
 }
 
 func (m Model) togglePreview() (Model, tea.Cmd) {
@@ -757,30 +776,42 @@ func (m Model) togglePreview() (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	return m, m.previewCmd()
+	return m.previewCmd()
 }
 
-func (m Model) previewCmd() tea.Cmd {
+func (m Model) previewCmd() (Model, tea.Cmd) {
 	if !m.previewOn || m.screen == kindNote {
-		return nil
+		return m, nil
 	}
 	obj := m.selectedObject()
-	if obj == nil || obj.ID == "" {
+	if obj == nil {
 		m.preview = nil
 		m.previewID = ""
+		m.previewLine = 0
 		m.previewBody = ""
-		return nil
+		return m, nil
 	}
-	if m.previewID == obj.ID && m.preview != nil {
-		return nil
+	ref := obj.OpenRef()
+	if ref == "" {
+		m.preview = nil
+		m.previewID = ""
+		m.previewLine = 0
+		m.previewBody = ""
+		return m, nil
 	}
-	m.previewID = obj.ID
-	if rd, ok := m.readCache[obj.ID]; ok {
+	same := m.previewID == ref && m.preview != nil
+	m.previewLine = obj.Line
+	if same {
+		m.applyPreviewScroll()
+		return m, nil
+	}
+	m.previewID = ref
+	if rd, ok := m.readCache[ref]; ok {
 		m.setPreview(rd)
-		return nil
+		return m, nil
 	}
 	m.previewLoading = true
-	return fetchRead(m.client, m.gen, obj.ID, "preview")
+	return m, fetchRead(m.client, m.gen, ref, "preview")
 }
 
 func (m Model) openDaily() (Model, tea.Cmd) {
@@ -886,20 +917,28 @@ func (m Model) refresh() (Model, tea.Cmd) {
 
 func (m Model) openSelectedNote() (Model, tea.Cmd) {
 	obj := m.selectedObject()
-	if obj == nil || obj.ID == "" {
+	if obj == nil {
 		return m, nil
 	}
-	return m.openNote(obj.ID)
+	id := obj.OpenRef()
+	if id == "" {
+		return m, nil
+	}
+	return m.openNoteAt(id, obj.Line)
 }
 
 func (m Model) openNote(id string) (Model, tea.Cmd) {
+	return m.openNoteAt(id, 0)
+}
+
+func (m Model) openNoteAt(id string, line int) (Model, tea.Cmd) {
 	if id == "" {
 		return m, nil
 	}
 	if m.notePtr < len(m.noteStack)-1 {
 		m.noteStack = m.noteStack[:m.notePtr+1]
 	}
-	m.noteStack = append(m.noteStack, noteFrame{ID: id})
+	m.noteStack = append(m.noteStack, noteFrame{ID: id, Line: line})
 	m.notePtr = len(m.noteStack) - 1
 	gen := m.nextGen()
 	m.loading = true
@@ -970,26 +1009,36 @@ func (m *Model) applySession(sess *api.Session) {
 	}
 }
 
-func (m Model) openEditor() (Model, tea.Cmd) {
-	path := ""
-	objectID := ""
+func (m Model) editorTarget() (path, objectID string, line int) {
 	if m.screen == kindNote && m.note != nil {
 		path = editor.FilePath(m.vaultPath, m.note.Path)
 		objectID = m.note.ObjectID
-	} else if m.previewOn && m.focus == focusPreview && m.preview != nil {
+		line = m.currentNoteLine()
+		return path, objectID, line
+	}
+	if m.previewOn && m.focus == focusPreview && m.preview != nil {
 		path = editor.FilePath(m.vaultPath, m.preview.Path)
 		objectID = m.preview.ObjectID
-	} else if obj := m.selectedObject(); obj != nil {
+		line = m.previewLine
+		return path, objectID, line
+	}
+	if obj := m.selectedObject(); obj != nil {
 		path = editor.FilePath(m.vaultPath, obj.FilePath)
-		objectID = obj.ID
-		if path == "" {
-			if rd, ok := m.readCache[obj.ID]; ok {
+		objectID = obj.OpenRef()
+		line = obj.Line
+		if path == "" && objectID != "" {
+			if rd, ok := m.readCache[objectID]; ok {
 				path = editor.FilePath(m.vaultPath, rd.Path)
 			}
 		}
 	}
+	return path, objectID, line
+}
+
+func (m Model) openEditor() (Model, tea.Cmd) {
+	path, objectID, line := m.editorTarget()
 	ed := editor.Resolve(m.editor)
-	cmd, err := editor.Command(ed, path)
+	cmd, err := editor.CommandLine(ed, path, line)
 	if err != nil {
 		m.errMsg = err.Error()
 		return m, nil
