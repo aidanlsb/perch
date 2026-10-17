@@ -15,6 +15,9 @@ const (
 	CodeInvalidInput         = "INVALID_INPUT"
 	CodeInvalidJSON          = "INVALID_JSON"
 	CodeMultipleMatches      = "MULTIPLE_MATCHES"
+	CodeSkillNotFound        = "SKILL_NOT_FOUND"
+	CodeSkillNotInstalled    = "SKILL_NOT_INSTALLED"
+	CodeSkillPathUnresolved  = "SKILL_PATH_UNRESOLVED"
 )
 
 // ErrorCodes is the documented set agents can branch on.
@@ -32,4 +35,7 @@ var ErrorCodes = []string{
 	CodeInvalidInput,
 	CodeInvalidJSON,
 	CodeMultipleMatches,
+	CodeSkillNotFound,
+	CodeSkillNotInstalled,
+	CodeSkillPathUnresolved,
 }

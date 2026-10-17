@@ -123,6 +123,11 @@ perch config path
 perch config check
 perch open projects
 perch open workspace
+
+perch skill list
+perch skill install --confirm --json
+perch skill remove perch --confirm --json
+perch skill doctor
 ```
 
 Every command accepts `--json` (anywhere) and `--config path`. On success the
@@ -145,6 +150,9 @@ process exits nonzero. `error.details` may add line numbers or names.
 | `INVALID_INPUT` | Bad `--layout`, `--inputs`, `--panel`, or `--from` TOML |
 | `INVALID_JSON` | `--from` JSON did not parse |
 | `MULTIPLE_MATCHES` | (reserved) |
+| `SKILL_NOT_FOUND` | Unknown shipped skill name |
+| `SKILL_NOT_INSTALLED` | `skill remove` of a skill that is not installed |
+| `SKILL_PATH_UNRESOLVED` | Install root could not be resolved; pass `--dest` |
 
 `config check` prints `path:line: message` and, with `--json`, puts the same
 list in `error.details.errors`. It does not talk to a vault. Writes are
@@ -154,6 +162,30 @@ anything the validator would reject.
 `--layout` is `kind=board,group_by=state,fields=state,when`. Commas inside
 `fields` belong to the list (`fields=state,when`). `--from` is a TOML or JSON
 snippet, a file path, or `-` for stdin.
+
+## Agent skill
+
+Perch ships an [Agent Skills](https://agentskills.io) file at
+`skills/perch/SKILL.md`. It teaches the CLI above: `--json`, `config check`,
+`{{selected}}` bindings, and the rule that Perch does not assume a vault
+schema. Install it the same way Raven installs skills:
+
+```bash
+perch skill list --json
+perch skill install --confirm --json
+perch skill install perch --scope project --confirm --json
+perch skill remove perch --confirm --json
+perch skill doctor --json
+```
+
+`perch skills` is an alias. User scope writes `~/.agents/skills`. Project
+scope writes `.agents/skills` in the current directory. `--dest` overrides
+the root.
+
+Install and remove preview by default (`ok: true` with `needs_confirm: true`)
+and write nothing. Agents cannot answer a y/N prompt; Perch never asks for
+one. Pass `--confirm` to apply. A `.perch-skill-receipt.json` marks
+Perch-managed files. A skill directory without that receipt is left alone.
 
 ## Pickers and search
 

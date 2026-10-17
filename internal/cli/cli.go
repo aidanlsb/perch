@@ -13,17 +13,17 @@ func PeekCommand(args []string) (string, int) {
 	return peekCommand(args)
 }
 
-// IsCommand reports whether name is views, layouts, config, or open.
+// IsCommand reports whether name is a perch subcommand.
 func IsCommand(name string) bool {
 	switch name {
-	case "views", "layouts", "config", "open":
+	case "views", "layouts", "config", "open", "skill", "skills":
 		return true
 	default:
 		return false
 	}
 }
 
-// Run executes views, layouts, or config. open is handled by the TUI launcher.
+// Run executes views, layouts, config, or skill. open is handled by the TUI launcher.
 func Run(args []string, stdout, stderr io.Writer) error {
 	cmd, idx := peekCommand(args)
 	if idx < 0 || !IsCommand(cmd) || cmd == "open" {
@@ -38,6 +38,8 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runLayouts(rest, stdout, stderr)
 	case "config":
 		return runConfig(rest, stdout, stderr)
+	case "skill", "skills":
+		return runSkill(rest, stdout, stderr)
 	default:
 		return fail(CodeCommandNotFound, "unknown command "+cmd)
 	}

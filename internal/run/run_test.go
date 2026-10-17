@@ -32,6 +32,9 @@ func TestHelp(t *testing.T) {
 	if !strings.Contains(out.String(), "perch views") {
 		t.Fatalf("want CLI usage, got %s", out.String())
 	}
+	if !strings.Contains(out.String(), "perch skill") {
+		t.Fatalf("want skill usage, got %s", out.String())
+	}
 }
 
 func TestUnknownCommandJSON(t *testing.T) {
@@ -68,6 +71,20 @@ layout = { kind = "list" }
 	}
 	if env.Error == nil || env.Error.Code != cli.CodeNotFound {
 		t.Fatalf("%+v", env)
+	}
+}
+
+func TestSkillListThroughMain(t *testing.T) {
+	root := t.TempDir()
+	var out, errb bytes.Buffer
+	if err := Main([]string{"--json", "skills", "list", "--dest", root}, &out, &errb); err != nil {
+		t.Fatalf("%v %s %s", err, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), `"ok": true`) && !strings.Contains(out.String(), `"ok":true`) {
+		t.Fatalf("%s", out.String())
+	}
+	if !strings.Contains(out.String(), `"name": "perch"`) && !strings.Contains(out.String(), `"name":"perch"`) {
+		t.Fatalf("%s", out.String())
 	}
 }
 

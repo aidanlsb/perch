@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/aidanlsb/perch/internal/config"
+	"github.com/aidanlsb/perch/internal/skills"
 )
 
 // ErrReported means the failure envelope (or human error) was already written.
@@ -88,6 +89,10 @@ func asCLI(err error) *cliErr {
 	var ce *cliErr
 	if errors.As(err, &ce) {
 		return ce
+	}
+	var se *skills.Error
+	if errors.As(err, &se) {
+		return failDetails(se.Code, se.Message, se.Details)
 	}
 	var inUse *config.InUseError
 	if errors.As(err, &inUse) {

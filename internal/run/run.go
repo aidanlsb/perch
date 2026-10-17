@@ -25,6 +25,9 @@ Usage:
   perch views list|show|add|rm       Manage named views
   perch layouts list|show|add|rm     Manage named layouts
   perch config path|check            Print the config path or validate it
+  perch skill list|install|remove|doctor
+                                     Manage the shipped agent skill
+                                     (perch skills is an alias)
 
   perch talks to rvn api over HTTP. If no server is running it starts one
   as a child process and stops it on exit. It never writes to the vault.
@@ -42,6 +45,9 @@ Flags:
   --no-start           Never start rvn api; only connect
   --version            Print version and exit
   --force              views rm: drop referencing layout panels
+  --confirm            skill install/remove: apply the preview
+  --scope user|project skill install root (default user)
+  --dest path          Override the skill install root
 `
 
 // Main is the perch CLI entrypoint.
@@ -60,7 +66,7 @@ func Main(args []string, stdout, stderr io.Writer) error {
 		return nil
 	}
 	switch cmd {
-	case "views", "layouts", "config":
+	case "views", "layouts", "config", "skill", "skills":
 		return cli.Run(args, stdout, stderr)
 	case "open":
 		return openTUI(args, stdout, stderr)

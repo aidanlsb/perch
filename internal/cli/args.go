@@ -89,6 +89,7 @@ func setOf(in []string) map[string]bool {
 func peekCommand(args []string) (string, int) {
 	known := map[string]bool{
 		"views": true, "layouts": true, "config": true, "open": true,
+		"skill": true, "skills": true,
 	}
 	skipVal := false
 	for i, a := range args {
@@ -119,7 +120,7 @@ func peekCommand(args []string) (string, int) {
 
 func isGlobalBool(name string) bool {
 	switch name {
-	case "json", "force", "help", "h", "version", "no-start":
+	case "json", "force", "help", "h", "version", "no-start", "confirm", "installed":
 		return true
 	default:
 		return false
