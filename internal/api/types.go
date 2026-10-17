@@ -174,14 +174,18 @@ type QueryResult struct {
 	NextOffset *int             `json:"next_offset,omitempty"`
 }
 
-// Object is a flattened object-query row used by list/board/date views.
+// Object is a flattened query row used by list/board/date views.
+// Nested kinds (trait, section, link) keep their own ID and carry the
+// containing file object separately.
 type Object struct {
 	ID       string
 	Type     string
 	Title    string
 	Fields   map[string]any
 	FilePath string
-	Kind     string // object, trait, section, link
+	Kind     string // object, type, trait, section, link
+	Line     int    // 1-based source line when the payload includes one
+	ObjectID string // containing object for nested rows; empty for file objects
 }
 
 // ReadResult is an enriched `read` payload (not --raw).

@@ -84,7 +84,8 @@ splits belong in `--from`.
 ## Bindings and `{{selected}}`
 
 `{{selected}}` in a view's `source` or `inputs` is filled from another panel's
-current selection. The bound panel names that driver in `bind`.
+current selection. The bound panel names that driver in `bind`. For trait,
+section, and link rows this is the containing file object, not the row id.
 
 ```bash
 perch views add tasks --source task --inputs item='{{selected}}' --layout kind=list --json

@@ -292,7 +292,7 @@ func (v *viewState) resolveWithSelected(selected string) (query string, inputs m
 
 func (v *viewState) selectedID() string {
 	if o := v.selectedObject(); o != nil {
-		return o.ID
+		return o.BindID()
 	}
 	return ""
 }

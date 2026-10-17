@@ -73,7 +73,8 @@ type navItem struct {
 }
 
 type noteFrame struct {
-	ID string
+	ID   string
+	Line int
 }
 
 type queryCacheEntry struct {
@@ -146,6 +147,7 @@ type Model struct {
 
 	previewOn      bool
 	previewID      string
+	previewLine    int
 	preview        *api.ReadResult
 	previewDoc     frontmatter.Doc
 	previewBody    string
@@ -282,7 +284,7 @@ func (m *Model) mergeNotes(objs []api.Object) {
 		m.noteIndex = map[string]api.Object{}
 	}
 	for _, o := range objs {
-		if o.ID == "" {
+		if !o.IsFileObject() {
 			continue
 		}
 		m.noteIndex[o.ID] = o
