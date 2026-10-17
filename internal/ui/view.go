@@ -76,8 +76,16 @@ func (m Model) viewHeader() string {
 			right += fmt.Sprintf("  %d/%d", m.searchAt+1, n)
 		}
 	}
-	gap := max(0, m.width-lipgloss.Width(left+mid)-lipgloss.Width(right)-1)
+	live := m.liveErr
+	rightW := lipgloss.Width(right)
+	if live != "" {
+		rightW += lipgloss.Width("  " + live)
+	}
+	gap := max(0, m.width-lipgloss.Width(left+mid)-rightW-1)
 	line := left + mid + strings.Repeat(" ", gap) + styleStatus.Render(right)
+	if live != "" {
+		line += "  " + styleWarn.Render(live)
+	}
 	if lipgloss.Width(line) < m.width {
 		line += strings.Repeat(" ", max(0, m.width-lipgloss.Width(line)))
 	}

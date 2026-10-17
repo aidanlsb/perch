@@ -28,7 +28,10 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 			writeOK(w, map[string]any{
 				"api_version": "1", "vault_path": "/vault",
 				"editor": "nvim", "editor_mode": "gui",
+				"revision": map[string]any{"generation": "gen1", "counter": 1},
 			})
+		case "/v1/revision":
+			writeOK(w, map[string]any{"generation": "gen1", "counter": 1})
 		case "/v1/schema":
 			writeOK(w, map[string]any{
 				"version": 1,
@@ -136,7 +139,7 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 		},
 	}
 
-	m := NewModel(Options{Client: api.NewClient(srv.URL, "t"), Config: cfg, ConfigPath: cfgPath})
+	m := NewModel(Options{Client: api.NewClient(srv.URL, "t"), Config: cfg, ConfigPath: cfgPath, PollInterval: -1})
 	m.width, m.height = 100, 40
 	msg := m.Init()()
 	var cmd tea.Cmd

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,11 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 					"directory": "daily", "today_id": "2026-10-15",
 					"today_path": "daily/2026-10-15.md", "today_exists": true,
 				},
+				"revision": map[string]any{"generation": "abc123", "counter": 7},
+			}})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/revision":
+			writeEnv(w, 200, map[string]any{"ok": true, "data": map[string]any{
+				"generation": "abc123", "counter": 7,
 			}})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/schema":
 			writeEnv(w, 200, map[string]any{
@@ -169,6 +175,17 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 	if sess.Daily == nil || sess.Daily.TodayID != "2026-10-15" || !sess.Daily.TodayExists {
 		t.Fatalf("session daily %+v", sess.Daily)
 	}
+	if sess.Revision == nil || sess.Revision.Generation != "abc123" || sess.Revision.Counter != 7 {
+		t.Fatalf("session revision %+v", sess.Revision)
+	}
+
+	rev, err := c.Revision(ctx)
+	if err != nil {
+		t.Fatalf("revision: %v", err)
+	}
+	if rev.Generation != "abc123" || rev.Counter != 7 {
+		t.Fatalf("revision %+v", rev)
+	}
 
 	sch, err := c.Schema(ctx)
 	if err != nil {
@@ -238,6 +255,32 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 	cBad := NewClient(srv.URL, "wrong")
 	if _, err := cBad.Health(ctx); err == nil {
 		t.Fatal("expected unauthorized")
+	}
+}
+
+func TestRevisionMissingEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/revision" {
+			http.NotFound(w, r)
+			return
+		}
+		writeEnv(w, 200, map[string]any{"ok": true, "data": map[string]any{"status": "ok"}})
+	}))
+	t.Cleanup(srv.Close)
+	_, err := NewClient(srv.URL, "t").Revision(context.Background())
+	if err == nil || !errors.Is(err, ErrNoRevision) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestRevisionEmptyGeneration(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeEnv(w, 200, map[string]any{"ok": true, "data": map[string]any{"generation": "", "counter": 0}})
+	}))
+	t.Cleanup(srv.Close)
+	_, err := NewClient(srv.URL, "t").Revision(context.Background())
+	if err == nil || !errors.Is(err, ErrNoRevision) {
+		t.Fatalf("got %v", err)
 	}
 }
 

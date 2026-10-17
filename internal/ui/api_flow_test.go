@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aidanlsb/perch/internal/api"
@@ -22,7 +23,13 @@ func TestModelInitAgainstFakeAPI(t *testing.T) {
 				"data": map[string]any{
 					"api_version": "1", "vault_path": "/vault",
 					"editor": "code", "editor_mode": "gui",
+					"revision": map[string]any{"generation": "gen1", "counter": 1},
 				},
+			})
+		case "/v1/revision":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":   true,
+				"data": map[string]any{"generation": "gen1", "counter": 1},
 			})
 		case "/v1/schema":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -78,7 +85,7 @@ func TestModelInitAgainstFakeAPI(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	m := NewModel(Options{Client: api.NewClient(srv.URL, "t")})
+	m := NewModel(Options{Client: api.NewClient(srv.URL, "t"), PollInterval: -1})
 	m.width, m.height = 80, 24
 	msg := m.Init()()
 	var cmd tea.Cmd
@@ -104,5 +111,35 @@ func TestModelInitAgainstFakeAPI(t *testing.T) {
 	m, _ = m.update(cmd())
 	if m.note == nil || m.note.ObjectID != "projects/a" {
 		t.Fatalf("note %+v %s", m.note, m.errMsg)
+	}
+}
+
+func TestInitRequiresRevision(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/session":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":   true,
+				"data": map[string]any{"api_version": "1", "vault_path": "/vault"},
+			})
+		case "/v1/schema":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":   true,
+				"data": map[string]any{"version": 1, "types": map[string]any{}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	m := NewModel(Options{Client: api.NewClient(srv.URL, "t"), PollInterval: -1})
+	m, _ = m.update(m.Init()())
+	if m.ready {
+		t.Fatal("ready without revision")
+	}
+	if m.errMsg == "" || !strings.Contains(m.errMsg, "revision") {
+		t.Fatalf("err %q", m.errMsg)
 	}
 }

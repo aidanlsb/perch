@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aidanlsb/perch/internal/config"
 )
@@ -302,6 +303,20 @@ func runJSONErr(t *testing.T, args ...string) Response {
 		t.Fatalf("expected error out=%s", out.String())
 	}
 	return decodeResp(t, out.Bytes())
+}
+
+func TestParseTUIPollInterval(t *testing.T) {
+	flags, err := ParseTUI([]string{"--poll-interval", "2s", "--url", "http://127.0.0.1:9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags.PollInterval != 2*time.Second {
+		t.Fatalf("got %v", flags.PollInterval)
+	}
+	_, err = ParseTUI([]string{"--poll-interval", "nope"})
+	if err == nil || !strings.Contains(err.Error(), "poll-interval") {
+		t.Fatalf("got %v", err)
+	}
 }
 
 func decodeResp(t *testing.T, raw []byte) Response {

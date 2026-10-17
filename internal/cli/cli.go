@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aidanlsb/perch/internal/config"
 )
@@ -92,6 +93,7 @@ func Error(code, message string) error {
 type TUIFlags struct {
 	URL, Token, Vault, Rvn, Config string
 	NoStart, Help, Version, JSON   bool
+	PollInterval                   time.Duration
 	Pos                            []string
 }
 
@@ -99,7 +101,7 @@ type TUIFlags struct {
 func ParseTUI(args []string) (TUIFlags, error) {
 	p, err := parseArgs(args, argSpec{
 		bools: []string{"json", "no-start", "version", "help", "h", "force"},
-		vals:  []string{"url", "token", "vault-path", "rvn", "config"},
+		vals:  []string{"url", "token", "vault-path", "rvn", "config", "poll-interval"},
 	})
 	out := TUIFlags{
 		URL:     firstFlag(p.Val["url"], envOr("PERCH_URL", envOr("RAVEN_API_URL", ""))),
@@ -113,7 +115,32 @@ func ParseTUI(args []string) (TUIFlags, error) {
 		JSON:    p.Bool["json"],
 		Pos:     p.Pos,
 	}
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	poll, err := parsePollInterval(p.Val["poll-interval"])
+	if err != nil {
+		return out, err
+	}
+	out.PollInterval = poll
+	return out, nil
+}
+
+func parsePollInterval(flag string) (time.Duration, error) {
+	if v := strings.TrimSpace(flag); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return 0, fail(CodeInvalidArgs, "invalid --poll-interval "+v)
+		}
+		return d, nil
+	}
+	if v := strings.TrimSpace(os.Getenv("PERCH_POLL_INTERVAL")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err == nil {
+			return d, nil
+		}
+	}
+	return 0, nil
 }
 
 func firstFlag(v, fallback string) string {

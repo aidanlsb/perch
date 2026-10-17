@@ -67,6 +67,15 @@ type Session struct {
 	Editor     string     `json:"editor"`
 	EditorMode string     `json:"editor_mode"`
 	Daily      *DailyInfo `json:"daily,omitempty"`
+	Revision   *Revision  `json:"revision,omitempty"`
+}
+
+// Revision is GET /v1/revision (and session.revision): a disposable index identity.
+// Generation is random and minted when the index is built from scratch. Counter
+// is monotonic and rises with every index projection. Older rvn omits both.
+type Revision struct {
+	Generation string `json:"generation"`
+	Counter    int64  `json:"counter"`
 }
 
 // DailyInfo is the read-only today snapshot on GET /v1/session (Raven PR 308).

@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -43,6 +44,7 @@ Flags:
   --vault-path path    Vault path passed to rvn api when starting it
   --rvn path           Path to the rvn binary
   --no-start           Never start rvn api; only connect
+  --poll-interval dur  How often to poll GET /v1/revision (default 1s)
   --version            Print version and exit
   --force              views rm: drop referencing layout panels
   --confirm            skill install/remove: apply the preview
@@ -149,6 +151,12 @@ func startTUI(flags cli.TUIFlags, cfgFile, open string, jsonOut bool, stdout, st
 	defer func() { _ = handle.Close() }()
 
 	client := api.NewClient(handle.URL, handle.Token)
+	if _, revErr := client.Revision(ctx); revErr != nil {
+		if errors.Is(revErr, api.ErrNoRevision) {
+			return fmt.Errorf("%s", api.RevisionRequired)
+		}
+		return fmt.Errorf("%s: %w", api.RevisionRequired, revErr)
+	}
 	vaultPath := firstNonEmpty(handle.VaultPath, flags.Vault)
 	ed := ""
 	edMode := editor.ModeAuto
@@ -161,13 +169,14 @@ func startTUI(flags cli.TUIFlags, cfgFile, open string, jsonOut bool, stdout, st
 	}
 	ed = editor.Resolve(ed)
 	model := ui.NewModel(ui.Options{
-		Client:     client,
-		Config:     cfg,
-		ConfigPath: cfgFile,
-		VaultPath:  vaultPath,
-		Editor:     ed,
-		EditorMode: edMode,
-		Open:       open,
+		Client:       client,
+		Config:       cfg,
+		ConfigPath:   cfgFile,
+		VaultPath:    vaultPath,
+		Editor:       ed,
+		EditorMode:   edMode,
+		Open:         open,
+		PollInterval: flags.PollInterval,
 	})
 
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(stdout))

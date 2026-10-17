@@ -15,6 +15,14 @@ import (
 // ErrNoSession means this rvn api has no GET /v1/session (pre-PR 306).
 var ErrNoSession = errors.New("rvn api has no GET /v1/session")
 
+// ErrNoRevision means this rvn api does not report an index revision
+// (pre-PR 312: no GET /v1/revision, or empty generation).
+var ErrNoRevision = errors.New("rvn api has no GET /v1/revision")
+
+// RevisionRequired is the hard-break message when the attached rvn api
+// cannot report {generation, counter}.
+const RevisionRequired = "this rvn api does not report an index revision. Perch requires GET /v1/revision to return {generation, counter}. Upgrade Raven."
+
 // StatusError is an HTTP failure from rvn api (including non-JSON 404s).
 type StatusError struct {
 	Status int
@@ -122,6 +130,22 @@ func (c *Client) Session(ctx context.Context) (*Session, error) {
 		return nil, err
 	}
 	return &s, nil
+}
+
+// Revision GET /v1/revision. ErrNoRevision if the route is missing or the
+// payload has no generation (older rvn, or an empty index identity).
+func (c *Client) Revision(ctx context.Context) (*Revision, error) {
+	var r Revision
+	if err := c.getJSON(ctx, "/v1/revision", &r); err != nil {
+		if IsNotFound(err) {
+			return nil, ErrNoRevision
+		}
+		return nil, err
+	}
+	if strings.TrimSpace(r.Generation) == "" {
+		return nil, ErrNoRevision
+	}
+	return &r, nil
 }
 
 // Invoke POST /v1/invoke. Command failures are HTTP 200 with ok:false.

@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/aidanlsb/perch/internal/api"
@@ -9,10 +11,23 @@ import (
 )
 
 type schemaMsg struct {
-	schema  *api.Schema
-	queries []api.SavedQuery
-	session *api.Session
-	err     error
+	schema   *api.Schema
+	queries  []api.SavedQuery
+	session  *api.Session
+	revision *api.Revision
+	reload   bool
+	err      error
+}
+
+type revisionMsg struct {
+	rev *api.Revision
+	err error
+}
+
+type pollTickMsg struct{}
+
+type debounceMsg struct {
+	seq int
 }
 
 type queryMsg struct {
@@ -42,6 +57,8 @@ type readMsg struct {
 	id      string
 	result  *api.ReadResult
 	vault   string
+	keep    bool
+	live    bool
 	err     error
 }
 
@@ -64,16 +81,24 @@ type editorDoneMsg struct {
 }
 
 func fetchSchema(c *api.Client) tea.Cmd {
+	return fetchStartup(c, false)
+}
+
+func fetchStartup(c *api.Client, reload bool) tea.Cmd {
 	return func() tea.Msg {
 		if c == nil {
-			return schemaMsg{err: errNoClient}
+			return schemaMsg{reload: reload, err: errNoClient}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		sess, _ := c.Session(ctx)
+		rev, rerr := c.Revision(ctx)
+		if rerr != nil {
+			return schemaMsg{session: sess, reload: reload, err: revisionRequiredErr(rerr)}
+		}
 		sch, err := c.Schema(ctx)
 		if err != nil {
-			return schemaMsg{session: sess, err: err}
+			return schemaMsg{session: sess, revision: rev, reload: reload, err: err}
 		}
 		qs, qerr := c.SavedQueries(ctx)
 		if qerr == nil && sch.Queries == nil && len(qs) > 0 {
@@ -82,7 +107,22 @@ func fetchSchema(c *api.Client) tea.Cmd {
 				sch.Queries[q.Name] = q
 			}
 		}
-		return schemaMsg{schema: sch, queries: qs, session: sess}
+		return schemaMsg{schema: sch, queries: qs, session: sess, revision: rev, reload: reload}
+	}
+}
+
+func fetchRevision(c *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil {
+			return revisionMsg{err: errNoClient}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), pollTimeout)
+		defer cancel()
+		rev, err := c.Revision(ctx)
+		if err != nil {
+			return revisionMsg{err: err}
+		}
+		return revisionMsg{rev: rev}
 	}
 }
 
@@ -117,21 +157,25 @@ func fetchQuery(c *api.Client, pane string, gen int, query, typeName string, lim
 }
 
 func fetchRead(c *api.Client, gen int, ref, purpose string) tea.Cmd {
+	return fetchReadFull(c, gen, ref, purpose, false, false)
+}
+
+func fetchReadFull(c *api.Client, gen int, ref, purpose string, keep, live bool) tea.Cmd {
 	return func() tea.Msg {
 		if c == nil {
-			return readMsg{gen: gen, purpose: purpose, id: ref, err: errNoClient}
+			return readMsg{gen: gen, purpose: purpose, id: ref, keep: keep, live: live, err: errNoClient}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		rd, meta, err := c.Read(ctx, ref)
 		if err != nil {
-			return readMsg{gen: gen, purpose: purpose, id: ref, err: err}
+			return readMsg{gen: gen, purpose: purpose, id: ref, keep: keep, live: live, err: err}
 		}
 		vault := ""
 		if meta != nil && meta.VaultContext != nil {
 			vault = meta.VaultContext.Path
 		}
-		return readMsg{gen: gen, purpose: purpose, id: ref, result: rd, vault: vault}
+		return readMsg{gen: gen, purpose: purpose, id: ref, result: rd, vault: vault, keep: keep, live: live}
 	}
 }
 
@@ -201,3 +245,12 @@ type staticErr string
 func (e staticErr) Error() string { return string(e) }
 
 const errNoClient staticErr = "no raven api client"
+
+func revisionRequiredErr(err error) error {
+	if err == nil || errors.Is(err, api.ErrNoRevision) {
+		return errRevisionRequired
+	}
+	return fmt.Errorf("%s: %w", api.RevisionRequired, err)
+}
+
+const errRevisionRequired staticErr = api.RevisionRequired
