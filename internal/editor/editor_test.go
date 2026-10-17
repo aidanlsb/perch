@@ -104,3 +104,44 @@ func TestCommandLine(t *testing.T) {
 		t.Fatalf("unsupported editors skip the jump: %v", args)
 	}
 }
+
+func TestLineArgsQuill(t *testing.T) {
+	tests := []struct {
+		name string
+		line int
+		want []string
+	}{
+		{name: "with line", line: 12, want: []string{"/tmp/note.md:12"}},
+		{name: "without line", line: 0, want: []string{"/tmp/note.md"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := LineArgs("quill", "/tmp/note.md", tt.line)
+			if len(got) != len(tt.want) {
+				t.Fatalf("%v", got)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("%v", got)
+				}
+			}
+		})
+	}
+}
+
+func TestIsTerminalEditorQuill(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		want    bool
+	}{
+		{name: "quill is gui", command: "quill", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsTerminalEditor(tt.command); got != tt.want {
+				t.Fatalf("IsTerminalEditor(%q) = %v, want %v", tt.command, got, tt.want)
+			}
+		})
+	}
+}

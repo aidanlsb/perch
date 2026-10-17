@@ -121,6 +121,8 @@ func LineArgs(name, path string, line int) []string {
 		return []string{fmt.Sprintf("+%d", line), path}
 	case "hx", "helix":
 		return []string{fmt.Sprintf("%s:%d", path, line)}
+	case "quill":
+		return []string{fmt.Sprintf("%s:%d", path, line)}
 	case "code", "code-insiders", "codium", "cursor":
 		return []string{"-g", fmt.Sprintf("%s:%d", path, line)}
 	default:
