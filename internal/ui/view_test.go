@@ -1,9 +1,13 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/aidanlsb/perch/internal/api"
+	"github.com/aidanlsb/perch/internal/config"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestViewRenders(t *testing.T) {
@@ -31,6 +35,119 @@ func TestNoteViewRenders(t *testing.T) {
 	out := m.View()
 	if out == "" {
 		t.Fatal("empty")
+	}
+}
+
+func TestSidebarClipKeepsCursorVisible(t *testing.T) {
+	start, end, above, below := sidebarClip(20, 0, 8)
+	if start != 0 || !below || above {
+		t.Fatalf("top start=%d end=%d above=%v below=%v", start, end, above, below)
+	}
+	if end-start >= 8 {
+		t.Fatalf("indicators should shrink inner, got %d", end-start)
+	}
+
+	start, end, above, below = sidebarClip(20, 19, 8)
+	if end != 20 || !above || below {
+		t.Fatalf("bottom start=%d end=%d above=%v below=%v", start, end, above, below)
+	}
+	if 19 < start || 19 >= end {
+		t.Fatalf("cursor 19 not in [%d,%d)", start, end)
+	}
+
+	start, end, above, below = sidebarClip(20, 10, 8)
+	if !above || !below {
+		t.Fatalf("mid above=%v below=%v", above, below)
+	}
+	if 10 < start || 10 >= end {
+		t.Fatalf("cursor 10 not in [%d,%d)", start, end)
+	}
+}
+
+func manyTypesModel(t *testing.T, n int) Model {
+	t.Helper()
+	types := map[string]api.TypeSchema{}
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("type-%02d", i)
+		types[name] = api.TypeSchema{Name: name, NameField: "name"}
+	}
+	m := NewModel(Options{Config: &config.File{}})
+	m, _ = m.update(schemaMsg{schema: &api.Schema{Version: 1, Types: types}})
+	m, _ = m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	return m
+}
+
+func TestSidebarScrollsWithMotionAndResize(t *testing.T) {
+	m := manyTypesModel(t, 30)
+	m.pane = paneSidebar
+	if len(m.nav) < 30 {
+		t.Fatalf("nav %d", len(m.nav))
+	}
+	first := m.nav[0].Label
+	last := m.nav[len(m.nav)-1].Label
+	const sideH = 8
+
+	side := m.viewSidebar(sideH)
+	if !strings.Contains(side, first) {
+		t.Fatalf("top missing %s in %s", first, side)
+	}
+	if strings.Contains(side, last) {
+		t.Fatalf("top should not show %s in %s", last, side)
+	}
+	if !strings.Contains(side, "▼") {
+		t.Fatalf("expected below indicator: %s", side)
+	}
+
+	m, _ = m.update(key("G"))
+	if m.navCur != len(m.nav)-1 {
+		t.Fatalf("G navCur=%d", m.navCur)
+	}
+	side = m.viewSidebar(sideH)
+	if !strings.Contains(side, last) {
+		t.Fatalf("G missing %s in %s", last, side)
+	}
+	if strings.Contains(side, first) {
+		t.Fatalf("G should not show %s in %s", first, side)
+	}
+	if !strings.Contains(side, "▲") {
+		t.Fatalf("expected above indicator: %s", side)
+	}
+
+	m, _ = m.update(key("g"))
+	m, _ = m.update(key("g"))
+	if m.navCur != 0 {
+		t.Fatalf("gg %d", m.navCur)
+	}
+	side = m.viewSidebar(sideH)
+	if !strings.Contains(side, first) {
+		t.Fatalf("gg missing %s", first)
+	}
+
+	m, _ = m.update(key("ctrl+d"))
+	sel := m.nav[m.navCur].Label
+	side = m.viewSidebar(sideH)
+	if !strings.Contains(side, sel) {
+		t.Fatalf("ctrl-d cursor %s not visible in %s", sel, side)
+	}
+
+	m, _ = m.update(key("j"))
+	sel = m.nav[m.navCur].Label
+	side = m.viewSidebar(sideH)
+	if !strings.Contains(side, sel) {
+		t.Fatalf("j cursor %s not visible in %s", sel, side)
+	}
+
+	m, _ = m.update(key("G"))
+	m, _ = m.update(tea.WindowSizeMsg{Width: 80, Height: 80})
+	side = m.viewSidebar(60)
+	if !strings.Contains(side, last) {
+		t.Fatalf("resize missing last %s", last)
+	}
+	if !strings.Contains(side, first) {
+		t.Fatalf("tall resize should show first %s", first)
+	}
+	if strings.Contains(side, "▲") || strings.Contains(side, "▼") {
+		t.Fatalf("tall viewport should not need arrows: %s", side)
 	}
 }
 

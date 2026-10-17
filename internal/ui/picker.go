@@ -244,7 +244,7 @@ func (m Model) startArgsPrompt(q *api.SavedQuery) (Model, tea.Cmd) {
 }
 
 func (m Model) keysArgs(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
+	key := keyIdent(msg)
 	switch key {
 	case "esc":
 		m.overlay = overlayNone
@@ -259,8 +259,8 @@ func (m Model) keysArgs(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	}
-	if msg.Type == tea.KeyRunes {
-		m.argsBuf += string(msg.Runes)
+	if text := typedText(msg); text != "" {
+		m.argsBuf += text
 	}
 	return m, nil
 }
@@ -305,7 +305,7 @@ func (m Model) loadQuery(q *api.SavedQuery) (Model, tea.Cmd) {
 }
 
 func (m Model) keysPicker(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
+	key := keyIdent(msg)
 	if m.pending == "g" {
 		m.pending = ""
 		if key == "g" {
@@ -352,8 +352,8 @@ func (m Model) keysPicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	}
-	if msg.Type == tea.KeyRunes {
-		m.pickerQ += string(msg.Runes)
+	if text := typedText(msg); text != "" {
+		m.pickerQ += text
 		return m.afterPickerQuery()
 	}
 	return m, nil
