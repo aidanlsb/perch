@@ -125,16 +125,7 @@ func (m *Model) rebindPanesFromSchema() {
 			if !ok {
 				continue
 			}
-			query, typeName, sq, isQuery := resolveSource(m.schema, v.Source)
-			p.sourceBase = query
-			p.typeName = typeName
-			p.savedQuery = sq
-			p.sourceIsQuery = isQuery
-			if sq != nil {
-				p.sourceRQL = sq.Query
-				p.sourceBase = sq.Name
-			}
-			p.rawInputs = v.Inputs
+			applyViewSource(p, m.schema, v)
 			p.applySpec(v.Spec(p.viewName), m.typeSchemaFor(p))
 			continue
 		}

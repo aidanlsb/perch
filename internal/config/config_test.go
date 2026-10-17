@@ -20,27 +20,27 @@ func TestLoadMissingIsEmpty(t *testing.T) {
 func TestLoadViewsAndLayouts(t *testing.T) {
 	path := writeTOML(t, `
 [views.projects]
-source = "item"
+type = "item"
 layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
 
 [views.by-when]
-source = "item"
+type = "item"
 layout = { kind = "list", fields = ["state", "when"], sort = "when" }
 
 [views.open]
-source = "item"
+type = "item"
 layout = { kind = "list", filter = ".state==open" }
 
 [views.week]
-source = "event"
+type = "event"
 layout = { kind = "date", group_by = "when", granularity = "week" }
 
 [views.inbox]
-source = "inbox"
+query = "inbox"
 layout = { kind = "list", sort = "label" }
 
 [views.tasks]
-source = "task"
+type = "task"
 inputs = { item = "{{selected}}" }
 layout = { kind = "list" }
 
@@ -56,7 +56,7 @@ panels = [
 		t.Fatal(err)
 	}
 	v := f.Views["projects"]
-	if v.Source != "item" || v.Layout.Kind != KindBoard || v.Layout.GroupBy != "state" {
+	if v.Type != "item" || v.Query != "" || v.Layout.Kind != KindBoard || v.Layout.GroupBy != "state" {
 		t.Fatalf("%+v", v)
 	}
 	spec := v.Spec("projects")
@@ -68,6 +68,9 @@ panels = [
 	}
 	if f.Views["week"].Layout.Granularity != GranWeek {
 		t.Fatalf("%+v", f.Views["week"])
+	}
+	if f.Views["inbox"].Query != "inbox" || f.Views["inbox"].Type != "" {
+		t.Fatalf("inbox %+v", f.Views["inbox"])
 	}
 	if f.Views["tasks"].Inputs["item"] != SelectedToken {
 		t.Fatalf("inputs %+v", f.Views["tasks"].Inputs)
@@ -87,13 +90,13 @@ panels = [
 func TestLoadNestedPanels(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [views.b]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [views.c]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 
 [layouts.nested]
@@ -158,7 +161,7 @@ func TestLoadRejectsLegacyViewsArray(t *testing.T) {
 	path := writeTOML(t, `
 [[views]]
 name = "Projects"
-source = "type:item"
+type = "type:item"
 kind = "board"
 group_by = "state"
 `)
@@ -189,7 +192,7 @@ group_by = "state"
 func TestLoadRejectsBadKind(t *testing.T) {
 	path := writeTOML(t, `
 [views.x]
-source = "item"
+type = "item"
 layout = { kind = "kanban" }
 `)
 	if _, err := Load(path); err == nil {
@@ -200,7 +203,7 @@ layout = { kind = "kanban" }
 func TestLoadRejectsBoardWithoutGroupBy(t *testing.T) {
 	path := writeTOML(t, `
 [views.board]
-source = "item"
+type = "item"
 layout = { kind = "board" }
 `)
 	if _, err := Load(path); err == nil {
@@ -211,7 +214,7 @@ layout = { kind = "board" }
 func TestLoadRejectsUnknownViewInLayout(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [layouts.x]
 split = "row"
@@ -229,10 +232,10 @@ panels = [ { view = "a" }, { view = "ghost" } ]
 func TestLoadRejectsBindToMissingPanel(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [views.b]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [layouts.x]
 split = "row"
@@ -250,10 +253,10 @@ panels = [ { view = "a" }, { view = "b", bind = "nope" } ]
 func TestLoadRejectsBindCycle(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [views.b]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [layouts.x]
 split = "row"
@@ -271,7 +274,7 @@ panels = [ { view = "a", bind = "b" }, { view = "b", bind = "a" } ]
 func TestLoadRejectsDuplicateView(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [layouts.x]
 split = "col"
@@ -289,7 +292,7 @@ panels = [ { view = "a" }, { view = "a" } ]
 func TestLoadTOMLErrorHasLine(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list"
 `)
 	_, err := Load(path)
@@ -304,9 +307,11 @@ layout = { kind = "list"
 func TestValidateUnknownFields(t *testing.T) {
 	f := &File{
 		Views: map[string]View{
-			"board": {Source: "item", Layout: Present{Kind: KindBoard, GroupBy: "nope", Fields: []string{"state", "missing"}, Sort: "zzz"}},
-			"ghost": {Source: "ghost", Layout: Present{Kind: KindList}},
-			"rql":   {Source: "type:item .state==open", Layout: Present{Kind: KindList, Fields: []string{"missing"}}},
+			"board": {Type: "item", Layout: Present{Kind: KindBoard, GroupBy: "nope", Fields: []string{"state", "missing"}, Sort: "zzz"}},
+			"ghost": {Type: "ghost", Layout: Present{Kind: KindList}},
+			"open":  {Query: "inbox", Layout: Present{Kind: KindList, Fields: []string{"missing"}}},
+			"gone":  {Query: "nope", Layout: Present{Kind: KindList}},
+			"trait": {Query: "priorities", Layout: Present{Kind: KindList, Fields: []string{"missing"}}},
 		},
 	}
 	schema := api.Schema{
@@ -320,13 +325,15 @@ func TestValidateUnknownFields(t *testing.T) {
 			},
 		},
 		Queries: map[string]api.SavedQuery{
-			"inbox": {Name: "inbox", Query: "type:item"},
+			"inbox":      {Name: "inbox", Query: "type:item"},
+			"priorities": {Name: "priorities", Query: "trait:priority"},
 		},
 	}
 	warns := f.Validate(schema)
 	joined := strings.Join(warns, "\n")
 	for _, want := range []string{
-		`views.ghost: unknown source "ghost"`,
+		`views.ghost: unknown type "ghost"`,
+		`views.gone: unknown query "nope"`,
 		`unknown group_by field "nope"`,
 		`unknown fields entry "missing"`,
 		`unknown sort field "zzz"`,
@@ -335,11 +342,17 @@ func TestValidateUnknownFields(t *testing.T) {
 			t.Fatalf("missing %q in\n%s", want, joined)
 		}
 	}
+	if !strings.Contains(joined, `views.open: unknown fields entry "missing"`) {
+		t.Fatalf("saved query with derivable type should check fields:\n%s", joined)
+	}
+	if strings.Contains(joined, "views.trait") {
+		t.Fatalf("saved query without derivable type should skip field checks:\n%s", joined)
+	}
 }
 
 func TestValidateBoardGroupByType(t *testing.T) {
 	f := &File{Views: map[string]View{
-		"board": {Source: "item", Layout: Present{Kind: KindBoard, GroupBy: "when"}},
+		"board": {Type: "item", Layout: Present{Kind: KindBoard, GroupBy: "when"}},
 	}}
 	schema := api.Schema{Types: map[string]api.TypeSchema{
 		"item": {Name: "item", Fields: map[string]api.FieldSchema{
@@ -355,10 +368,10 @@ func TestValidateBoardGroupByType(t *testing.T) {
 func TestUpsertViewWritesAndReplaces(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte("# keep me\n[views.old]\nsource = \"item\"\nlayout = { kind = \"list\" }\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("# keep me\n[views.old]\ntype = \"item\"\nlayout = { kind = \"list\" }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	v := View{Source: "item", Layout: Present{Kind: KindList, Fields: []string{"state"}, Sort: "when"}}
+	v := View{Type: "item", Layout: Present{Kind: KindList, Fields: []string{"state"}, Sort: "when"}}
 	if err := UpsertView(path, "saved", v); err != nil {
 		t.Fatal(err)
 	}
@@ -391,10 +404,10 @@ func TestUpsertViewWritesAndReplaces(t *testing.T) {
 
 func TestAddViewRefusesDuplicate(t *testing.T) {
 	path := writeTOML(t, `[views.old]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `)
-	err := AddView(path, "old", View{Source: "item", Layout: Present{Kind: KindList}})
+	err := AddView(path, "old", View{Type: "item", Layout: Present{Kind: KindList}})
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("%v", err)
 	}
@@ -404,10 +417,10 @@ func TestRemoveViewRefusesInUse(t *testing.T) {
 	path := writeTOML(t, `
 # keep
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [views.b]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [layouts.ws]
 split = "row"
@@ -444,7 +457,7 @@ panels = [ { view = "a" }, { view = "b" } ]
 func TestRemoveViewForceDropsEmptyLayout(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [layouts.only]
 split = "row"
@@ -465,7 +478,7 @@ panels = [ { view = "a" } ]
 func TestAddLayoutAndRemove(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `)
 	if err := AddLayout(path, "ws", Layout{Split: SplitRow, Panels: []Panel{{View: "a"}}}); err != nil {
@@ -492,7 +505,7 @@ layout = { kind = "list" }
 
 func TestCommitRefusesInvalid(t *testing.T) {
 	path := writeTOML(t, `[views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `)
 	err := AddLayout(path, "bad", Layout{Split: "row", Panels: []Panel{{View: "ghost"}}})
@@ -511,7 +524,7 @@ layout = { kind = "list" }
 func TestCheckReportsLineNumbers(t *testing.T) {
 	path := writeTOML(t, `
 [views.board]
-source = "item"
+type = "item"
 layout = { kind = "board" }
 [layouts.x]
 split = "row"
@@ -536,6 +549,119 @@ panels = [ { view = "ghost" } ]
 func TestCheckMissingIsOK(t *testing.T) {
 	if issues := Check(filepath.Join(t.TempDir(), "nope.toml")); len(issues) != 0 {
 		t.Fatalf("%+v", issues)
+	}
+}
+
+func TestLoadRejectsViewSource(t *testing.T) {
+	path := writeTOML(t, `
+[views.projects]
+source = "item"
+layout = { kind = "list" }
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "source was removed") {
+		t.Fatalf("want source-removed, got %v", err)
+	}
+	if !strings.Contains(msg, "type =") || !strings.Contains(msg, "query =") {
+		t.Fatalf("want new format, got %v", err)
+	}
+	if !strings.Contains(msg, ":") {
+		t.Fatalf("want line number, got %v", err)
+	}
+}
+
+func TestLoadRejectsTypeAndQuery(t *testing.T) {
+	path := writeTOML(t, `
+[views.x]
+type = "item"
+query = "inbox"
+layout = { kind = "list" }
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestLoadRejectsMissingTypeAndQuery(t *testing.T) {
+	path := writeTOML(t, `
+[views.x]
+layout = { kind = "list" }
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "exactly one of type or query") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestCheckReportsSourceRemoved(t *testing.T) {
+	path := writeTOML(t, `
+[views.projects]
+source = "item"
+layout = { kind = "list" }
+`)
+	issues := Check(path)
+	if len(issues) == 0 {
+		t.Fatal("expected issue")
+	}
+	joined := ""
+	for _, is := range issues {
+		if is.Line < 2 {
+			t.Fatalf("want line, got %+v", is)
+		}
+		joined += is.Message
+	}
+	if !strings.Contains(joined, "source was removed") {
+		t.Fatalf("%s", joined)
+	}
+	if strings.Contains(joined, "exactly one of type or query") {
+		t.Fatalf("source error should replace missing type/query: %s", joined)
+	}
+}
+
+func TestValidateIncludesLineNumbers(t *testing.T) {
+	path := writeTOML(t, `
+[views.ghost]
+type = "ghost"
+layout = { kind = "list" }
+`)
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	warns := f.Validate(api.Schema{Types: map[string]api.TypeSchema{}})
+	if len(warns) != 1 {
+		t.Fatalf("%v", warns)
+	}
+	if !strings.Contains(warns[0], ":") || !strings.Contains(warns[0], "unknown type") {
+		t.Fatalf("want path:line unknown type, got %q", warns[0])
+	}
+}
+
+func TestEncodeViewWritesTypeOrQuery(t *testing.T) {
+	got, err := EncodeView("projects", View{Type: "item", Layout: Present{Kind: KindList}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `type = "item"`) || strings.Contains(got, "source") || strings.Contains(got, "query") {
+		t.Fatalf("%s", got)
+	}
+	got, err = EncodeView("inbox", View{Query: "inbox", Layout: Present{Kind: KindList}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `query = "inbox"`) || strings.Contains(got, "source") || strings.Contains(got, "type =") {
+		t.Fatalf("%s", got)
 	}
 }
 

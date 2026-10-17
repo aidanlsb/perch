@@ -122,10 +122,10 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 	cfgPath := filepath.Join(dir, "config.toml")
 	cfg := &config.File{
 		Views: map[string]config.View{
-			"priorities": {Source: "priorities", Layout: config.Present{Kind: kindList}},
+			"priorities": {Query: "priorities", Layout: config.Present{Kind: kindList}},
 			"related": {
-				Source: "type:project .id=={{selected}}",
-				Layout: config.Present{Kind: kindList},
+				Type:   "project",
+				Layout: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
 		},
 		Layouts: map[string]config.Layout{
@@ -274,8 +274,8 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 	if !strings.Contains(saved, "[views.from-traits]") {
 		t.Fatalf("missing view:\n%s", saved)
 	}
-	if !strings.Contains(saved, `source = "priorities"`) {
-		t.Fatalf("save view should keep the query source, not a trait id:\n%s", saved)
+	if !strings.Contains(saved, `query = "priorities"`) {
+		t.Fatalf("save view should keep the query name, not a trait id:\n%s", saved)
 	}
 	if strings.Contains(saved, "trait:0") {
 		t.Fatalf("save view wrote a trait id:\n%s", saved)

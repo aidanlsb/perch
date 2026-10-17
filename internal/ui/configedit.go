@@ -8,6 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const adHocSaveHint = "Save this query in Raven first (e.g. `rvn query saved set <name> ...`), then reference it with query = \"<name>\""
+
 func (m Model) openConfig(line int) (Model, tea.Cmd) {
 	path := strings.TrimSpace(m.cfgPath)
 	if path == "" {
@@ -107,24 +109,26 @@ func (m Model) commitSaveView() (Model, tea.Cmd) {
 		return m, nil
 	}
 	p := m.p()
-	source := p.sourceLabel
-	if p.viewName != "" {
-		if m.cfg != nil {
-			if v, ok := m.cfg.Views[p.viewName]; ok {
-				source = v.Source
-			}
-		}
-	} else if p.typeName != "" && (p.sourceBase == "type:"+p.typeName || strings.HasPrefix(p.id, "type:")) {
-		source = p.typeName
-	} else if p.sourceIsQuery && p.savedQuery != nil {
-		source = p.savedQuery.Name
-	} else if p.sourceBase != "" {
-		source = p.sourceBase
-	}
 	v := config.View{
-		Source: source,
 		Inputs: p.rawInputs,
 		Layout: config.Present{}.FromSpec(p.spec),
+	}
+	switch {
+	case p.viewName != "" && m.cfg != nil:
+		if existing, ok := m.cfg.Views[p.viewName]; ok {
+			v.Type = existing.Type
+			v.Query = existing.Query
+		} else {
+			m.status = adHocSaveHint
+			return m, nil
+		}
+	case p.sourceIsQuery && p.savedQuery != nil && strings.TrimSpace(p.savedQuery.Name) != "":
+		v.Query = p.savedQuery.Name
+	case p.typeName != "" && (p.sourceBase == "type:"+p.typeName || strings.HasPrefix(p.id, "type:")):
+		v.Type = p.typeName
+	default:
+		m.status = adHocSaveHint
+		return m, nil
 	}
 	if err := config.UpsertView(path, name, v); err != nil {
 		m.errMsg = err.Error()

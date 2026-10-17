@@ -251,7 +251,11 @@ func EncodeView(name string, v View) (string, error) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "[views.%s]\n", tomlKey(name))
-	fmt.Fprintf(&b, "source = %s\n", tomlString(nv.Source))
+	if nv.Query != "" {
+		fmt.Fprintf(&b, "query = %s\n", tomlString(nv.Query))
+	} else {
+		fmt.Fprintf(&b, "type = %s\n", tomlString(nv.Type))
+	}
 	if len(nv.Inputs) > 0 {
 		keys := make([]string, 0, len(nv.Inputs))
 		for k := range nv.Inputs {

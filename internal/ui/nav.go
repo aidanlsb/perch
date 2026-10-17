@@ -22,10 +22,9 @@ func (m *Model) rebuildNav() {
 	if m.browseOpen {
 		for _, name := range m.schema.SortedTypeNames() {
 			m.nav = append(m.nav, navItem{
-				Kind:   navType,
-				Label:  name,
-				Source: "type:" + name,
-				Type:   name,
+				Kind:  navType,
+				Label: name,
+				Type:  name,
 			})
 		}
 	}
@@ -189,24 +188,15 @@ func (m Model) loadNamedLayout(name string) (Model, tea.Cmd) {
 }
 
 func (m *Model) paneFromView(name string, v config.View, bind string) *viewState {
-	query, typeName, sq, isQuery := resolveSource(m.schema, v.Source)
 	spec := v.Spec(name)
 	p := &viewState{
-		id:            name,
-		viewName:      name,
-		bind:          bind,
-		spec:          spec,
-		sourceBase:    query,
-		sourceLabel:   name,
-		sourceIsQuery: isQuery,
-		typeName:      typeName,
-		rawInputs:     v.Inputs,
-		savedQuery:    sq,
+		id:          name,
+		viewName:    name,
+		bind:        bind,
+		spec:        spec,
+		sourceLabel: name,
 	}
-	if sq != nil {
-		p.sourceRQL = sq.Query
-		p.sourceBase = sq.Name
-	}
+	applyViewSource(p, m.schema, v)
 	p.applySpec(spec, m.typeSchemaFor(p))
 	return p
 }

@@ -260,7 +260,7 @@ func TestConfigNamedViewUsed(t *testing.T) {
 func TestConfigWarningsOnSchema(t *testing.T) {
 	m := NewModel(Options{Config: &config.File{
 		Views: map[string]config.View{
-			"ghost": {Source: "ghost", Layout: config.Present{Kind: kindList}},
+			"ghost": {Type: "ghost", Layout: config.Present{Kind: kindList}},
 		},
 	}})
 	m.width, m.height = 80, 24
@@ -269,7 +269,7 @@ func TestConfigWarningsOnSchema(t *testing.T) {
 		t.Fatal("expected warnings")
 	}
 	out := m.View()
-	if !strings.Contains(out, "unknown source") {
+	if !strings.Contains(out, "unknown type") {
 		t.Fatalf("footer missing warning: %s", out)
 	}
 }
@@ -291,10 +291,10 @@ func loadProjectBoard(t *testing.T) Model {
 func namedViewCfg() *config.File {
 	return &config.File{
 		Views: map[string]config.View{
-			"projects": {Source: "project", Layout: config.Present{Kind: kindBoard, GroupBy: "status"}},
-			"open":     {Source: "project", Layout: config.Present{Kind: kindList, Filter: ".status==active"}},
-			"week":     {Source: "project", Layout: config.Present{Kind: kindDate, GroupBy: "due", Granularity: layout.GranDay}},
-			"people":   {Source: "person", Layout: config.Present{Kind: kindList, Sort: "name"}},
+			"projects": {Type: "project", Layout: config.Present{Kind: kindBoard, GroupBy: "status"}},
+			"open":     {Type: "project", Layout: config.Present{Kind: kindList, Filter: ".status==active"}},
+			"week":     {Type: "project", Layout: config.Present{Kind: kindDate, GroupBy: "due", Granularity: layout.GranDay}},
+			"people":   {Type: "person", Layout: config.Present{Kind: kindList, Sort: "name"}},
 		},
 	}
 }

@@ -16,10 +16,13 @@ const viewsUsage = `perch views list|show <name>|add <name>|rm <name>
   rm <name>            Delete a view
 
 add flags:
-  --source string      Type name, saved query name, or RQL (required)
+  --type string        Schema type name (mutually exclusive with --query)
+  --query string       Raven saved query name (mutually exclusive with --type)
   --inputs k=v         Repeatable. Also accepts comma-separated pairs
   --layout spec        kind=board,group_by=state,fields=state,when
                        or a kind word (list, board, date)
+
+Exactly one of --type or --query is required. --source is rejected.
 
 rm of a view referenced by a layout fails unless --force (drops those panels).
 `
@@ -27,7 +30,7 @@ rm of a view referenced by a layout fails unless --force (drops those panels).
 func runViews(args []string, stdout, stderr io.Writer) error {
 	p, err := parseArgs(args, argSpec{
 		bools:   []string{"json", "force", "help", "h"},
-		vals:    []string{"config", "source", "layout"},
+		vals:    []string{"config", "type", "query", "source", "layout"},
 		repeats: []string{"inputs"},
 	})
 	jsonOut := p.Bool["json"]
@@ -90,7 +93,7 @@ func viewsList(path string) (any, string, error) {
 	for _, name := range f.ViewNames() {
 		item := viewData(name, f.Views[name], f.ViewLine(name))
 		items = append(items, item)
-		lines = append(lines, fmt.Sprintf("%s\t%s\t%s", name, f.Views[name].Source, f.Views[name].Layout.Kind))
+		lines = append(lines, fmt.Sprintf("%s\t%s\t%s", name, viewOrigin(f.Views[name]), f.Views[name].Layout.Kind))
 	}
 	return map[string]any{"views": items}, strings.Join(lines, "\n"), nil
 }
@@ -109,9 +112,16 @@ func viewsShow(path, name string) (any, string, error) {
 }
 
 func viewsAdd(path, name string, p parsedArgs) (any, string, error) {
-	source := strings.TrimSpace(p.Val["source"])
-	if source == "" {
-		return nil, "", fail(CodeMissingArgument, "--source is required")
+	if strings.TrimSpace(p.Val["source"]) != "" {
+		return nil, "", fail(CodeInvalidArgs, "--source was removed; use --type or --query")
+	}
+	typeName := strings.TrimSpace(p.Val["type"])
+	queryName := strings.TrimSpace(p.Val["query"])
+	if typeName != "" && queryName != "" {
+		return nil, "", fail(CodeInvalidArgs, "--type and --query are mutually exclusive")
+	}
+	if typeName == "" && queryName == "" {
+		return nil, "", fail(CodeMissingArgument, "--type or --query is required")
 	}
 	inputs, err := parseKVList(p.All["inputs"])
 	if err != nil {
@@ -124,7 +134,7 @@ func viewsAdd(path, name string, p parsedArgs) (any, string, error) {
 	if ref != "" {
 		return nil, "", fail(CodeInvalidInput, "view --layout is an inline spec (kind=board,group_by=...), not a layout name")
 	}
-	v := config.View{Source: source, Inputs: inputs, Layout: present}
+	v := config.View{Type: typeName, Query: queryName, Inputs: inputs, Layout: present}
 	if err := config.AddView(path, name, v); err != nil {
 		return nil, "", err
 	}
@@ -162,8 +172,13 @@ func viewData(name string, v config.View, line int) map[string]any {
 	}
 	out := map[string]any{
 		"name":   name,
-		"source": v.Source,
 		"layout": layout,
+	}
+	if v.Type != "" {
+		out["type"] = v.Type
+	}
+	if v.Query != "" {
+		out["query"] = v.Query
 	}
 	if len(v.Inputs) > 0 {
 		out["inputs"] = v.Inputs
@@ -174,9 +189,20 @@ func viewData(name string, v config.View, line int) map[string]any {
 	return out
 }
 
+func viewOrigin(v config.View) string {
+	if strings.TrimSpace(v.Query) != "" {
+		return "query:" + v.Query
+	}
+	return "type:" + v.Type
+}
+
 func formatView(name string, v config.View) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "name: %s\nsource: %s\nkind: %s", name, v.Source, v.Layout.Kind)
+	if v.Query != "" {
+		fmt.Fprintf(&b, "name: %s\nquery: %s\nkind: %s", name, v.Query, v.Layout.Kind)
+	} else {
+		fmt.Fprintf(&b, "name: %s\ntype: %s\nkind: %s", name, v.Type, v.Layout.Kind)
+	}
 	if v.Layout.GroupBy != "" {
 		fmt.Fprintf(&b, "\ngroup_by: %s", v.Layout.GroupBy)
 	}

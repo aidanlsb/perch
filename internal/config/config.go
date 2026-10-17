@@ -18,17 +18,12 @@ import (
 
 const SelectedToken = "{{selected}}"
 
-const legacyRemoved = `[[types.*.layouts]] and [[queries.*.layouts]] were removed.
-
-Use named views and layouts. Type, query, and field names are yours;
-Perch does not treat any of them as special:
-
-[views.projects]
-source = "item"
+const viewShape = `[views.projects]
+type = "item"
 layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
 
 [views.tasks]
-source = "task"
+query = "open-tasks"
 inputs = { item = "{{selected}}" }
 layout = { kind = "list" }
 
@@ -36,8 +31,22 @@ layout = { kind = "list" }
 split = "row"
 panels = [ { view = "projects" }, { view = "tasks", bind = "projects" } ]
 
-source is a type name, a saved query name, or an RQL string.
-kind is list, board, or date. See examples/config.toml.`
+Exactly one of type (a schema type name) or query (a Raven saved query name) is required.
+Inline RQL is not allowed in config. kind is list, board, or date. See examples/config.toml.`
+
+const legacyRemoved = `[[types.*.layouts]] and [[queries.*.layouts]] were removed.
+
+Use named views and layouts. Type, query, and field names are yours;
+Perch does not treat any of them as special:
+
+` + viewShape
+
+const sourceRemoved = `views.*.source was removed.
+
+Use named views and layouts. Type, query, and field names are yours;
+Perch does not treat any of them as special:
+
+` + viewShape
 
 // File is Perch's own config. Raven does not read it.
 type File struct {
@@ -48,9 +57,10 @@ type File struct {
 	Layouts map[string]Layout `toml:"layouts"`
 }
 
-// View is [views.<name>]: one source plus a list/board/date presentation.
+// View is [views.<name>]: exactly one of type or query, plus a list/board/date presentation.
 type View struct {
-	Source string            `toml:"source" json:"source"`
+	Type   string            `toml:"type" json:"type,omitempty"`
+	Query  string            `toml:"query" json:"query,omitempty"`
 	Inputs map[string]string `toml:"inputs" json:"inputs,omitempty"`
 	Layout Present           `toml:"layout" json:"layout"`
 }
@@ -144,7 +154,8 @@ func Parse(path, src string) (*File, error) {
 	}
 
 	var decoded File
-	if _, err := toml.Decode(src, &decoded); err != nil {
+	meta, err = toml.Decode(src, &decoded)
+	if err != nil {
 		return nil, wrapDecode(path, err)
 	}
 	f.Views = decoded.Views
@@ -157,12 +168,12 @@ func Parse(path, src string) (*File, error) {
 	}
 
 	for name, v := range f.Views {
+		if meta.IsDefined("views", name, "source") {
+			return nil, &Error{Path: path, Line: f.viewLine(name), Msg: sourceKeyMsg(name)}
+		}
 		nv, err := v.normalize()
 		if err != nil {
 			return nil, &Error{Path: path, Line: f.viewLine(name), Msg: fmt.Sprintf("views.%s: %s", name, err.Error())}
-		}
-		if strings.TrimSpace(nv.Source) == "" {
-			return nil, &Error{Path: path, Line: f.viewLine(name), Msg: fmt.Sprintf("views.%s: source is required", name)}
 		}
 		f.Views[name] = nv
 	}
@@ -180,7 +191,11 @@ func Parse(path, src string) (*File, error) {
 }
 
 func (v View) normalize() (View, error) {
-	v.Source = strings.TrimSpace(v.Source)
+	v.Type = strings.TrimSpace(v.Type)
+	v.Query = strings.TrimSpace(v.Query)
+	if err := v.typeQueryChoice(); err != nil {
+		return v, err
+	}
 	p, err := v.Layout.normalize()
 	if err != nil {
 		return v, err
@@ -198,6 +213,29 @@ func (v View) normalize() (View, error) {
 		v.Inputs = clean
 	}
 	return v, nil
+}
+
+func (v View) typeQueryChoice() error {
+	if v.Type != "" && v.Query != "" {
+		return fmt.Errorf("type and query are mutually exclusive; set exactly one")
+	}
+	if v.Type == "" && v.Query == "" {
+		return fmt.Errorf("exactly one of type or query is required")
+	}
+	return nil
+}
+
+func sourceKeyMsg(name string) string {
+	return fmt.Sprintf("views.%s: source was removed.\n\n%s", name, sourceRemoved)
+}
+
+func isTypeQueryChoiceError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "type and query are mutually exclusive") ||
+		strings.Contains(s, "exactly one of type or query is required")
 }
 
 func (p Present) normalize() (Present, error) {
@@ -417,9 +455,12 @@ func (p Present) FromSpec(s layout.Spec) Present {
 	}
 }
 
-// NeedsSelected reports whether source or inputs reference {{selected}}.
+// NeedsSelected reports whether type, query, filter, or inputs reference {{selected}}.
 func (v View) NeedsSelected() bool {
-	if strings.Contains(v.Source, SelectedToken) {
+	if strings.Contains(v.Type, SelectedToken) || strings.Contains(v.Query, SelectedToken) {
+		return true
+	}
+	if strings.Contains(v.Layout.Filter, SelectedToken) {
 		return true
 	}
 	for _, val := range v.Inputs {
@@ -496,8 +537,9 @@ func (f *File) ViewLine(name string) int { return f.viewLine(name) }
 // LayoutLine is the 1-based line of [layouts.name], or 0.
 func (f *File) LayoutLine(name string) int { return f.layoutLine(name) }
 
-// Validate checks configured views against a live schema. Unknown sources and
-// fields become warnings (not load errors). Layout structure is already a load error.
+// Validate checks configured views against a live schema. Unknown types and
+// queries, and unknown fields, become warnings (not load errors). Messages
+// include line numbers when known. Layout structure is already a load error.
 func (f *File) Validate(schema api.Schema) []string {
 	if f == nil {
 		return nil
@@ -505,33 +547,43 @@ func (f *File) Validate(schema api.Schema) []string {
 	var warns []string
 	for _, name := range f.ViewNames() {
 		v := f.Views[name]
-		warns = append(warns, validateView("views."+name, v, schema)...)
+		for _, msg := range validateView("views."+name, v, schema) {
+			warns = append(warns, f.formatViewIssue(name, msg))
+		}
 	}
 	return warns
 }
 
-func validateView(prefix string, v View, schema api.Schema) []string {
-	source := strings.TrimSpace(v.Source)
-	source = SubstituteSelected(source, "")
-	var ts api.TypeSchema
-	var warns []string
-	switch {
-	case source == "":
-		return nil
-	case looksLikeRQL(source):
-		ts = typeSchemaForRQL(schema, source)
-	default:
-		if t, ok := schema.Types[source]; ok {
-			ts = t
-		} else if q, ok := schema.Queries[source]; ok {
-			ts = typeSchemaForRQL(schema, q.Query)
-		} else {
-			warns = append(warns, fmt.Sprintf("%s: unknown source %q", prefix, v.Source))
-			return warns
-		}
+func (f *File) formatViewIssue(name, msg string) string {
+	e := &Error{Msg: msg}
+	if f != nil {
+		e.Path = f.Path
+		e.Line = f.viewLine(name)
 	}
-	if ts.Name == "" && len(ts.Fields) == 0 {
-		return warns
+	return e.Error()
+}
+
+func validateView(prefix string, v View, schema api.Schema) []string {
+	var warns []string
+	var ts api.TypeSchema
+	switch {
+	case strings.TrimSpace(v.Type) != "":
+		t, ok := schema.Types[v.Type]
+		if !ok {
+			return []string{fmt.Sprintf("%s: unknown type %q", prefix, v.Type)}
+		}
+		ts = t
+	case strings.TrimSpace(v.Query) != "":
+		q, ok := schema.Queries[v.Query]
+		if !ok {
+			return []string{fmt.Sprintf("%s: unknown query %q", prefix, v.Query)}
+		}
+		ts = typeSchemaOfSavedQuery(schema, q)
+		if ts.Name == "" && len(ts.Fields) == 0 {
+			return nil
+		}
+	default:
+		return nil
 	}
 	spec := v.Spec(prefix)
 	check := func(kind, field string) {
@@ -571,30 +623,16 @@ func validateView(prefix string, v View, schema api.Schema) []string {
 	return warns
 }
 
-func looksLikeRQL(source string) bool {
-	if strings.ContainsAny(source, " \t") {
-		return true
-	}
-	if strings.HasPrefix(source, "type:") {
-		return true
-	}
-	if strings.Contains(source, ".") {
-		return true
-	}
-	return false
-}
-
-func typeSchemaForRQL(schema api.Schema, q string) api.TypeSchema {
-	body := strings.TrimSpace(q)
+func typeSchemaOfSavedQuery(schema api.Schema, q api.SavedQuery) api.TypeSchema {
+	body := strings.TrimSpace(q.Query)
 	if !strings.HasPrefix(body, "type:") {
 		return api.TypeSchema{}
 	}
-	rest := strings.TrimPrefix(body, "type:")
-	name := strings.Fields(rest)
-	if len(name) == 0 {
+	rest := strings.Fields(strings.TrimPrefix(body, "type:"))
+	if len(rest) == 0 {
 		return api.TypeSchema{}
 	}
-	return schema.Types[name[0]]
+	return schema.Types[rest[0]]
 }
 
 // DefaultPath is ~/.config/perch/config.toml (XDG).
@@ -759,7 +797,8 @@ func CheckSource(path, src string) []Issue {
 		return []Issue{{Line: firstLine(src, "views"), Path: path, Message: "[[views]] (array of tables) was removed.\n\n" + legacyRemoved}}
 	}
 	var decoded File
-	if _, err := toml.Decode(src, &decoded); err != nil {
+	meta, err = toml.Decode(src, &decoded)
+	if err != nil {
 		var ce *Error
 		wrapped := wrapDecode(path, err)
 		if errors.As(wrapped, &ce) {
@@ -776,13 +815,16 @@ func CheckSource(path, src string) []Issue {
 	var issues []Issue
 	for _, name := range sortedKeys(decoded.Views) {
 		line := lines["views."+name]
+		hasSource := meta.IsDefined("views", name, "source")
+		if hasSource {
+			issues = append(issues, Issue{Line: line, Path: path, Message: sourceKeyMsg(name)})
+		}
 		nv, nerr := decoded.Views[name].normalize()
 		if nerr != nil {
+			if hasSource && isTypeQueryChoiceError(nerr) {
+				continue
+			}
 			issues = append(issues, Issue{Line: line, Path: path, Message: fmt.Sprintf("views.%s: %s", name, nerr.Error())})
-			continue
-		}
-		if strings.TrimSpace(nv.Source) == "" {
-			issues = append(issues, Issue{Line: line, Path: path, Message: fmt.Sprintf("views.%s: source is required", name)})
 			continue
 		}
 		decoded.Views[name] = nv
