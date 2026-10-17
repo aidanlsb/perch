@@ -14,9 +14,6 @@ func ObjectsFromCorpus(items []ObjectSummary) []Object {
 			Kind:     "object",
 			Fields:   map[string]any{},
 		}
-		if it.Name != "" {
-			obj.Fields["name"] = it.Name
-		}
 		if obj.Title == "" {
 			obj.Title = obj.ID
 		}

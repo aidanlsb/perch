@@ -30,8 +30,6 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.onRead(msg)
 	case searchMsg:
 		return m.onSearch(msg)
-	case dateMsg:
-		return m.onDate(msg)
 	case objectsMsg:
 		return m.onObjects(msg)
 	case prefetchMsg:
@@ -295,31 +293,6 @@ func (m Model) onSearch(msg searchMsg) (Model, tea.Cmd) {
 	m.rebuildNotePicks()
 	m.refilterPicker()
 	return m, nil
-}
-
-func (m Model) onDate(msg dateMsg) (Model, tea.Cmd) {
-	if msg.gen != m.gen {
-		return m, nil
-	}
-	m.loading = false
-	if msg.err != nil {
-		// Older rvn: no session.daily and no date command.
-		m.errMsg = "daily: " + msg.err.Error()
-		return m.loadType("date")
-	}
-	res := msg.result
-	if res != nil && res.DailyExists && res.DailyNoteID != "" {
-		m.status = "daily " + res.Date
-		return m.openNote(res.DailyNoteID)
-	}
-	dateLabel := "today"
-	if res != nil && res.Date != "" {
-		dateLabel = res.Date
-	}
-	m.status = "no daily note for " + dateLabel + " — date list"
-	m2, cmd := m.loadType("date")
-	m2.status = "no daily note for " + dateLabel + " (rvn daily creates it)"
-	return m2, cmd
 }
 
 func (m Model) onEditorDone(msg editorDoneMsg) (Model, tea.Cmd) {
@@ -778,13 +751,11 @@ func (m Model) openDaily() (Model, tea.Cmd) {
 			m.status = "daily " + m.daily.TodayID
 			return m.openNote(m.daily.TodayID)
 		}
-		m.status = "no daily note for " + m.daily.TodayID + " (rvn daily creates it)"
-		return m.loadType("date")
+		m.status = "no daily note for " + m.daily.TodayID
+		return m, nil
 	}
-	gen := m.nextGen()
-	m.loading = true
-	m.status = "daily…"
-	return m, fetchDate(m.client, gen, "today")
+	m.status = "no daily note in session"
+	return m, nil
 }
 
 func (m *Model) move(delta int) {

@@ -115,7 +115,7 @@ func TestLayoutPickerAndJump(t *testing.T) {
 		t.Fatalf("jump 1 %s %d", m.currentLayoutName(), m.layoutIdx)
 	}
 	m, _ = m.update(key("3"))
-	if m.currentLayoutName() != "By due" || m.viewKind != kindDate {
+	if m.currentLayoutName() != "Date" || m.viewKind != kindDate {
 		t.Fatalf("jump 3 %s %s", m.currentLayoutName(), m.viewKind)
 	}
 	m, _ = m.update(key("9"))
@@ -157,34 +157,24 @@ func TestLayoutFilterRefetch(t *testing.T) {
 	}
 }
 
-func TestDailyHotkey(t *testing.T) {
+func TestDailyHotkeyWithoutSession(t *testing.T) {
 	m := loadBrowse(t)
+	src := m.sourceQuery
 	m, cmd := m.update(key("d"))
-	if cmd == nil {
-		t.Fatal("date cmd")
+	if cmd != nil {
+		t.Fatal("no session daily: must not fetch or load a type")
 	}
-	m, cmd = m.update(dateMsg{
-		gen: m.gen,
-		result: &api.DateResult{
-			Date: "2026-10-15", DailyExists: true, DailyNoteID: "2026-10-15",
-		},
-	})
-	if cmd == nil {
-		t.Fatal("read daily")
+	if m.sourceQuery != src {
+		t.Fatalf("source changed to %s", m.sourceQuery)
 	}
-	m, _ = m.update(readMsg{
-		gen:     m.gen,
-		purpose: "note",
-		result:  &api.ReadResult{ObjectID: "2026-10-15", Path: "daily/2026-10-15.md", Content: "# today\n"},
-	})
-	if m.screen != kindNote || m.note.ObjectID != "2026-10-15" {
-		t.Fatalf("screen %s note %+v", m.screen, m.note)
+	if !strings.Contains(m.status, "no daily note in session") {
+		t.Fatalf("status %q", m.status)
 	}
 }
 
 func TestDailyUsesSessionWhenPresent(t *testing.T) {
 	m := loadBrowse(t)
-	m.daily = &api.DailyInfo{Directory: "daily", TodayID: "2026-10-15", TodayPath: "daily/2026-10-15.md", TodayExists: true}
+	m.daily = &api.DailyInfo{Directory: "journal", TodayID: "2026-10-15", TodayPath: "journal/2026-10-15.md", TodayExists: true}
 	m, cmd := m.update(key("d"))
 	if cmd == nil {
 		t.Fatal("read today")
@@ -194,30 +184,19 @@ func TestDailyUsesSessionWhenPresent(t *testing.T) {
 	}
 }
 
-func TestDailySessionMissingOpensDateList(t *testing.T) {
+func TestDailySessionMissingDoesNotOpenType(t *testing.T) {
 	m := loadBrowse(t)
+	src := m.sourceQuery
 	m.daily = &api.DailyInfo{TodayID: "2026-10-15", TodayExists: false}
 	m, cmd := m.update(key("d"))
-	if cmd == nil {
-		t.Fatal("load date type")
+	if cmd != nil {
+		t.Fatal("missing file must not load a type")
 	}
-	if m.sourceQuery != "type:date" {
-		t.Fatalf("source %s", m.sourceQuery)
+	if m.sourceQuery != src {
+		t.Fatalf("source changed to %s", m.sourceQuery)
 	}
-}
-
-func TestDailyMissingFallsBackToDateType(t *testing.T) {
-	m := loadBrowse(t)
-	m, _ = m.update(key("d"))
-	m, cmd := m.update(dateMsg{
-		gen:    m.gen,
-		result: &api.DateResult{Date: "2026-10-15", DailyExists: false},
-	})
-	if cmd == nil {
-		t.Fatal("load date type")
-	}
-	if m.sourceQuery != "type:date" {
-		t.Fatalf("source %s", m.sourceQuery)
+	if !strings.Contains(m.status, "2026-10-15") {
+		t.Fatalf("status %s", m.status)
 	}
 }
 
@@ -308,6 +287,42 @@ func TestEditorFromBrowseUsesSelectedRow(t *testing.T) {
 	_, cmd := m.update(key("e"))
 	if cmd == nil {
 		t.Fatal("editor cmd")
+	}
+}
+
+func TestLayoutCycleNameAgnostic(t *testing.T) {
+	schema := api.Schema{
+		Types: map[string]api.TypeSchema{
+			"item": {
+				Name:       "item",
+				NameField:  "label",
+				FieldOrder: []string{"label", "xyz", "when"},
+				Fields: map[string]api.FieldSchema{
+					"label": {Type: "string"},
+					"xyz":   {Type: "enum", Values: []string{"a", "b"}},
+					"when":  {Type: "date"},
+				},
+			},
+		},
+	}
+	m := NewModel(Options{Config: &config.File{}})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(schema)})
+	m, _ = m.update(queryMsg{
+		gen: m.gen, typeName: "item",
+		objects: []api.Object{
+			{ID: "items/a", Title: "A", Type: "item", Fields: map[string]any{"xyz": "a", "when": "2026-10-01"}},
+		},
+	})
+	if m.viewKind != kindList || m.currentLayoutName() != "List" {
+		t.Fatalf("default %s %s", m.viewKind, m.currentLayoutName())
+	}
+	m, _ = m.update(key("L"))
+	if m.viewKind != kindBoard || m.groupBy != "xyz" || m.currentLayoutName() != "Board" {
+		t.Fatalf("board %+v name=%s", m.spec, m.currentLayoutName())
+	}
+	m, _ = m.update(key("L"))
+	if m.viewKind != kindDate || m.groupBy != "when" || m.currentLayoutName() != "Date" {
+		t.Fatalf("date %+v name=%s", m.spec, m.currentLayoutName())
 	}
 }
 

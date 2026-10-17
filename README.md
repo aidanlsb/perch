@@ -50,19 +50,19 @@ to layout N (1-based). `.` cycles date granularity (day → week → month)
 inside a date layout and no longer invents extra group-by fields.
 
 Zero-config: when a type has no `[[layouts]]`, Perch synthesizes a small
-set from the live schema (this is the entire L-cycle):
+set from schema structure only. Field names are not preferred. This is
+the entire L-cycle:
 
 1. **List** always (and it is the default)
 2. **Board** if the type has a scalar enum field, grouped by the first
-   enum, preferring a field named `status` (named "Board" when the field
-   is `status`, else "By \<enum\>")
+   such field in schema definition order (named "Board")
 3. **Date** if the type has a scalar date/datetime field, grouped by the
-   first such field, preferring `date` (named "Date" when the field is
-   `date`, else "By \<field\>"; granularity day)
+   first such field in schema definition order (named "Date"; granularity
+   day)
 
 Ref fields do not produce a synthesized board. Saved queries with no
 configured layouts start as List and pick up the same synthesis once the
-result type is known.
+result type is known. Any other grouping, sort, or filter is user config.
 
 ## Config
 
@@ -70,39 +70,34 @@ Defaults live in Perch's own file (Raven never reads it), defaulting to
 `~/.config/perch/config.toml`. See `examples/config.toml`.
 
 ```toml
-[[types.project.layouts]]
+[[types.item.layouts]]
 name = "Board"
 kind = "board"
-group_by = "status"
-fields = ["status", "due"]
+group_by = "state"
+fields = ["state", "when"]
 
-[[types.project.layouts]]
-name = "By due"
+[[types.item.layouts]]
+name = "By when"
 kind = "list"
-fields = ["status", "due"]
-sort = "due"
+fields = ["state", "when"]
+sort = "when"
 
-[[types.project.layouts]]
-name = "Active"
-kind = "list"
-filter = ".status==active"
-
-[[types.date.layouts]]
-name = "Week"
-kind = "date"
-group_by = "date"
-granularity = "week"
-
-[[queries.open.layouts]]
+[[types.item.layouts]]
 name = "Open"
+kind = "list"
+filter = ".state==open"
+
+[[queries.inbox.layouts]]
+name = "Inbox"
 kind = "list"
 ```
 
 `kind` is `list`, `board`, or `date`. Board `group_by` is an enum or ref
 field. Date `group_by` is a date/datetime field; `granularity` is `day`,
 `week`, or `month`. Optional `filter` is an RQL predicate appended to the
-type source (`type:project` + `.status==active`). For a saved query it is
-appended to the query's RQL text.
+type source (`type:<name>` plus the predicate). For a saved query it is
+appended to the query's RQL text. Type and field names in this file are
+the user's; Perch does not treat any of them as special.
 
 The old single `layout =` per type and the `[[views]]` table are removed.
 If they appear, Perch prints an error pointing at this shape.
@@ -120,7 +115,7 @@ and shows warnings in the footer for unknown types, queries, or fields.
 | `ctrl-p` / `space f` | Notes: fuzzy over the `objects` corpus (paginated, cached, background), plus Raven `search` after two characters |
 | `/` | Fuzzy search in the current view; `n` / `N` next/previous hit |
 | `:` | Ad-hoc RQL |
-| `d` / `space d` | Today's daily note from `GET /v1/session` `daily` if it exists, else the `date` list |
+| `d` / `space d` | Today's daily note from `GET /v1/session` `daily` (`today_id` when `today_exists`); otherwise a status message. Perch does not guess a type or directory. |
 
 Saved queries that declare `args` open an argument prompt. Values are sent as
 `query` `inputs` (`{{args.*}}`). Esc cancels.
@@ -190,14 +185,15 @@ perch  →  HTTP 127.0.0.1  →  rvn api  →  commandexec.Invoker
 
 Endpoints used: `GET /v1/health`, `GET /v1/session` (including `daily`),
 `GET /v1/schema`, `POST /v1/invoke` with `query` (and `inputs` for saved-query
-args), `query_saved_list`, `objects`, `read`, `search`, `backlinks`, and the
-read-only `date` hub. Write commands (`set`, `unset`, `new`, `move`) and
-`daily` (which may create a file) are rejected in the client.
+args), `query_saved_list`, `objects`, `read`, `search`, and `backlinks`.
+Write commands (`set`, `unset`, `new`, `move`) and `daily` (which may
+create a file) are rejected in the client.
 
 Query, `read`, and `objects` rows are cached in memory. The notes picker is
 backed by paginated `objects` loaded in the background. Older `rvn` without
-`objects` falls back to per-type query prefetch. Older `rvn` without
-`session.daily` falls back to the `date` command, then `type:date`.
+`objects` falls back to per-type query prefetch. Daily notes use only
+`session.daily`. If that field is missing or today's file does not exist,
+Perch reports it and does not call `date` or open a type.
 
 The note view renders Markdown, shows frontmatter as a header, and cycles
 wiki links from `read --json` `data.links` using UTF-8 byte offsets. Perch

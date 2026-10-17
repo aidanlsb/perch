@@ -65,9 +65,28 @@ func TestFilterAndSort(t *testing.T) {
 	if len(objs) != 2 {
 		t.Fatalf("%d", len(objs))
 	}
-	sorted := SortObjects(sampleProjects(), "title")
-	if sorted[0].Title != "A" || sorted[len(sorted)-1].Title != "E" {
+	sorted := SortObjects(sampleProjects(), "due")
+	if sorted[0].ID != "c" {
+		t.Fatalf("sort by due %+v", sorted)
+	}
+}
+
+func TestSortByArbitraryFieldName(t *testing.T) {
+	objs := []api.Object{
+		{ID: "a", Title: "A", Fields: map[string]any{"xyz": "m"}},
+		{ID: "b", Title: "B", Fields: map[string]any{"xyz": "a"}},
+	}
+	sorted := SortObjects(objs, "xyz")
+	if sorted[0].ID != "b" {
 		t.Fatalf("%v", sorted)
+	}
+	named := []api.Object{
+		{ID: "a", Title: "A", Fields: map[string]any{"name": "z"}},
+		{ID: "b", Title: "B", Fields: map[string]any{"name": "a"}},
+	}
+	sorted = SortObjects(named, "name")
+	if sorted[0].ID != "b" {
+		t.Fatalf("name is a field, not Title: %+v", sorted)
 	}
 }
 

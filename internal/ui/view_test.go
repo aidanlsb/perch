@@ -7,6 +7,7 @@ import (
 
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/config"
+	"github.com/aidanlsb/perch/internal/frontmatter"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -148,6 +149,37 @@ func TestSidebarScrollsWithMotionAndResize(t *testing.T) {
 	}
 	if strings.Contains(side, "▲") || strings.Contains(side, "▼") {
 		t.Fatalf("tall viewport should not need arrows: %s", side)
+	}
+}
+
+func TestRowCellsUsesNamedField(t *testing.T) {
+	obj := api.Object{ID: "a", Title: "Title", Type: "item", Fields: map[string]any{"xyz": "X", "name": "N"}}
+	cells := rowCells(obj, []string{"id", "xyz", "name"})
+	if cells[0] != "a" || cells[1] != "X" || cells[2] != "N" {
+		t.Fatalf("%v", cells)
+	}
+	obj2 := api.Object{ID: "b", Title: "T", Fields: map[string]any{"title": "FieldTitle"}}
+	cells = rowCells(obj2, []string{"id", "title"})
+	if cells[1] != "FieldTitle" {
+		t.Fatalf("title column must read the field, not obj.Title: %v", cells)
+	}
+}
+
+func TestNoteHeadingUsesSchemaNameField(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{}})
+	m.schema = api.Schema{Types: map[string]api.TypeSchema{
+		"item": {Name: "item", NameField: "xyz"},
+	}}
+	m.noteIndex = map[string]api.Object{
+		"items/a": {ID: "items/a", Type: "item", Title: "Fallback"},
+	}
+	doc := frontmatter.Doc{Fields: map[string]string{"xyz": "FromXYZ", "name": "FromName"}}
+	if got := m.headingFromDoc("items/a", doc); got != "FromXYZ" {
+		t.Fatalf("got %q", got)
+	}
+	other := frontmatter.Doc{Fields: map[string]string{"name": "FromName", "status": "open"}}
+	if got := m.headingFromDoc("items/a", other); got != "Fallback" {
+		t.Fatalf("empty name_field should use Title, not name: %q", got)
 	}
 }
 

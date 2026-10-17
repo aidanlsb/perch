@@ -25,7 +25,7 @@ var Keymap = []Binding{
 	{"browse", "ctrl-p / space f", "fuzzy notes picker"},
 	{"browse", "/", "fuzzy search in current view"},
 	{"browse", "n / N", "next / previous search hit"},
-	{"browse", "d", "today's daily note (or date list)"},
+	{"browse", "d", "today's daily note from session"},
 	{"browse", "L", "next named layout"},
 	{"browse", "gL", "previous named layout"},
 	{"browse", "gl / space l", "layout picker"},

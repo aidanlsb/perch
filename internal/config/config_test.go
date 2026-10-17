@@ -111,7 +111,7 @@ group_by = "status"
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "[[types.project.layouts]]") {
+	if !strings.Contains(err.Error(), "[[types.") || !strings.Contains(err.Error(), ".layouts]]") {
 		t.Fatalf("want pointer at new shape, got %v", err)
 	}
 }
@@ -132,7 +132,7 @@ group_by = "status"
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "[[views]]") || !strings.Contains(err.Error(), "[[types.project.layouts]]") {
+	if !strings.Contains(err.Error(), "[[views]]") || !strings.Contains(err.Error(), "[[types.") {
 		t.Fatalf("want views-removed pointer, got %v", err)
 	}
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"sort"
 	"strconv"
@@ -75,33 +76,68 @@ func (s Schema) SortedSavedQueries() []SavedQuery {
 	return out
 }
 
-// FieldNames returns field names in a stable order: name_field first, then alpha.
+// UnmarshalJSON records field definition order from the JSON object keys.
+func (t *TypeSchema) UnmarshalJSON(data []byte) error {
+	type alias TypeSchema
+	var raw alias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*t = TypeSchema(raw)
+	t.FieldOrder = jsonObjectKeys(data, "fields")
+	return nil
+}
+
+// FieldNames returns field names for list columns: name_field first (from
+// the schema), then the remaining fields in schema definition order.
 func (t TypeSchema) FieldNames() []string {
+	order := t.schemaFieldOrder()
+	if t.NameField == "" {
+		return order
+	}
+	if _, ok := t.Fields[t.NameField]; !ok {
+		return order
+	}
+	out := make([]string, 0, len(order))
+	out = append(out, t.NameField)
+	for _, name := range order {
+		if name != t.NameField {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// schemaFieldOrder is definition order when known, else alphabetical.
+// Names are not preferred.
+func (t TypeSchema) schemaFieldOrder() []string {
 	if len(t.Fields) == 0 {
 		return nil
 	}
-	names := make([]string, 0, len(t.Fields))
+	seen := make(map[string]bool, len(t.Fields))
+	out := make([]string, 0, len(t.Fields))
+	for _, name := range t.FieldOrder {
+		if _, ok := t.Fields[name]; ok && !seen[name] {
+			out = append(out, name)
+			seen[name] = true
+		}
+	}
+	rest := make([]string, 0, len(t.Fields)-len(out))
 	for name := range t.Fields {
-		if t.NameField != "" && name == t.NameField {
-			continue
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	if t.NameField != "" {
-		if _, ok := t.Fields[t.NameField]; ok {
-			names = append([]string{t.NameField}, names...)
+		if !seen[name] {
+			rest = append(rest, name)
 		}
 	}
-	return names
+	sort.Strings(rest)
+	return append(out, rest...)
 }
 
-// EnumFields returns enum fields in FieldNames order.
+// EnumFields returns scalar enum fields in schema definition order.
 func (t TypeSchema) EnumFields() []string {
 	return t.fieldsMatching(func(f FieldSchema) bool { return f.IsEnum() && !f.IsArray() })
 }
 
-// DateFields returns date/datetime scalar fields.
+// DateFields returns scalar date/datetime fields in schema definition order.
 func (t TypeSchema) DateFields() []string {
 	return t.fieldsMatching(func(f FieldSchema) bool { return f.IsDate() && !f.IsArray() })
 }
@@ -113,7 +149,7 @@ func (t TypeSchema) RefFields() []string {
 
 func (t TypeSchema) fieldsMatching(ok func(FieldSchema) bool) []string {
 	var names []string
-	for _, name := range t.FieldNames() {
+	for _, name := range t.schemaFieldOrder() {
 		if ok(t.Fields[name]) {
 			names = append(names, name)
 		}
@@ -121,15 +157,58 @@ func (t TypeSchema) fieldsMatching(ok func(FieldSchema) bool) []string {
 	return names
 }
 
-// DisplayTitle picks a human title from name_field, then common keys, then id.
+func jsonObjectKeys(data []byte, field string) []string {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
+		return nil
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		name, _ := key.(string)
+		if name == field {
+			return decodeObjectKeyOrder(dec)
+		}
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return nil
+		}
+	}
+	return nil
+}
+
+func decodeObjectKeyOrder(dec *json.Decoder) []string {
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
+		return nil
+	}
+	var keys []string
+	for dec.More() {
+		k, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		name, ok := k.(string)
+		if !ok {
+			return nil
+		}
+		keys = append(keys, name)
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return nil
+		}
+	}
+	return keys
+}
+
+// DisplayTitle uses the schema name_field, then the query row's Title, then id.
+// It does not guess vault field names.
 func DisplayTitle(obj Object, typeSchema TypeSchema) string {
 	if typeSchema.NameField != "" {
 		if s := ScalarString(obj.Fields[typeSchema.NameField]); s != "" {
-			return s
-		}
-	}
-	for _, key := range []string{"name", "title", "alias"} {
-		if s := ScalarString(obj.Fields[key]); s != "" {
 			return s
 		}
 	}
