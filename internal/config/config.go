@@ -17,20 +17,20 @@ const (
 
 Use an ordered list of named layouts on each type (and each saved query):
 
-[[types.project.layouts]]
+[[types.item.layouts]]
 name = "Board"
 kind = "board"
-group_by = "status"
-fields = ["status", "due"]
+group_by = "state"
+fields = ["state", "when"]
 
-[[types.project.layouts]]
-name = "By due"
+[[types.item.layouts]]
+name = "By when"
 kind = "list"
-fields = ["status", "due"]
-sort = "due"
+fields = ["state", "when"]
+sort = "when"
 
 kind is list, board, or date. Optional filter is an RQL predicate appended to
-the type source (e.g. filter = ".status==active"). The first layout is the
+the type source. The first layout is the
 default. See examples/config.toml.`
 )
 

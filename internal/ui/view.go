@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/aidanlsb/perch/internal/api"
+	"github.com/aidanlsb/perch/internal/frontmatter"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -397,16 +398,19 @@ func (m Model) viewNote(height int) string {
 
 func (m Model) viewNoteHeader(width int) string {
 	var lines []string
-	title := m.note.ObjectID
-	if name := m.noteDoc.Fields["name"]; name != "" {
-		title = name + "  " + styleDim.Render(m.note.ObjectID)
+	id := m.note.ObjectID
+	heading := m.headingFromDoc(id, m.noteDoc)
+	title := id
+	if heading != "" && heading != id {
+		title = heading + "  " + styleDim.Render(id)
 	}
+	skip := m.schemaNameField(m.objectType(id))
 	lines = append(lines, styleHeader.Render(truncate(title, width)))
 	if m.note.Path != "" {
 		lines = append(lines, styleDim.Render(truncate(m.note.Path, width)))
 	}
 	for _, k := range m.noteDoc.Order {
-		if k == "name" || k == "id" {
+		if skip != "" && k == skip {
 			continue
 		}
 		line := styleFMKey.Render(k+": ") + styleFMVal.Render(m.noteDoc.Fields[k])
@@ -588,9 +592,9 @@ func (m Model) viewPreview(width, height int) string {
 	case m.preview == nil:
 		body = styleDim.Render("no selection")
 	default:
-		head := m.preview.ObjectID
-		if name := m.previewDoc.Fields["name"]; name != "" {
-			head = name
+		head := m.headingFromDoc(m.preview.ObjectID, m.previewDoc)
+		if head == "" {
+			head = m.preview.ObjectID
 		}
 		body = styleHeader.Render(truncate(head, width-3)) + "\n"
 		if m.preview.Path != "" {
@@ -634,29 +638,56 @@ func overlayLine(base, overlay string, x int) string {
 	return base[:min(x, len(base))] + overlay
 }
 
+func (m Model) objectType(id string) string {
+	if obj, ok := m.noteIndex[id]; ok && obj.Type != "" {
+		return obj.Type
+	}
+	return m.typeName
+}
+
+func (m Model) schemaNameField(typeName string) string {
+	if typeName != "" {
+		if ts, ok := m.schema.Types[typeName]; ok {
+			return ts.NameField
+		}
+	}
+	if m.typeName != "" {
+		return m.schema.Types[m.typeName].NameField
+	}
+	return ""
+}
+
+func (m Model) headingFromDoc(id string, doc frontmatter.Doc) string {
+	if nf := m.schemaNameField(m.objectType(id)); nf != "" {
+		if name := doc.Fields[nf]; name != "" {
+			return name
+		}
+	}
+	if obj, ok := m.noteIndex[id]; ok && obj.Title != "" {
+		return obj.Title
+	}
+	if id != "" {
+		return id
+	}
+	return ""
+}
+
 func rowCells(obj api.Object, cols []string) []string {
 	out := make([]string, len(cols))
 	for i, c := range cols {
-		switch c {
-		case "id":
+		if c == "id" {
 			out[i] = obj.ID
-		case "title", "name":
+			continue
+		}
+		if c == "" {
+			continue
+		}
+		if s := api.ScalarString(obj.Fields[c]); s != "" {
+			out[i] = s
+			continue
+		}
+		if i == 1 {
 			out[i] = obj.Title
-		default:
-			if c == "" {
-				continue
-			}
-			if s := api.ScalarString(obj.Fields[c]); s != "" {
-				out[i] = s
-			} else if c == obj.Type {
-				out[i] = obj.Title
-			}
-			if out[i] == "" && c != "id" {
-				// prefer title in first data column
-				if i == 1 {
-					out[i] = obj.Title
-				}
-			}
 		}
 	}
 	return out

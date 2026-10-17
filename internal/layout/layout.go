@@ -110,71 +110,49 @@ func (s Spec) Label() string {
 		}
 		return "board"
 	case KindDate:
-		g := s.GroupBy
-		if g == "" {
-			g = "date"
+		if s.GroupBy != "" {
+			return "date/" + s.Granularity + " by " + s.GroupBy
 		}
-		return "date/" + s.Granularity + " by " + g
+		return "date/" + s.Granularity
 	default:
 		return "list"
 	}
 }
 
-// Synthesize builds the zero-config layout list for a type:
+// Synthesize builds the zero-config layout list for a type from schema
+// structure only. Field names are not preferred.
 //
 //  1. List always (first, so it is the default)
-//  2. Board if the type has a scalar enum field, grouped by the first enum,
-//     preferring a field named "status"
+//  2. Board if the type has a scalar enum field, grouped by the first such
+//     field in schema definition order (named "Board")
 //  3. Date if the type has a scalar date/datetime field, grouped by the first
-//     such field, preferring a field named "date" (granularity day)
+//     such field in schema definition order (named "Date"; granularity day)
 //
-// Names are "List", "Board" (or "By <enum>" when the field is not status),
-// and "Date" (or "By <date>" when the field is not date). Ref fields do not
-// produce a board. This list is the entire L-cycle; Perch does not invent
-// extra group-by options at runtime.
+// Ref fields do not produce a synthesized board. This list is the entire
+// L-cycle; Perch does not invent extra group-by options at runtime.
 func Synthesize(ts api.TypeSchema) []Spec {
 	list := Spec{Name: "List", Kind: KindList, Sort: ts.NameField}.Normalize()
 	out := []Spec{list}
 
-	if field, ok := preferField(ts.EnumFields(), "status"); ok {
-		name := "Board"
-		if field != "status" {
-			name = "By " + field
-		}
+	if enums := ts.EnumFields(); len(enums) > 0 {
 		out = append(out, Spec{
-			Name:    name,
+			Name:    "Board",
 			Kind:    KindBoard,
-			GroupBy: field,
+			GroupBy: enums[0],
 			Sort:    ts.NameField,
 		}.Normalize())
 	}
 
-	if field, ok := preferField(ts.DateFields(), "date"); ok {
-		name := "Date"
-		if field != "date" {
-			name = "By " + field
-		}
+	if dates := ts.DateFields(); len(dates) > 0 {
 		out = append(out, Spec{
-			Name:        name,
+			Name:        "Date",
 			Kind:        KindDate,
-			GroupBy:     field,
+			GroupBy:     dates[0],
 			Granularity: GranDay,
-			Sort:        field,
+			Sort:        dates[0],
 		}.Normalize())
 	}
 	return out
-}
-
-func preferField(fields []string, preferred string) (string, bool) {
-	if len(fields) == 0 {
-		return "", false
-	}
-	for _, f := range fields {
-		if f == preferred {
-			return f, true
-		}
-	}
-	return fields[0], true
 }
 
 // Cycle walks an ordered named-layout list. delta is +1 (L) or -1 (gL).

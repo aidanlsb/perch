@@ -9,39 +9,35 @@
 # date takes group_by and granularity (day/week/month). . cycles granularity
 # inside a date layout and does not invent extra group-by fields.
 # Optional filter is an RQL predicate appended to the type source.
+# Type and field names here are yours; Perch does not treat any of them
+# as special.
 #
 # Zero-config (when a type has no [[layouts]]):
 #   1. List always (the default)
-#   2. Board if the type has a scalar enum, grouped by the first enum,
-#      preferring a field named "status"
-#   3. Date if the type has a scalar date/datetime field, grouped by the first
-#      such field, preferring a field named "date" (granularity day)
+#   2. Board if the type has a scalar enum, grouped by the first such
+#      field in schema definition order
+#   3. Date if the type has a scalar date/datetime field, grouped by the
+#      first such field in schema definition order (granularity day)
 
-[[types.project.layouts]]
+[[types.item.layouts]]
 name = "Board"
 kind = "board"
-group_by = "status"
-fields = ["status", "due"]
+group_by = "state"
+fields = ["state", "when"]
 
-[[types.project.layouts]]
-name = "By due"
+[[types.item.layouts]]
+name = "By when"
 kind = "list"
-fields = ["status", "due"]
-sort = "due"
+fields = ["state", "when"]
+sort = "when"
 
-[[types.project.layouts]]
-name = "Active"
-kind = "list"
-filter = ".status==active"
-fields = ["status", "due"]
-
-[[types.date.layouts]]
-name = "Week"
-kind = "date"
-group_by = "date"
-granularity = "week"
-
-[[queries.open.layouts]]
+[[types.item.layouts]]
 name = "Open"
 kind = "list"
-sort = "name"
+filter = ".state==open"
+fields = ["state", "when"]
+
+[[queries.inbox.layouts]]
+name = "Inbox"
+kind = "list"
+sort = "label"

@@ -78,19 +78,6 @@ type DailyInfo struct {
 	TodayExists bool   `json:"today_exists"`
 }
 
-// DateResult is the read-only `date` command payload (today's hub).
-// Daily notes are not created; DailyExists is false when the file is missing.
-type DateResult struct {
-	Date        string          `json:"date"`
-	DayOfWeek   string          `json:"day_of_week"`
-	DailyNoteID string          `json:"daily_note_id"`
-	DailyPath   string          `json:"daily_path"`
-	DailyExists bool            `json:"daily_exists"`
-	DailyNote   json.RawMessage `json:"daily_note,omitempty"`
-	Items       json.RawMessage `json:"items,omitempty"`
-	Backlinks   []BacklinkGroup `json:"backlinks,omitempty"`
-}
-
 // Commands is GET /v1/commands data.
 type Commands struct {
 	APIVersion string        `json:"api_version"`
@@ -113,7 +100,7 @@ type Schema struct {
 	Queries map[string]SavedQuery  `json:"queries"`
 }
 
-// TypeSchema is one vault type, including builtin page/date/section.
+// TypeSchema is one vault type from GET /v1/schema.
 type TypeSchema struct {
 	Name        string                 `json:"name"`
 	Builtin     bool                   `json:"builtin"`
@@ -121,6 +108,10 @@ type TypeSchema struct {
 	Description string                 `json:"description,omitempty"`
 	NameField   string                 `json:"name_field,omitempty"`
 	Fields      map[string]FieldSchema `json:"fields,omitempty"`
+	// FieldOrder is the schema's field definition order (JSON object key
+	// order from GET /v1/schema). Empty when the value was not unmarshaled
+	// from JSON; callers then fall back to a deterministic alphabetical order.
+	FieldOrder []string `json:"-"`
 }
 
 // FieldSchema is one type field. Type is a Raven field spec (enum, ref, date, ref[], …).

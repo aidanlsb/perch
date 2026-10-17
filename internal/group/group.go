@@ -193,11 +193,6 @@ func sortKey(o api.Object, field string) string {
 	if field == "" || field == "id" {
 		return strings.ToLower(o.ID)
 	}
-	if field == "title" || field == "name" {
-		if s := strings.ToLower(o.Title); s != "" {
-			return s
-		}
-	}
 	if s := api.ScalarString(o.Fields[field]); s != "" {
 		return strings.ToLower(s)
 	}

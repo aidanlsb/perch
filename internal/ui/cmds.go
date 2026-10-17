@@ -51,12 +51,6 @@ type searchMsg struct {
 	err    error
 }
 
-type dateMsg struct {
-	gen    int
-	result *api.DateResult
-	err    error
-}
-
 type prefetchMsg struct {
 	objects []api.Object
 	rest    []string
@@ -150,21 +144,6 @@ func fetchSearch(c *api.Client, gen int, q string) tea.Cmd {
 			return searchMsg{gen: gen, query: q, err: err}
 		}
 		return searchMsg{gen: gen, query: q, result: sr}
-	}
-}
-
-func fetchDate(c *api.Client, gen int, date string) tea.Cmd {
-	return func() tea.Msg {
-		if c == nil {
-			return dateMsg{gen: gen, err: errNoClient}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		dr, err := c.Date(ctx, date)
-		if err != nil {
-			return dateMsg{gen: gen, err: err}
-		}
-		return dateMsg{gen: gen, result: dr}
 	}
 }
 

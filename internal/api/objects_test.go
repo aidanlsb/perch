@@ -13,4 +13,7 @@ func TestObjectsFromCorpus(t *testing.T) {
 	if got[1].Title != "2026-10-15" {
 		t.Fatalf("id fallback title %q", got[1].Title)
 	}
+	if _, ok := got[0].Fields["name"]; ok {
+		t.Fatalf("corpus must not invent a name field: %+v", got[0].Fields)
+	}
 }
