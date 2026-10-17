@@ -183,7 +183,7 @@ func TestApplyBoardGroups(t *testing.T) {
 	ts := itemSchema("xyz", "when", []string{"label", "xyz", "when", "owner"})
 	objs := []api.Object{
 		{ID: "a", Title: "A", Fields: map[string]any{"xyz": "b"}},
-		{ID: "b", Title: "B", Fields: map[string]any{"xyz": "a"}},
+		{ID: "b", Title: "B", Fields: map[string]any{"xyz": "idea"}},
 	}
 	r := Apply(objs, Spec{Kind: KindBoard, GroupBy: "xyz"}, ts, "", false)
 	if len(r.Board) < 3 {
