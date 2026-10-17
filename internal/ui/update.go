@@ -65,6 +65,29 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 			m.status = "config: " + m.cfgWarnings[0]
 		}
 	}
+	if m.open != "" {
+		return m.openNamed(m.open)
+	}
+	names := m.schema.SortedTypeNames()
+	if len(names) == 0 {
+		m.corpusLoading = true
+		return m, m.corpusCmd()
+	}
+	return m.loadType(names[0])
+}
+
+func (m Model) openNamed(name string) (Model, tea.Cmd) {
+	m.viewsOpen = true
+	m.rebuildNav()
+	if m.cfg != nil {
+		if _, ok := m.cfg.Views[name]; ok {
+			return m.loadNamedView(name)
+		}
+		if _, ok := m.cfg.Layouts[name]; ok {
+			return m.loadNamedLayout(name)
+		}
+	}
+	m.errMsg = "unknown view or layout " + name
 	names := m.schema.SortedTypeNames()
 	if len(names) == 0 {
 		m.corpusLoading = true

@@ -38,6 +38,22 @@ func nestedLayoutCfg() *config.File {
 	}
 }
 
+func TestOpenOptionLoadsView(t *testing.T) {
+	m := NewModel(Options{Config: nestedLayoutCfg(), Open: "projects"})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.currentView != "projects" {
+		t.Fatalf("view %s", m.currentView)
+	}
+}
+
+func TestOpenOptionLoadsLayout(t *testing.T) {
+	m := NewModel(Options{Config: nestedLayoutCfg(), Open: "workspace"})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.currentLayout != "workspace" || len(m.panes) != 3 {
+		t.Fatalf("layout %s panes %d", m.currentLayout, len(m.panes))
+	}
+}
+
 func TestLayoutNestingLoadsLeaves(t *testing.T) {
 	m := NewModel(Options{Config: nestedLayoutCfg()})
 	m.width, m.height = 80, 24

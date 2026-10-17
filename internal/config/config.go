@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,33 +50,33 @@ type File struct {
 
 // View is [views.<name>]: one source plus a list/board/date presentation.
 type View struct {
-	Source string            `toml:"source"`
-	Inputs map[string]string `toml:"inputs"`
-	Layout Present           `toml:"layout"`
+	Source string            `toml:"source" json:"source"`
+	Inputs map[string]string `toml:"inputs" json:"inputs,omitempty"`
+	Layout Present           `toml:"layout" json:"layout"`
 }
 
 // Present is the inline layout = { kind, group_by, ... } table on a view.
 type Present struct {
-	Kind        string   `toml:"kind"`
-	GroupBy     string   `toml:"group_by"`
-	Fields      []string `toml:"fields"`
-	Sort        string   `toml:"sort"`
-	Filter      string   `toml:"filter"`
-	Granularity string   `toml:"granularity"`
+	Kind        string   `toml:"kind" json:"kind"`
+	GroupBy     string   `toml:"group_by" json:"group_by,omitempty"`
+	Fields      []string `toml:"fields" json:"fields,omitempty"`
+	Sort        string   `toml:"sort" json:"sort,omitempty"`
+	Filter      string   `toml:"filter" json:"filter,omitempty"`
+	Granularity string   `toml:"granularity" json:"granularity,omitempty"`
 }
 
 // Layout is [layouts.<name>]: a nested split of panels that reference views.
 type Layout struct {
-	Split  string  `toml:"split"`
-	Panels []Panel `toml:"panels"`
+	Split  string  `toml:"split" json:"split"`
+	Panels []Panel `toml:"panels" json:"panels"`
 }
 
 // Panel is a leaf ({ view, bind }) or a nested split ({ split, panels }).
 type Panel struct {
-	View   string  `toml:"view"`
-	Bind   string  `toml:"bind"`
-	Split  string  `toml:"split"`
-	Panels []Panel `toml:"panels"`
+	View   string  `toml:"view" json:"view,omitempty"`
+	Bind   string  `toml:"bind" json:"bind,omitempty"`
+	Split  string  `toml:"split" json:"split,omitempty"`
+	Panels []Panel `toml:"panels" json:"panels,omitempty"`
 }
 
 const (
@@ -108,9 +109,18 @@ func Load(path string) (*File, error) {
 		}
 		return nil, fmt.Errorf("perch config %s: %w", path, err)
 	}
-	src := string(data)
-	f.Source = src
-	f.Lines = tableLines(src)
+	return Parse(path, string(data))
+}
+
+// Parse validates src as a Perch config. path is used in errors and File.Path.
+func Parse(path, src string) (*File, error) {
+	f := &File{
+		Path:    path,
+		Source:  src,
+		Views:   map[string]View{},
+		Layouts: map[string]Layout{},
+		Lines:   tableLines(src),
+	}
 
 	var probe struct {
 		Views   any `toml:"views"`
@@ -449,6 +459,23 @@ func (f *File) LayoutNames() []string {
 	return names
 }
 
+// ReferencingLayouts returns layout names that include view, sorted.
+func (f *File) ReferencingLayouts(view string) []string {
+	if f == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range f.LayoutNames() {
+		for _, p := range f.Layouts[name].Leaves() {
+			if p.View == view {
+				out = append(out, name)
+				break
+			}
+		}
+	}
+	return out
+}
+
 func (f *File) viewLine(name string) int {
 	if f == nil || f.Lines == nil {
 		return 0
@@ -589,6 +616,19 @@ type Error struct {
 	Msg  string
 }
 
+// InUseError is returned when removing a view that layouts still reference.
+type InUseError struct {
+	View    string
+	Layouts []string
+}
+
+func (e *InUseError) Error() string {
+	if e == nil {
+		return "view is referenced by a layout"
+	}
+	return fmt.Sprintf("view %q is referenced by layouts %s (pass --force)", e.View, strings.Join(e.Layouts, ", "))
+}
+
 func (e *Error) Error() string {
 	if e == nil {
 		return "perch config error"
@@ -668,6 +708,115 @@ func isSlice(v any) bool {
 		return false
 	}
 	return reflect.ValueOf(v).Kind() == reflect.Slice
+}
+
+// Issue is one config problem with an optional 1-based line.
+type Issue struct {
+	Line    int    `json:"line,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Message string `json:"message"`
+}
+
+// Check reads path and returns every structural problem. A missing file is valid.
+func Check(path string) []Issue {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return []Issue{{Path: path, Message: err.Error()}}
+	}
+	return CheckSource(path, string(data))
+}
+
+// CheckSource validates src without writing. Decode/legacy failures are one
+// issue. After a successful decode it reports every view and layout problem.
+func CheckSource(path, src string) []Issue {
+	lines := tableLines(src)
+	var probe struct {
+		Views   any `toml:"views"`
+		Layouts any `toml:"layouts"`
+		Types   any `toml:"types"`
+		Queries any `toml:"queries"`
+	}
+	meta, err := toml.Decode(src, &probe)
+	if err != nil {
+		var ce *Error
+		wrapped := wrapDecode(path, err)
+		if errors.As(wrapped, &ce) {
+			return []Issue{{Line: ce.Line, Path: firstNonEmpty(ce.Path, path), Message: ce.Msg}}
+		}
+		return []Issue{{Path: path, Message: err.Error()}}
+	}
+	if meta.IsDefined("types") || meta.IsDefined("queries") {
+		return []Issue{{Line: firstLine(src, "types", "queries"), Path: path, Message: legacyRemoved}}
+	}
+	if isSlice(probe.Views) {
+		return []Issue{{Line: firstLine(src, "views"), Path: path, Message: "[[views]] (array of tables) was removed.\n\n" + legacyRemoved}}
+	}
+	var decoded File
+	if _, err := toml.Decode(src, &decoded); err != nil {
+		var ce *Error
+		wrapped := wrapDecode(path, err)
+		if errors.As(wrapped, &ce) {
+			return []Issue{{Line: ce.Line, Path: firstNonEmpty(ce.Path, path), Message: ce.Msg}}
+		}
+		return []Issue{{Path: path, Message: err.Error()}}
+	}
+	if decoded.Views == nil {
+		decoded.Views = map[string]View{}
+	}
+	if decoded.Layouts == nil {
+		decoded.Layouts = map[string]Layout{}
+	}
+	var issues []Issue
+	for _, name := range sortedKeys(decoded.Views) {
+		line := lines["views."+name]
+		nv, nerr := decoded.Views[name].normalize()
+		if nerr != nil {
+			issues = append(issues, Issue{Line: line, Path: path, Message: fmt.Sprintf("views.%s: %s", name, nerr.Error())})
+			continue
+		}
+		if strings.TrimSpace(nv.Source) == "" {
+			issues = append(issues, Issue{Line: line, Path: path, Message: fmt.Sprintf("views.%s: source is required", name)})
+			continue
+		}
+		decoded.Views[name] = nv
+	}
+	for _, name := range sortedKeys(decoded.Layouts) {
+		line := lines["layouts."+name]
+		nl, nerr := decoded.Layouts[name].normalize()
+		if nerr != nil {
+			issues = append(issues, Issue{Line: line, Path: path, Message: fmt.Sprintf("layouts.%s: %s", name, nerr.Error())})
+			continue
+		}
+		if verr := validateLayoutTree(name, nl, decoded.Views); verr != nil {
+			issues = append(issues, Issue{Line: line, Path: path, Message: verr.Error()})
+			continue
+		}
+		decoded.Layouts[name] = nl
+	}
+	return issues
+}
+
+func sortedKeys[T any](m map[string]T) []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
 }
 
 func firstLine(src string, keys ...string) int {

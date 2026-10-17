@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -386,6 +387,165 @@ func TestUpsertViewWritesAndReplaces(t *testing.T) {
 	if f.Views["saved"].Layout.Kind != KindBoard || f.Views["saved"].Layout.GroupBy != "state" {
 		t.Fatalf("%+v", f.Views["saved"])
 	}
+}
+
+func TestAddViewRefusesDuplicate(t *testing.T) {
+	path := writeTOML(t, `[views.old]
+source = "item"
+layout = { kind = "list" }
+`)
+	err := AddView(path, "old", View{Source: "item", Layout: Present{Kind: KindList}})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestRemoveViewRefusesInUse(t *testing.T) {
+	path := writeTOML(t, `
+# keep
+[views.a]
+source = "item"
+layout = { kind = "list" }
+[views.b]
+source = "item"
+layout = { kind = "list" }
+[layouts.ws]
+split = "row"
+panels = [ { view = "a" }, { view = "b" } ]
+`)
+	err := RemoveView(path, "a", false)
+	var inUse *InUseError
+	if err == nil || !errors.As(err, &inUse) {
+		t.Fatalf("%v", err)
+	}
+	body, _ := os.ReadFile(path)
+	if !strings.Contains(string(body), "# keep") || !strings.Contains(string(body), "[views.a]") {
+		t.Fatalf("file changed:\n%s", body)
+	}
+	if err := RemoveView(path, "a", true); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.Views["a"]; ok {
+		t.Fatal("view still present")
+	}
+	if !strings.Contains(string(mustRead(t, path)), "# keep") {
+		t.Fatal("lost comment")
+	}
+	leaves := f.Layouts["ws"].Leaves()
+	if len(leaves) != 1 || leaves[0].View != "b" {
+		t.Fatalf("%+v", leaves)
+	}
+}
+
+func TestRemoveViewForceDropsEmptyLayout(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+source = "item"
+layout = { kind = "list" }
+[layouts.only]
+split = "row"
+panels = [ { view = "a" } ]
+`)
+	if err := RemoveView(path, "a", true); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.Layouts["only"]; ok {
+		t.Fatal("empty layout should be removed")
+	}
+}
+
+func TestAddLayoutAndRemove(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+source = "item"
+layout = { kind = "list" }
+`)
+	if err := AddLayout(path, "ws", Layout{Split: SplitRow, Panels: []Panel{{View: "a"}}}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Layouts["ws"].Split != SplitRow || f.Layouts["ws"].Leaves()[0].View != "a" {
+		t.Fatalf("%+v", f.Layouts["ws"])
+	}
+	if err := RemoveLayout(path, "ws"); err != nil {
+		t.Fatal(err)
+	}
+	f, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.Layouts["ws"]; ok {
+		t.Fatal("layout still present")
+	}
+}
+
+func TestCommitRefusesInvalid(t *testing.T) {
+	path := writeTOML(t, `[views.a]
+source = "item"
+layout = { kind = "list" }
+`)
+	err := AddLayout(path, "bad", Layout{Split: "row", Panels: []Panel{{View: "ghost"}}})
+	if err == nil {
+		t.Fatal("expected validation failure")
+	}
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.Layouts["bad"]; ok {
+		t.Fatal("wrote invalid layout")
+	}
+}
+
+func TestCheckReportsLineNumbers(t *testing.T) {
+	path := writeTOML(t, `
+[views.board]
+source = "item"
+layout = { kind = "board" }
+[layouts.x]
+split = "row"
+panels = [ { view = "ghost" } ]
+`)
+	issues := Check(path)
+	if len(issues) < 2 {
+		t.Fatalf("%+v", issues)
+	}
+	joined := ""
+	for _, is := range issues {
+		if is.Line < 2 {
+			t.Fatalf("want line, got %+v", is)
+		}
+		joined += is.Message
+	}
+	if !strings.Contains(joined, "group_by") || !strings.Contains(joined, "unknown view") {
+		t.Fatalf("%s", joined)
+	}
+}
+
+func TestCheckMissingIsOK(t *testing.T) {
+	if issues := Check(filepath.Join(t.TempDir(), "nope.toml")); len(issues) != 0 {
+		t.Fatalf("%+v", issues)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 func TestSubstituteSelected(t *testing.T) {

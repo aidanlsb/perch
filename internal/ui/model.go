@@ -91,6 +91,7 @@ type Options struct {
 	VaultPath  string
 	Editor     string
 	EditorMode string
+	Open       string
 }
 
 // Model is the Bubble Tea application state. Update is a pure-ish reducer
@@ -179,6 +180,7 @@ type Model struct {
 	loading bool
 	gen     int
 	ready   bool
+	open    string
 }
 
 // NewModel constructs an empty UI. Call Init to fetch the schema.
@@ -202,6 +204,7 @@ func NewModel(opts Options) Model {
 		queryCache: map[string]queryCacheEntry{},
 		readCache:  map[string]*api.ReadResult{},
 		noteIndex:  map[string]api.Object{},
+		open:       strings.TrimSpace(opts.Open),
 	}
 }
 
