@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	focusSidebar = "sidebar"
 	focusPreview = "preview"
 )
 
@@ -397,7 +396,7 @@ func (m *Model) setSinglePane(p *viewState) {
 	m.tree = layoutTree{id: p.id}
 	m.currentView = p.viewName
 	m.currentLayout = ""
-	if m.focus != focusSidebar && m.focus != focusPreview {
+	if m.focus != focusPreview {
 		m.setFocus(p.id)
 	}
 }

@@ -128,18 +128,18 @@ func TestFocusMovementAndZoom(t *testing.T) {
 	m.setFocus("projects")
 	m.recomputeRegions()
 	m, _ = m.update(key("ctrl+l"))
-	if m.focus == "projects" || m.focus == focusSidebar {
+	if m.focus == "projects" {
 		t.Fatalf("ctrl-l should leave projects, got %s", m.focus)
 	}
 	m.setFocus("projects")
 	m, _ = m.update(key("tab"))
-	if m.focus == "projects" || m.focus == focusSidebar {
+	if m.focus == "projects" {
 		t.Fatalf("tab should cycle within main, got %s", m.focus)
 	}
 	m.setFocus("projects")
 	m, _ = m.update(key("ctrl+w"))
 	m, _ = m.update(key("l"))
-	if m.focus == "projects" || m.focus == focusSidebar {
+	if m.focus == "projects" {
 		t.Fatalf("ctrl-w l should leave projects, got %s", m.focus)
 	}
 	m.setFocus("projects")
@@ -246,21 +246,26 @@ func TestSaveAdHocRQLRefuses(t *testing.T) {
 	}
 }
 
-func TestSidebarCategoriesCollapsed(t *testing.T) {
+func TestTypePickerListsSchemaTypes(t *testing.T) {
 	m := loadBrowse(t)
-	if m.browseOpen || m.viewsOpen {
-		t.Fatal("categories should start collapsed")
+	out := m.View()
+	if strings.Contains(out, "Browse") {
+		t.Fatalf("sidebar chrome: %s", out)
 	}
-	out := m.viewSidebar(12)
-	if !strings.Contains(out, "Browse") || !strings.Contains(out, "Views") {
-		t.Fatalf("%s", out)
+	m, _ = leader(m, "st")
+	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
+		t.Fatal("type picker")
 	}
-	if strings.Contains(out, "project") {
-		t.Fatalf("types should be hidden until expanded: %s", out)
+	if len(m.pickerHit) == 0 {
+		t.Fatal("expected types")
 	}
-	m.setFocus(focusSidebar)
+	name := m.pickerHit[0].Type
 	m, _ = m.update(key("enter"))
-	if !m.browseOpen {
-		t.Fatal("enter expands Browse")
+	p := m.p()
+	if p.sourceIsQuery || p.typeName != name || p.sourceBase != "type:"+name {
+		t.Fatalf("type picker should open as Type, got type=%s base=%s query=%v", p.typeName, p.sourceBase, p.sourceIsQuery)
+	}
+	if p.sourceQuery != "type:"+name {
+		t.Fatalf("sourceQuery %s", p.sourceQuery)
 	}
 }

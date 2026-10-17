@@ -14,13 +14,11 @@ func (m *Model) setFocus(id string) {
 	if id == "" {
 		return
 	}
-	if id != focusSidebar {
+	if id != focusPreview {
 		m.lastMainFocus = id
 	}
 	m.focus = id
 	switch id {
-	case focusSidebar:
-		m.pane = paneSidebar
 	case focusPreview:
 		m.pane = panePreview
 	default:
@@ -28,15 +26,8 @@ func (m *Model) setFocus(id string) {
 	}
 }
 
-func (m Model) sidebarColWidth(width int) int {
-	if m.sidebarHidden {
-		return 0
-	}
-	return min(sidebarWidth, max(12, width/4))
-}
-
 func (m Model) validMainFocus(id string) string {
-	if id == "" || id == focusSidebar {
+	if id == "" {
 		return ""
 	}
 	if id == focusPreview {
@@ -68,33 +59,6 @@ func (m *Model) focusMainArea() {
 	m.setFocus(m.mainFocusID())
 }
 
-func (m Model) toggleSidebar() Model {
-	m.sidebarHidden = !m.sidebarHidden
-	if m.sidebarHidden {
-		if m.focus == focusSidebar {
-			if m.zoomed {
-				m.zoomed = false
-			}
-			m.focusMainArea()
-		}
-	}
-	m.recomputeRegions()
-	return m
-}
-
-func (m Model) toggleSidebarFocus() Model {
-	if m.focus == focusSidebar {
-		m.focusMainArea()
-		return m
-	}
-	if m.sidebarHidden {
-		m.sidebarHidden = false
-		m.recomputeRegions()
-	}
-	m.setFocus(focusSidebar)
-	return m
-}
-
 func (m *Model) recomputeRegions() {
 	m.regs = m.browseRegions(m.width, max(1, m.height-2))
 }
@@ -106,26 +70,17 @@ func (m Model) browseRegions(width, height int) []region {
 	if m.zoomed {
 		return []region{{id: m.zoomTarget(), x: 0, y: 0, w: width, h: height}}
 	}
-	var regs []region
-	sideW := m.sidebarColWidth(width)
-	rest := width
-	x := 0
-	if sideW > 0 {
-		rest = max(10, width-sideW)
-		x = sideW
-	}
 	if m.previewOn {
-		pw := max(previewMinW, rest*2/5)
-		if pw > rest-16 {
-			pw = max(previewMinW, rest/3)
+		pw := max(previewMinW, width*2/5)
+		if pw > width-16 {
+			pw = max(previewMinW, width/3)
 		}
-		mainW := max(12, rest-pw)
-		regs = append(regs, m.treeRegions(m.tree, x, 0, mainW, height)...)
-		regs = append(regs, region{id: focusPreview, x: x + mainW, y: 0, w: pw, h: height})
+		mainW := max(12, width-pw)
+		regs := m.treeRegions(m.tree, 0, 0, mainW, height)
+		regs = append(regs, region{id: focusPreview, x: mainW, y: 0, w: pw, h: height})
 		return regs
 	}
-	regs = append(regs, m.treeRegions(m.tree, x, 0, rest, height)...)
-	return regs
+	return m.treeRegions(m.tree, 0, 0, width, height)
 }
 
 func (m Model) treeRegions(n layoutTree, x, y, w, h int) []region {
@@ -180,18 +135,16 @@ func splitSizes(total, n int) []int {
 }
 
 func (m Model) zoomTarget() string {
-	if m.focus == focusSidebar && m.sidebarHidden {
-		if id := m.mainFocusID(); id != "" {
-			return id
-		}
-	}
 	if m.focus != "" {
 		return m.focus
 	}
 	if id := m.mainFocusID(); id != "" {
 		return id
 	}
-	return focusSidebar
+	if len(m.panes) > 0 {
+		return m.panes[0].id
+	}
+	return ""
 }
 
 func (m Model) focusOrder() []string {

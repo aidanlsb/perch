@@ -50,11 +50,6 @@ func TestSlashOpensSearchEveryContext(t *testing.T) {
 		name string
 		prep func(*testing.T) Model
 	}{
-		{"sidebar", func(t *testing.T) Model {
-			m := loadBrowse(t)
-			m.setFocus(focusSidebar)
-			return m
-		}},
 		{"list", func(t *testing.T) Model {
 			m := loadBrowse(t)
 			focusMain(&m)
@@ -141,7 +136,7 @@ func TestSlashNotSwallowedByPendingOrDigits(t *testing.T) {
 
 func TestSlashInPickerTypesIntoQuery(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = m.update(key("t"))
+	m, _ = leader(m, "st")
 	if m.overlay != overlayPicker {
 		t.Fatal("picker")
 	}
@@ -179,6 +174,8 @@ func TestHelpOverlayListsSlashSearch(t *testing.T) {
 	if !strings.Contains(out, "fuzzy search in current view") {
 		t.Fatalf("browse / missing in help: %s", out)
 	}
+	m, _ = m.update(key("G"))
+	out = m.View()
 	if !strings.Contains(out, "fuzzy search in browse") {
 		t.Fatalf("note / missing in help: %s", out)
 	}

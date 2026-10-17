@@ -37,6 +37,8 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.onRead(msg)
 	case searchMsg:
 		return m.onSearch(msg)
+	case dateMsg:
+		return m.onDate(msg)
 	case objectsMsg:
 		return m.onObjects(msg)
 	case prefetchMsg:
@@ -70,7 +72,6 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 		m.schema = *msg.schema
 	}
 	m.applyRevision(msg.revision)
-	m.rebuildNav()
 	m.ready = true
 	m.loading = false
 	m.needPrefetch = true
@@ -100,8 +101,6 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) openNamed(name string) (Model, tea.Cmd) {
-	m.viewsOpen = true
-	m.rebuildNav()
 	if m.cfg != nil {
 		if _, ok := m.cfg.Views[name]; ok {
 			return m.loadNamedView(name)
@@ -373,18 +372,24 @@ func (m Model) currentNoteLine() int {
 }
 
 func (m Model) onSearch(msg searchMsg) (Model, tea.Cmd) {
-	if m.overlay == overlayPicker && m.pickerKind == pickerNotes {
-		if msg.query != strings.TrimSpace(m.pickerQ) {
+	if m.overlay != overlayPicker || (m.pickerKind != pickerNotes && m.pickerKind != pickerSearch) {
+		if msg.gen != m.gen {
 			return m, nil
 		}
-	} else if msg.gen != m.gen {
+		return m, nil
+	}
+	if msg.query != strings.TrimSpace(m.pickerQ) {
 		return m, nil
 	}
 	if msg.err != nil {
 		m.errMsg = msg.err.Error()
 		return m, nil
 	}
-	if m.overlay != overlayPicker || m.pickerKind != pickerNotes || msg.result == nil {
+	if msg.result == nil {
+		return m, nil
+	}
+	if m.pickerKind == pickerSearch {
+		m.applySearchHits(msg.result)
 		return m, nil
 	}
 	for _, hit := range msg.result.Items {
@@ -435,16 +440,15 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	switch m.overlay {
 	case overlayHelp:
-		if key == "?" || key == "esc" || key == "q" {
-			m.overlay = overlayNone
-		}
-		return m, nil
+		return m.keysHelp(msg)
 	case overlaySearch:
 		return m.keysSearch(msg)
 	case overlayPicker:
 		return m.keysPicker(msg)
 	case overlayLeader:
 		return m.keysLeader(msg)
+	case overlayDate:
+		return m.keysDate(msg)
 	case overlayRQL:
 		return m.keysRQL(msg)
 	case overlayArgs:
@@ -457,6 +461,7 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if key == "?" {
 		m.overlay = overlayHelp
+		m.helpOff = 0
 		return m, nil
 	}
 	if isSlash(msg) {
@@ -468,28 +473,80 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m.keysBrowse(msg)
 }
 
+func (m Model) keysHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
+	key := keyIdent(msg)
+	switch key {
+	case "?", "esc", "q":
+		m.overlay = overlayNone
+		return m, nil
+	case "j", "down":
+		m.helpOff++
+	case "k", "up":
+		if m.helpOff > 0 {
+			m.helpOff--
+		}
+	case "ctrl+d":
+		m.helpOff += m.pageSize()
+	case "ctrl+u":
+		m.helpOff = max(0, m.helpOff-m.pageSize())
+	case "g":
+		m.helpOff = 0
+	case "G":
+		m.helpOff = 1 << 20
+	}
+	return m, nil
+}
+
 func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
-	m.overlay = overlayNone
 	if isSlash(msg) {
+		m.overlay = overlayNone
+		m.leaderSeq = ""
 		return m.startSearch()
 	}
-	switch key {
-	case "t":
-		return m.openTypePicker()
-	case "q":
-		return m.openQueryPicker()
-	case "f":
-		return m.openNotesPicker()
-	case "d":
-		return m.openDaily()
-	case "l":
-		return m.openViewsPicker()
-	case "c":
-		return m.openConfigAtView()
-	case "esc", " ":
+	if m.leaderSeq == "s" {
+		m.overlay = overlayNone
+		m.leaderSeq = ""
+		switch key {
+		case "t":
+			return m.openTypePicker()
+		case "d":
+			return m.openDatePicker()
+		case "q":
+			return m.openQueryPicker()
+		case "v":
+			return m.openViewsPicker()
+		case "f":
+			return m.openNotesPicker()
+		case "g":
+			return m.openSearchPicker()
+		case "esc", " ", "s":
+			return m, nil
+		}
 		return m, nil
 	}
+	switch key {
+	case "s":
+		m.leaderSeq = "s"
+		return m, nil
+	case ",":
+		m.overlay = overlayNone
+		m.leaderSeq = ""
+		return m.openConfigAtView()
+	case "esc", " ":
+		m.overlay = overlayNone
+		m.leaderSeq = ""
+		return m, nil
+	}
+	m.overlay = overlayNone
+	m.leaderSeq = ""
+	return m, nil
+}
+
+func (m Model) startLeader() (Model, tea.Cmd) {
+	m.overlay = overlayLeader
+	m.leaderSeq = ""
+	m.pending = ""
 	return m, nil
 }
 
@@ -551,20 +608,15 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if m.pending == "g" {
 		m.pending = ""
-		switch key {
-		case "g":
+		if key == "g" {
 			m.moveToStart()
 			return m.afterMove()
-		case "l":
-			return m.openViewsPicker()
 		}
 	}
 	if isSlash(msg) {
 		return m.startSearch()
 	}
 	switch key {
-	case "q":
-		return m.openQueryPicker()
 	case "esc":
 		if m.searchQ != "" {
 			m.searchQ = ""
@@ -572,13 +624,10 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.applyFilterAndGroup()
 		}
 		return m, nil
-	case "t":
-		return m.openTypePicker()
 	case "ctrl+p":
 		return m.openNotesPicker()
 	case " ":
-		m.overlay = overlayLeader
-		return m, nil
+		return m.startLeader()
 	case ",":
 		return m.openConfig(0)
 	case "S":
@@ -589,8 +638,6 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "N":
 		m.jumpSearch(-1)
 		return m.afterMove()
-	case "d":
-		return m.openDaily()
 	case ".":
 		return m.cycleGroup()
 	case "p":
@@ -607,10 +654,6 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.cycleFocus(1), nil
 	case "shift+tab":
 		return m.cycleFocus(-1), nil
-	case "ctrl+b":
-		return m.toggleSidebar(), nil
-	case "ctrl+e":
-		return m.toggleSidebarFocus(), nil
 	case "ctrl+w":
 		m.pending = "ctrlw"
 		return m, nil
@@ -663,9 +706,6 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) enterBrowse() (Model, tea.Cmd) {
-	if m.focus == focusSidebar {
-		return m.activateNav()
-	}
 	if tgt := m.boundTarget(m.focus); tgt != "" {
 		m.setFocus(tgt)
 		return m, nil
@@ -680,12 +720,6 @@ func (m Model) keyH() (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.focus == focusSidebar {
-		if m.navCur >= 0 && m.navCur < len(m.nav) && m.nav[m.navCur].Kind == navCat {
-			return m.expandCategory(m.nav[m.navCur].Category, false), nil
-		}
-		return m, nil
-	}
 	p := m.p()
 	if p.spec.Kind == kindBoard {
 		p.moveBoardCol(-1)
@@ -695,12 +729,6 @@ func (m Model) keyH() (Model, tea.Cmd) {
 }
 
 func (m Model) keyL() (Model, tea.Cmd) {
-	if m.focus == focusSidebar {
-		if m.navCur >= 0 && m.navCur < len(m.nav) && m.nav[m.navCur].Kind == navCat {
-			return m.expandCategory(m.nav[m.navCur].Category, true), nil
-		}
-		return m, nil
-	}
 	p := m.focusedView()
 	if p != nil && p.spec.Kind == kindBoard && m.focus == p.id {
 		p.moveBoardCol(1)
@@ -744,6 +772,20 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	if m.pending == "[" {
+		m.pending = ""
+		if key == "d" {
+			return m.openDailyShift(-1)
+		}
+		return m.historyGo(-1)
+	}
+	if m.pending == "]" {
+		m.pending = ""
+		if key == "d" {
+			return m.openDailyShift(1)
+		}
+		return m.historyGo(1)
+	}
 	if isSlash(msg) {
 		return m.startSearch()
 	}
@@ -753,14 +795,10 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.note = nil
 		m.status = m.p().sourceLabel
 		return m.previewCmd()
-	case "t":
-		return m.openTypePicker()
-	case "Q":
-		return m.openQueryPicker()
 	case "ctrl+p":
 		return m.openNotesPicker()
-	case "d":
-		return m.openDaily()
+	case " ":
+		return m.startLeader()
 	case "r":
 		if m.note != nil {
 			gen := m.nextGen()
@@ -781,8 +819,16 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.pane = paneBacklinks
 		return m, nil
 	case "[":
+		if isDailyNoteID(m.noteID()) {
+			m.pending = "["
+			return m, nil
+		}
 		return m.historyGo(-1)
 	case "]":
+		if isDailyNoteID(m.noteID()) {
+			m.pending = "]"
+			return m, nil
+		}
 		return m.historyGo(1)
 	case "enter":
 		return m.followOrOpenBacklink()
@@ -874,35 +920,13 @@ func (m Model) previewCmd() (Model, tea.Cmd) {
 	return m, fetchRead(m.client, m.gen, ref, "preview")
 }
 
-func (m Model) openDaily() (Model, tea.Cmd) {
-	m.overlay = overlayNone
-	if m.daily != nil && strings.TrimSpace(m.daily.TodayID) != "" {
-		if m.daily.TodayExists {
-			m.status = "daily " + m.daily.TodayID
-			return m.openNote(m.daily.TodayID)
-		}
-		m.status = "no daily note for " + m.daily.TodayID
-		return m, nil
-	}
-	m.status = "no daily note in session"
-	return m, nil
-}
-
 func (m *Model) move(delta int) {
-	if m.focus == focusSidebar {
-		m.navCur = clamp(m.navCur+delta, 0, max(0, len(m.nav)-1))
-		return
-	}
 	if p := m.focusedView(); p != nil {
 		p.move(delta)
 	}
 }
 
 func (m *Model) moveToStart() {
-	if m.focus == focusSidebar {
-		m.navCur = 0
-		return
-	}
 	if m.focus == focusPreview {
 		m.previewScroll = 0
 		return
@@ -913,10 +937,6 @@ func (m *Model) moveToStart() {
 }
 
 func (m *Model) moveToEnd() {
-	if m.focus == focusSidebar {
-		m.navCur = max(0, len(m.nav)-1)
-		return
-	}
 	if p := m.focusedView(); p != nil {
 		p.moveToEnd()
 	}
@@ -1117,7 +1137,7 @@ func (m Model) openEditor() (Model, tea.Cmd) {
 }
 
 func (m Model) noteBodyWidth() int {
-	w := m.width - sidebarWidth - 4
+	w := m.width - 4
 	if m.note != nil && len(m.note.Backlinks) > 0 {
 		w -= 22
 	}
@@ -1125,4 +1145,11 @@ func (m Model) noteBodyWidth() int {
 		w = 24
 	}
 	return w
+}
+
+func (m Model) noteID() string {
+	if m.note == nil {
+		return ""
+	}
+	return m.note.ObjectID
 }

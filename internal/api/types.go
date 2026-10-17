@@ -87,6 +87,15 @@ type DailyInfo struct {
 	TodayExists bool   `json:"today_exists"`
 }
 
+// DateResult is the read-only `date` hub payload (never creates a daily note).
+type DateResult struct {
+	Date        string `json:"date"`
+	DayOfWeek   string `json:"day_of_week"`
+	DailyNoteID string `json:"daily_note_id"`
+	DailyPath   string `json:"daily_path"`
+	DailyExists bool   `json:"daily_exists"`
+}
+
 // Commands is GET /v1/commands data.
 type Commands struct {
 	APIVersion string        `json:"api_version"`

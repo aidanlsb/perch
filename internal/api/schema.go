@@ -41,7 +41,7 @@ func (f FieldSchema) IsArray() bool {
 	return array
 }
 
-// SortedTypeNames returns type names for the sidebar. "section" is omitted
+// SortedTypeNames returns type names for the type picker. "section" is omitted
 // because Raven rejects type:section queries.
 func (s Schema) SortedTypeNames() []string {
 	names := make([]string, 0, len(s.Types))

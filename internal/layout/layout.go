@@ -117,8 +117,8 @@ func (s Spec) Label() string {
 	}
 }
 
-// DefaultList is the Browse presentation for a type: a plain list. Perch does
-// not synthesize board or date views from the schema.
+// DefaultList is the type-picker presentation for a type: a plain list. Perch
+// does not synthesize board or date views from the schema.
 func DefaultList(ts api.TypeSchema) Spec {
 	return Spec{Name: "List", Kind: KindList, Sort: ts.NameField}.Normalize()
 }

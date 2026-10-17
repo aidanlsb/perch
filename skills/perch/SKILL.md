@@ -26,19 +26,19 @@ changed, validated, or opened. Drive Perch through its CLI. Do not edit
 - Do not assume a vault schema. Type, query, and field names in examples
   (`item`, `task`, `state`, `when`) are not reserved. Discover names with
   `rvn schema --json` or `rvn query` if the user has not given them.
-- Browse in the TUI lists every type as a plain list. Do not invent board or
-  date views from the schema. Only views the user (or you, via the CLI) declare
-  exist.
+- The TUI type picker (`space st`) lists every schema type as a plain list.
+  Do not invent board or date views from the schema. Only views the user
+  (or you, via the CLI) declare exist.
 - Writes are temp-file + rename. The existing validator runs before replace.
   Invalid config is not written.
 
-## TUI sidebar
+## TUI navigation
 
-Prefer the CLI. If the user is already in the TUI: `ctrl-b` hides or shows
-the sidebar (the main area expands). `ctrl-e` toggles focus between the
-sidebar and the last-focused main panel, and shows the sidebar first if it
-was hidden. Panel motions (`ctrl-h/j/k/l`, `ctrl-w` plus a direction, tab)
-stay in the main area and never enter the sidebar. In-panel scrolling is
+Prefer the CLI. There is no sidebar. If the user is already in the TUI,
+navigation is pickers under Space leader (`space s*`: `st` types, `sd`
+daily, `sq` queries, `sv` views, `sf` notes, `sg` content search). `space ,`
+opens config at the current view. Panel motions (`ctrl-h/j/k/l`, `ctrl-w`
+plus a direction, tab) move among main panels. In-panel scrolling is
 `ctrl-d` / `ctrl-u` only.
 
 ## Views

@@ -162,7 +162,6 @@ func (m Model) reloadConfig() (Model, error) {
 	if m.schema.Types != nil || m.schema.Queries != nil {
 		m.cfgWarnings = f.Validate(m.schema)
 	}
-	m.rebuildNav()
 	return m, nil
 }
 

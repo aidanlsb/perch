@@ -247,6 +247,27 @@ func (c *Client) Read(ctx context.Context, reference string) (*ReadResult, *Meta
 	return &out, env.Meta, nil
 }
 
+// Date runs the read-only date hub. dateArg is today/yesterday/tomorrow/YYYY-MM-DD;
+// empty means today. This never creates a daily note.
+func (c *Client) Date(ctx context.Context, dateArg string) (*DateResult, error) {
+	args := map[string]any{}
+	if strings.TrimSpace(dateArg) != "" {
+		args["date"] = strings.TrimSpace(dateArg)
+	}
+	env, err := c.Invoke(ctx, "date", args)
+	if err != nil {
+		return nil, err
+	}
+	if err := envelopeErr(env); err != nil {
+		return nil, err
+	}
+	var out DateResult
+	if err := json.Unmarshal(env.Data, &out); err != nil {
+		return nil, fmt.Errorf("decode date: %w", err)
+	}
+	return &out, nil
+}
+
 // Search runs full-text search.
 func (c *Client) Search(ctx context.Context, query string, limit int) (*SearchResult, error) {
 	args := map[string]any{"query": query}

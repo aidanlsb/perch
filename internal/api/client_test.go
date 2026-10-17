@@ -123,6 +123,19 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 						},
 					},
 				})
+			case "date":
+				dateArg, _ := lastInvoke.Args["date"].(string)
+				if dateArg == "" {
+					dateArg = "2026-10-15"
+				}
+				writeEnv(w, 200, map[string]any{
+					"ok": true,
+					"data": map[string]any{
+						"date": dateArg, "day_of_week": "Thursday",
+						"daily_note_id": dateArg, "daily_path": "daily/" + dateArg + ".md",
+						"daily_exists": true,
+					},
+				})
 			case "search":
 				writeEnv(w, 200, map[string]any{
 					"ok": true,
@@ -228,6 +241,11 @@ func TestClientHealthSchemaInvoke(t *testing.T) {
 	sr, err := c.Search(ctx, "raven", 10)
 	if err != nil || len(sr.Items) != 1 {
 		t.Fatalf("search %v %+v", err, sr)
+	}
+
+	dr, err := c.Date(ctx, "2026-10-15")
+	if err != nil || dr.Date != "2026-10-15" || !dr.DailyExists || dr.DailyNoteID != "2026-10-15" {
+		t.Fatalf("date %v %+v", err, dr)
 	}
 
 	qs, err := c.SavedQueries(ctx)

@@ -70,6 +70,13 @@ type searchMsg struct {
 	err    error
 }
 
+type dateMsg struct {
+	gen    int
+	date   string
+	result *api.DateResult
+	err    error
+}
+
 type prefetchMsg struct {
 	objects []api.Object
 	rest    []string
@@ -182,6 +189,21 @@ func fetchReadFull(c *api.Client, gen int, ref, purpose string, keep, live bool)
 			vault = meta.VaultContext.Path
 		}
 		return readMsg{gen: gen, purpose: purpose, id: ref, result: rd, vault: vault, keep: keep, live: live}
+	}
+}
+
+func fetchDate(c *api.Client, gen int, date string) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil {
+			return dateMsg{gen: gen, date: date, err: errNoClient}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		dr, err := c.Date(ctx, date)
+		if err != nil {
+			return dateMsg{gen: gen, date: date, err: err}
+		}
+		return dateMsg{gen: gen, date: date, result: dr}
 	}
 }
 

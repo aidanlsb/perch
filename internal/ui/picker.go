@@ -105,6 +105,50 @@ func viewPickerSub(v config.View) string {
 	return "type " + v.Type
 }
 
+func (m Model) openSearchPicker() (Model, tea.Cmd) {
+	m.overlay = overlayPicker
+	m.pickerKind = pickerSearch
+	m.pickerQ = ""
+	m.pickerCur = 0
+	m.pickerAll = nil
+	m.pickerHit = nil
+	m.leaderSeq = ""
+	return m, nil
+}
+
+func (m *Model) applySearchHits(sr *api.SearchResult) {
+	var items []pickItem
+	if sr != nil {
+		for i, hit := range sr.Items {
+			id := hit.ObjectID
+			if hit.IsSection && hit.FileObjectID != "" {
+				id = hit.FileObjectID
+			}
+			if id == "" {
+				continue
+			}
+			title := hit.Title
+			if title == "" {
+				title = id
+			}
+			obj := api.Object{ID: id, Title: title, FilePath: hit.FilePath}
+			items = append(items, pickItem{
+				Kind:   pickerSearch,
+				Label:  title,
+				Sub:    hit.Snippet,
+				ID:     id,
+				Object: &obj,
+				Index:  i,
+			})
+		}
+	}
+	m.pickerAll = items
+	m.pickerHit = items
+	if m.pickerCur >= len(m.pickerHit) {
+		m.pickerCur = max(0, len(m.pickerHit)-1)
+	}
+}
+
 func (m Model) openNotesPicker() (Model, tea.Cmd) {
 	m.overlay = overlayPicker
 	m.pickerKind = pickerNotes
@@ -201,6 +245,12 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 			name = it.Label
 		}
 		return m.loadNamedView(name)
+	case pickerSearch:
+		id := it.ID
+		if it.Object != nil && it.Object.ID != "" {
+			id = it.Object.ID
+		}
+		return m.openNote(id)
 	default:
 		id := it.ID
 		if it.Object != nil && it.Object.ID != "" {
@@ -340,8 +390,18 @@ func (m Model) keysPicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) afterPickerQuery() (Model, tea.Cmd) {
-	m.refilterPicker()
 	q := strings.TrimSpace(m.pickerQ)
+	if m.pickerKind == pickerSearch {
+		if q == "" {
+			m.pickerAll = nil
+			m.pickerHit = nil
+			m.pickerCur = 0
+			return m, nil
+		}
+		gen := m.nextGen()
+		return m, fetchSearch(m.client, gen, q)
+	}
+	m.refilterPicker()
 	if m.pickerKind == pickerNotes && len([]rune(q)) >= 2 {
 		gen := m.nextGen()
 		return m, fetchSearch(m.client, gen, q)
