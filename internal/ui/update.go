@@ -21,6 +21,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.recomputeRegions()
 		return m, nil
 	case schemaMsg:
 		return m.onSchema(msg)
@@ -64,11 +65,12 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 			m.status = "config: " + m.cfgWarnings[0]
 		}
 	}
-	if len(m.nav) == 0 {
+	names := m.schema.SortedTypeNames()
+	if len(names) == 0 {
 		m.corpusLoading = true
 		return m, m.corpusCmd()
 	}
-	return m.loadNav(m.navCur)
+	return m.loadType(names[0])
 }
 
 func (m Model) corpusCmd() tea.Cmd {
@@ -116,58 +118,47 @@ func (m Model) onPrefetch(msg prefetchMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
-	if msg.gen != m.gen {
+	p := m.paneForQuery(msg)
+	if p == nil || p.gen != msg.gen {
 		return m, nil
 	}
-	m.loading = false
+	p.loading = false
 	if msg.err != nil {
 		m.errMsg = msg.err.Error()
-		m.objects = nil
-		m.applyFilterAndGroup()
+		p.objects = nil
+		p.applyFilterAndGroup(m.typeSchemaFor(p))
 		return m, nil
 	}
 	m.errMsg = ""
-	m.objects = msg.objects
+	p.objects = msg.objects
 	if msg.typeName != "" {
-		m.typeName = msg.typeName
+		p.typeName = msg.typeName
 	}
-	m.hasMore = msg.hasMore
-	m.total = msg.total
+	p.hasMore = msg.hasMore
+	p.total = msg.total
 	if msg.vault != "" {
 		m.vaultPath = msg.vault
 	}
-	m.listCur = 0
-	m.listOff = 0
-	m.boardCol = 0
-	m.boardRow = 0
-	m.dateSec = 0
-	m.dateRow = 0
-	if !m.layoutsConfigured && m.typeName != "" {
-		syn := layout.Synthesize(m.typeSchema())
-		if len(syn) > len(m.layouts) {
-			cur := m.spec.DisplayName()
-			m.layouts = syn
-			m.layoutIdx = 0
-			for i, s := range syn {
-				if s.DisplayName() == cur {
-					m.layoutIdx = i
-					break
-				}
-			}
-			m.applySpec(m.layouts[m.layoutIdx])
+	p.resetCursor()
+	ts := m.typeSchemaFor(p)
+	if len(p.listFields) == 0 {
+		p.listFields = defaultFields(ts)
+		p.spec.Fields = p.listFields
+	}
+	p.applyFilterAndGroup(ts)
+	m.mergeNotes(p.objects)
+	if m.queryCache != nil {
+		m.queryCache[cacheKey(p.sourceQuery, p.sourceInputs)] = queryCacheEntry{
+			objects:  p.objects,
+			typeName: p.typeName,
+			hasMore:  p.hasMore,
+			total:    p.total,
 		}
 	}
-	if len(m.listFields) == 0 {
-		m.listFields = defaultFields(m.typeSchema())
-		m.spec.Fields = m.listFields
-	}
-	m.applyFilterAndGroup()
-	m.mergeNotes(m.objects)
-	m.cacheQuery()
-	n := len(m.filtered)
+	n := len(p.filtered)
 	m.status = fmt.Sprintf("%d objects", n)
-	if m.hasMore {
-		m.status = fmt.Sprintf("%d of %d (truncated)", n, m.total)
+	if p.hasMore {
+		m.status = fmt.Sprintf("%d of %d (truncated)", n, p.total)
 	}
 	var cmds []tea.Cmd
 	if c := m.previewCmd(); c != nil {
@@ -180,14 +171,31 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 			cmds = append(cmds, c)
 		}
 	}
-	switch len(cmds) {
-	case 0:
-		return m, nil
-	case 1:
-		return m, cmds[0]
-	default:
-		return m, tea.Batch(cmds...)
+	if p.bind == "" {
+		m2, bound := m.refreshBound(p.id)
+		m = m2
+		if bound != nil {
+			cmds = append(cmds, bound)
+		}
 	}
+	return m, batchCmds(cmds)
+}
+
+func (m *Model) paneForQuery(msg queryMsg) *viewState {
+	if msg.pane != "" {
+		if p := m.viewByID(msg.pane); p != nil {
+			return p
+		}
+	}
+	for _, p := range m.panes {
+		if p.gen == msg.gen {
+			return p
+		}
+	}
+	if len(m.panes) == 1 {
+		return m.panes[0]
+	}
+	return nil
 }
 
 func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
@@ -296,6 +304,9 @@ func (m Model) onSearch(msg searchMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) onEditorDone(msg editorDoneMsg) (Model, tea.Cmd) {
+	if msg.config {
+		return m.onConfigEditorDone(msg)
+	}
 	if msg.err != nil {
 		m.errMsg = msg.err.Error()
 	}
@@ -332,6 +343,8 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.keysRQL(msg)
 	case overlayArgs:
 		return m.keysArgs(msg)
+	case overlaySave:
+		return m.keysSave(msg)
 	}
 	if key == "e" {
 		return m.openEditor()
@@ -365,7 +378,9 @@ func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "d":
 		return m.openDaily()
 	case "l":
-		return m.openLayoutPicker()
+		return m.openViewsPicker()
+	case "c":
+		return m.openConfigAtView()
 	case "esc", " ":
 		return m, nil
 	}
@@ -385,7 +400,7 @@ func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if q == "" {
 			return m, nil
 		}
-		return m.loadSource(q, q, "", nil, true)
+		return m.loadRQL(q)
 	case "backspace":
 		m.rql = dropLastRune(m.rql)
 		return m, nil
@@ -425,24 +440,21 @@ func (m Model) keysSearch(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
+	if m.pending == "ctrlw" {
+		return m.keysCtrlW(msg)
+	}
 	if m.pending == "g" {
 		m.pending = ""
 		switch key {
 		case "g":
 			m.moveToStart()
-			return m, m.previewCmd()
+			return m.afterMove()
 		case "l":
-			return m.openLayoutPicker()
-		case "L":
-			return m.cycleLayout(-1)
+			return m.openViewsPicker()
 		}
-		// Unmatched second key (including /) falls through.
 	}
 	if isSlash(msg) {
 		return m.startSearch()
-	}
-	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
-		return m.jumpLayout(int(key[0] - '0'))
 	}
 	switch key {
 	case "q":
@@ -461,16 +473,18 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case " ":
 		m.overlay = overlayLeader
 		return m, nil
+	case ",":
+		return m.openConfig(0)
+	case "S":
+		return m.startSaveView()
 	case "n":
 		m.jumpSearch(1)
-		return m, m.previewCmd()
+		return m.afterMove()
 	case "N":
 		m.jumpSearch(-1)
-		return m, m.previewCmd()
+		return m.afterMove()
 	case "d":
 		return m.openDaily()
-	case "L":
-		return m.cycleLayout(1)
 	case ".":
 		return m.cycleGroup()
 	case "p":
@@ -482,72 +496,126 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "r":
 		return m.refresh()
 	case "enter":
-		if m.pane == paneSidebar {
-			return m.loadNav(m.navCur)
-		}
-		return m.openSelectedNote()
+		return m.enterBrowse()
 	case "tab":
-		return m.cyclePane(1), nil
+		return m.cycleFocus(1), nil
 	case "shift+tab":
-		return m.cyclePane(-1), nil
+		return m.cycleFocus(-1), nil
+	case "ctrl+w":
+		m.pending = "ctrlw"
+		return m, nil
+	case "ctrl+h":
+		return m.moveFocus(-1, 0), nil
+	case "ctrl+j":
+		return m.moveFocus(0, 1), nil
+	case "ctrl+k":
+		return m.moveFocus(0, -1), nil
+	case "ctrl+l":
+		return m.moveFocus(1, 0), nil
 	case "j", "down":
-		if m.pane == panePreview {
+		if m.focus == focusPreview {
 			m.previewScroll++
 			return m, nil
 		}
 		m.move(1)
-		return m, m.previewCmd()
+		return m.afterMove()
 	case "k", "up":
-		if m.pane == panePreview {
+		if m.focus == focusPreview {
 			if m.previewScroll > 0 {
 				m.previewScroll--
 			}
 			return m, nil
 		}
 		m.move(-1)
-		return m, m.previewCmd()
+		return m.afterMove()
 	case "g":
 		m.pending = "g"
 		return m, nil
 	case "G":
-		if m.pane == panePreview {
+		if m.focus == focusPreview {
 			m.previewScroll = 1 << 20
 			return m, nil
 		}
 		m.moveToEnd()
-		return m, m.previewCmd()
+		return m.afterMove()
 	case "ctrl+d":
 		m.move(m.pageSize())
-		return m, m.previewCmd()
+		return m.afterMove()
 	case "ctrl+u":
 		m.move(-m.pageSize())
-		return m, m.previewCmd()
+		return m.afterMove()
 	case "h", "left":
-		if m.pane == panePreview {
-			m.pane = paneMain
-			return m, nil
-		}
-		if m.pane == paneMain && m.viewKind == kindBoard {
-			m.moveBoardCol(-1)
-			return m, m.previewCmd()
-		}
-		m.pane = paneSidebar
-		return m, nil
+		return m.keyH()
 	case "l", "right":
-		if m.pane == paneSidebar {
-			m.pane = paneMain
-			return m, nil
-		}
-		if m.viewKind == kindBoard && m.pane == paneMain {
-			m.moveBoardCol(1)
-			return m, m.previewCmd()
-		}
-		if m.previewOn {
-			m.pane = panePreview
+		return m.keyL()
+	}
+	return m, nil
+}
+
+func (m Model) enterBrowse() (Model, tea.Cmd) {
+	if m.focus == focusSidebar {
+		return m.activateNav()
+	}
+	if tgt := m.boundTarget(m.focus); tgt != "" {
+		m.setFocus(tgt)
+		return m, nil
+	}
+	return m.openSelectedNote()
+}
+
+func (m Model) keyH() (Model, tea.Cmd) {
+	if m.focus == focusPreview {
+		if len(m.panes) > 0 {
+			m.setFocus(m.panes[len(m.panes)-1].id)
+		} else {
+			m.setFocus(focusSidebar)
 		}
 		return m, nil
 	}
+	if m.focus == focusSidebar {
+		if m.navCur >= 0 && m.navCur < len(m.nav) && m.nav[m.navCur].Kind == navCat {
+			return m.expandCategory(m.nav[m.navCur].Category, false), nil
+		}
+		return m, nil
+	}
+	p := m.p()
+	if p.spec.Kind == kindBoard {
+		p.moveBoardCol(-1)
+		return m.afterMove()
+	}
+	m.setFocus(focusSidebar)
 	return m, nil
+}
+
+func (m Model) keyL() (Model, tea.Cmd) {
+	if m.focus == focusSidebar {
+		if m.navCur >= 0 && m.navCur < len(m.nav) && m.nav[m.navCur].Kind == navCat {
+			return m.expandCategory(m.nav[m.navCur].Category, true), nil
+		}
+		if len(m.panes) > 0 {
+			m.setFocus(m.panes[0].id)
+		}
+		return m, nil
+	}
+	p := m.focusedView()
+	if p != nil && p.spec.Kind == kindBoard && m.focus == p.id {
+		p.moveBoardCol(1)
+		return m.afterMove()
+	}
+	if m.previewOn {
+		m.setFocus(focusPreview)
+	}
+	return m, nil
+}
+
+func (m Model) afterMove() (Model, tea.Cmd) {
+	cmds := []tea.Cmd{m.previewCmd()}
+	if p := m.focusedView(); p != nil {
+		var c tea.Cmd
+		m, c = m.refreshBound(p.id)
+		cmds = append(cmds, c)
+	}
+	return m, batchCmds(cmds)
 }
 
 func (m Model) startSearch() (Model, tea.Cmd) {
@@ -555,7 +623,7 @@ func (m Model) startSearch() (Model, tea.Cmd) {
 	if m.screen == kindNote {
 		m.screen = "browse"
 		m.note = nil
-		m.status = m.sourceLabel
+		m.status = m.p().sourceLabel
 	}
 	m.overlay = overlaySearch
 	return m, nil
@@ -577,7 +645,7 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "q", "esc", "backspace":
 		m.screen = "browse"
 		m.note = nil
-		m.status = m.sourceLabel
+		m.status = m.p().sourceLabel
 		return m, m.previewCmd()
 	case "t":
 		return m.openTypePicker()
@@ -642,70 +710,14 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) cyclePane(delta int) Model {
-	order := []pane{paneSidebar, paneMain}
-	if m.previewOn {
-		order = append(order, panePreview)
-	}
-	idx := 0
-	for i, p := range order {
-		if p == m.pane {
-			idx = i
-			break
-		}
-	}
-	m.pane = order[(idx+delta+len(order))%len(order)]
-	return m
-}
-
-func (m Model) cycleLayout(delta int) (Model, tea.Cmd) {
-	if len(m.layouts) == 0 {
-		return m, nil
-	}
-	_, idx := layout.Cycle(m.layouts, m.layoutIdx, delta)
-	return m.selectLayout(idx)
-}
-
-func (m Model) jumpLayout(n int) (Model, tea.Cmd) {
-	if n < 1 || n > len(m.layouts) {
-		m.status = fmt.Sprintf("no layout %d", n)
-		return m, nil
-	}
-	return m.selectLayout(n - 1)
-}
-
-func (m Model) selectLayout(idx int) (Model, tea.Cmd) {
-	if idx < 0 || idx >= len(m.layouts) {
-		return m, nil
-	}
-	spec := m.layouts[idx]
-	m.layoutIdx = idx
-	query := m.queryForSpec(spec)
-	changed := query != m.sourceQuery
-	m.applySpec(spec)
-	m.sourceQuery = query
-	m.status = spec.DisplayName()
-	if !changed {
-		return m, m.previewCmd()
-	}
-	m.filterReset()
-	gen := m.nextGen()
-	m.loading = true
-	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, m.typeSchema(), m.sourceInputs)
-}
-
 func (m Model) cycleGroup() (Model, tea.Cmd) {
-	if m.spec.Kind != layout.KindDate {
-		m.status = m.spec.DisplayName()
+	p := m.p()
+	if p.spec.Kind != layout.KindDate {
+		m.status = p.spec.DisplayName()
 		return m, nil
 	}
-	next := layout.NextGranularity(m.spec)
-	m.applySpec(next)
-	if m.layoutIdx >= 0 && m.layoutIdx < len(m.layouts) {
-		cur := m.layouts[m.layoutIdx]
-		cur.Granularity = next.Granularity
-		m.layouts[m.layoutIdx] = cur
-	}
+	next := layout.NextGranularity(p.spec)
+	p.applySpec(next, m.typeSchemaFor(p))
 	m.status = next.DisplayName() + " / " + next.Granularity
 	return m, m.previewCmd()
 }
@@ -713,8 +725,12 @@ func (m Model) cycleGroup() (Model, tea.Cmd) {
 func (m Model) togglePreview() (Model, tea.Cmd) {
 	m.previewOn = !m.previewOn
 	if !m.previewOn {
-		if m.pane == panePreview {
-			m.pane = paneMain
+		if m.focus == focusPreview {
+			if len(m.panes) > 0 {
+				m.setFocus(m.panes[0].id)
+			} else {
+				m.setFocus(focusSidebar)
+			}
 		}
 		return m, nil
 	}
@@ -759,85 +775,36 @@ func (m Model) openDaily() (Model, tea.Cmd) {
 }
 
 func (m *Model) move(delta int) {
-	if m.pane == paneSidebar {
+	if m.focus == focusSidebar {
 		m.navCur = clamp(m.navCur+delta, 0, max(0, len(m.nav)-1))
 		return
 	}
-	switch m.viewKind {
-	case kindBoard:
-		if len(m.board) == 0 {
-			return
-		}
-		col := &m.board[m.boardCol]
-		m.boardRow = clamp(m.boardRow+delta, 0, max(0, len(col.Items)-1))
-	case kindDate:
-		m.moveDate(delta)
-	default:
-		m.listCur = clamp(m.listCur+delta, 0, max(0, len(m.filtered)-1))
+	if p := m.focusedView(); p != nil {
+		p.move(delta)
 	}
-}
-
-func (m *Model) moveDate(delta int) {
-	if len(m.dateCols) == 0 {
-		return
-	}
-	m.dateRow += delta
-	for m.dateRow < 0 && m.dateSec > 0 {
-		m.dateSec--
-		m.dateRow = len(m.dateCols[m.dateSec].Items)
-		if m.dateRow > 0 {
-			m.dateRow--
-		}
-	}
-	for m.dateSec < len(m.dateCols) && m.dateRow >= len(m.dateCols[m.dateSec].Items) {
-		overflow := m.dateRow - len(m.dateCols[m.dateSec].Items)
-		if m.dateSec+1 >= len(m.dateCols) {
-			m.dateRow = max(0, len(m.dateCols[m.dateSec].Items)-1)
-			break
-		}
-		m.dateSec++
-		m.dateRow = overflow
-	}
-	if m.dateRow < 0 {
-		m.dateRow = 0
-	}
-}
-
-func (m *Model) moveBoardCol(delta int) {
-	if len(m.board) == 0 {
-		return
-	}
-	m.boardCol = clamp(m.boardCol+delta, 0, len(m.board)-1)
-	m.boardRow = clamp(m.boardRow, 0, max(0, len(m.board[m.boardCol].Items)-1))
 }
 
 func (m *Model) moveToStart() {
-	if m.pane == paneSidebar {
+	if m.focus == focusSidebar {
 		m.navCur = 0
 		return
 	}
-	if m.pane == panePreview {
+	if m.focus == focusPreview {
 		m.previewScroll = 0
 		return
 	}
-	m.listCur = 0
-	m.boardRow = 0
-	m.dateSec = 0
-	m.dateRow = 0
+	if p := m.focusedView(); p != nil {
+		p.moveToStart()
+	}
 }
 
 func (m *Model) moveToEnd() {
-	if m.pane == paneSidebar {
+	if m.focus == focusSidebar {
 		m.navCur = max(0, len(m.nav)-1)
 		return
 	}
-	m.listCur = max(0, len(m.filtered)-1)
-	if len(m.board) > 0 {
-		m.boardRow = max(0, len(m.board[m.boardCol].Items)-1)
-	}
-	if len(m.dateCols) > 0 {
-		m.dateSec = len(m.dateCols) - 1
-		m.dateRow = max(0, len(m.dateCols[m.dateSec].Items)-1)
+	if p := m.focusedView(); p != nil {
+		p.moveToEnd()
 	}
 }
 
@@ -856,95 +823,15 @@ func (m *Model) cycleLink(delta int) {
 	m.linkIdx = (m.linkIdx + delta + n) % n
 }
 
-func (m Model) loadNav(index int) (Model, tea.Cmd) {
-	if index < 0 || index >= len(m.nav) {
-		return m, nil
-	}
-	item := m.nav[index]
-	m.navCur = index
-	isQuery := item.Kind == navQuery
-	return m.loadSource(item.Label, item.Source, item.Type, item.Query, isQuery)
-}
-
-func (m Model) loadSource(label, base, typeName string, q *api.SavedQuery, isQuery bool) (Model, tea.Cmd) {
-	m.screen = "browse"
-	m.note = nil
-	m.searchQ = ""
-	m.searchHits = nil
-	m.sourceLabel = label
-	m.sourceBase = base
-	m.sourceRQL = ""
-	if q != nil {
-		m.sourceRQL = q.Query
-	}
-	m.sourceIsQuery = isQuery
-	m.typeName = typeName
-	queryName := ""
-	if q != nil {
-		queryName = q.Name
-	}
-	m.layouts, m.layoutsConfigured = m.resolveLayouts(typeName, queryName)
-	if len(m.layouts) == 0 {
-		m.layouts = []layout.Spec{layout.Spec{Name: "List", Kind: kindList}.Normalize()}
-		m.layoutsConfigured = false
-	}
-	m.layoutIdx = 0
-	spec := m.layouts[0]
-	m.sourceQuery = m.queryForSpec(spec)
-	m.overlay = overlayNone
-	m.filterReset()
-
-	keepInputs := isQuery && q != nil && len(q.Args) > 0 && inputsComplete(q.Args, m.sourceInputs)
-	if !keepInputs {
-		m.sourceInputs = nil
-	}
-	if q != nil && len(q.Args) > 0 && !inputsComplete(q.Args, m.sourceInputs) {
-		return m.startArgsPrompt(q)
-	}
-	m.errMsg = ""
-	m.applySpec(spec)
-	if typeName != "" && m.spec.Sort == "" && m.typeSchema().NameField != "" {
-		m.spec.Sort = m.typeSchema().NameField
-		m.sortField = m.spec.Sort
-	}
-
-	if ent, ok := m.queryCache[cacheKey(m.sourceQuery, m.sourceInputs)]; ok {
-		m.objects = ent.objects
-		if m.typeName == "" {
-			m.typeName = ent.typeName
-		}
-		m.hasMore = ent.hasMore
-		m.total = ent.total
-		m.applyFilterAndGroup()
-		m.status = "cached " + label
-	}
-
-	gen := m.nextGen()
-	m.loading = true
-	if m.status == "" || !strings.HasPrefix(m.status, "cached") {
-		m.status = "loading " + label + "…"
-	}
-	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, m.typeSchema(), m.sourceInputs)
-}
-
-func (m *Model) filterReset() {
-	m.listCur = 0
-	m.listOff = 0
-	m.boardCol = 0
-	m.boardRow = 0
-	m.dateSec = 0
-	m.dateRow = 0
-}
-
-func defaultFields(ts api.TypeSchema) []string {
-	names := ts.FieldNames()
-	if len(names) > 4 {
-		return names[:4]
-	}
-	return names
-}
-
 func (m Model) refresh() (Model, tea.Cmd) {
+	if m.cfgPath != "" {
+		m2, err := m.reloadConfig()
+		m = m2
+		if err != nil {
+			m.errMsg = err.Error()
+			m.status = "config error; keeping last good"
+		}
+	}
 	if m.screen == kindNote && m.note != nil {
 		if m.readCache != nil {
 			delete(m.readCache, m.note.ObjectID)
@@ -953,15 +840,25 @@ func (m Model) refresh() (Model, tea.Cmd) {
 		m.loading = true
 		return m, fetchRead(m.client, gen, m.note.ObjectID, "note")
 	}
-	if m.sourceQuery == "" {
+	if len(m.panes) == 0 {
 		return m, fetchSchema(m.client)
 	}
-	if m.queryCache != nil {
-		delete(m.queryCache, cacheKey(m.sourceQuery, m.sourceInputs))
+	var cmds []tea.Cmd
+	for _, p := range m.panes {
+		if m.queryCache != nil {
+			delete(m.queryCache, cacheKey(p.sourceQuery, p.sourceInputs))
+		}
+		sel := ""
+		if p.bind != "" {
+			if d := m.viewByID(p.bind); d != nil {
+				sel = d.selectedID()
+			}
+		}
+		var cmd tea.Cmd
+		m, cmd = m.startPaneQuery(p, sel)
+		cmds = append(cmds, cmd)
 	}
-	gen := m.nextGen()
-	m.loading = true
-	return m, fetchQuery(m.client, gen, m.sourceQuery, m.typeName, m.queryLimit, m.typeSchema(), m.sourceInputs)
+	return m, batchCmds(cmds)
 }
 
 func (m Model) openSelectedNote() (Model, tea.Cmd) {
@@ -1056,7 +953,7 @@ func (m Model) openEditor() (Model, tea.Cmd) {
 	if m.screen == kindNote && m.note != nil {
 		path = editor.FilePath(m.vaultPath, m.note.Path)
 		objectID = m.note.ObjectID
-	} else if m.previewOn && m.pane == panePreview && m.preview != nil {
+	} else if m.previewOn && m.focus == focusPreview && m.preview != nil {
 		path = editor.FilePath(m.vaultPath, m.preview.Path)
 		objectID = m.preview.ObjectID
 	} else if obj := m.selectedObject(); obj != nil {

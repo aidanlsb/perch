@@ -20,8 +20,9 @@ func (m *Model) jumpSearch(delta int) {
 		m.searchAt += n
 	}
 	idx := m.searchHits[m.searchAt]
-	if idx >= 0 && idx < len(m.filtered) {
-		m.selectID(m.filtered[idx].ID)
+	rows := m.p().filtered
+	if idx >= 0 && idx < len(rows) {
+		m.selectID(rows[idx].ID)
 	}
 }
 
@@ -32,7 +33,8 @@ func (m *Model) jumpSearchFirst() {
 		return
 	}
 	idx := m.searchHits[0]
-	if idx >= 0 && idx < len(m.filtered) {
-		m.selectID(m.filtered[idx].ID)
+	rows := m.p().filtered
+	if idx >= 0 && idx < len(rows) {
+		m.selectID(rows[idx].ID)
 	}
 }

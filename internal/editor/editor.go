@@ -86,6 +86,11 @@ func FilePath(vaultPath, rel string) string {
 
 // Command builds the process that opens path in editor.
 func Command(editorCmd, path string) (*exec.Cmd, error) {
+	return CommandLine(editorCmd, path, 0)
+}
+
+// CommandLine opens path, jumping to line when the editor supports it.
+func CommandLine(editorCmd, path string, line int) (*exec.Cmd, error) {
 	editorCmd = strings.TrimSpace(editorCmd)
 	path = strings.TrimSpace(path)
 	if editorCmd == "" {
@@ -94,10 +99,33 @@ func Command(editorCmd, path string) (*exec.Cmd, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no file path to open")
 	}
+	args := LineArgs(commandName(editorCmd), path, line)
 	if strings.Contains(editorCmd, " ") {
-		return exec.Command("sh", "-c", editorCmd+" "+shellQuote(path)), nil
+		parts := make([]string, 0, len(args))
+		for _, a := range args {
+			parts = append(parts, shellQuote(a))
+		}
+		return exec.Command("sh", "-c", editorCmd+" "+strings.Join(parts, " ")), nil
 	}
-	return exec.Command(editorCmd, path), nil
+	return exec.Command(editorCmd, args...), nil
+}
+
+// LineArgs is the editor argument vector for path, plus a line jump when known.
+func LineArgs(name, path string, line int) []string {
+	if line <= 0 {
+		return []string{path}
+	}
+	switch name {
+	case "vi", "vim", "vimdiff", "nvim", "nvimdiff",
+		"emacs", "emacsclient", "nano", "micro", "kak", "kakoune":
+		return []string{fmt.Sprintf("+%d", line), path}
+	case "hx", "helix":
+		return []string{fmt.Sprintf("%s:%d", path, line)}
+	case "code", "code-insiders", "codium", "cursor":
+		return []string{"-g", fmt.Sprintf("%s:%d", path, line)}
+	default:
+		return []string{path}
+	}
 }
 
 func commandName(editorCmd string) string {

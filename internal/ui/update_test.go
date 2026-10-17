@@ -57,30 +57,42 @@ func TestSchemaBuildsSidebar(t *testing.T) {
 	for _, n := range m.nav {
 		labels = append(labels, n.Label)
 	}
-	if len(labels) < 4 {
+	if len(labels) != 2 || labels[0] != catBrowse || labels[1] != catViews {
+		t.Fatalf("collapsed cats %v", labels)
+	}
+	m = m.toggleCategory(catBrowse)
+	labels = nil
+	for _, n := range m.nav {
+		labels = append(labels, n.Label)
+	}
+	if labels[0] != catBrowse {
 		t.Fatalf("%v", labels)
 	}
-	if labels[0] != "person" && labels[0] != "project" {
-		t.Fatalf("types first %v", labels)
-	}
+	foundType := false
 	for _, l := range labels {
 		if l == "section" {
 			t.Fatal("section should be omitted")
 		}
+		if l == "person" || l == "project" {
+			foundType = true
+		}
+	}
+	if !foundType {
+		t.Fatalf("types under Browse %v", labels)
 	}
 }
 
 func TestMoveAndSearch(t *testing.T) {
 	m := loadBrowse(t)
-	m.pane = paneMain
+	focusMain(&m)
 	m, _ = m.update(key("j"))
-	if m.listCur != 1 {
-		t.Fatalf("cursor %d", m.listCur)
+	if m.p().listCur != 1 {
+		t.Fatalf("cursor %d", m.p().listCur)
 	}
 	m, _ = m.update(key("g"))
 	m, _ = m.update(key("g"))
-	if m.listCur != 0 {
-		t.Fatalf("gg %d", m.listCur)
+	if m.p().listCur != 0 {
+		t.Fatalf("gg %d", m.p().listCur)
 	}
 	m, _ = m.update(key("/"))
 	if m.overlay != overlaySearch {
@@ -100,7 +112,7 @@ func TestMoveAndSearch(t *testing.T) {
 
 func TestOpenNoteTabFollowHistory(t *testing.T) {
 	m := loadBrowse(t)
-	m.pane = paneMain
+	focusMain(&m)
 	m, cmd := m.update(key("enter"))
 	if cmd == nil {
 		t.Fatal("expected read")
@@ -165,47 +177,27 @@ func TestOpenNoteTabFollowHistory(t *testing.T) {
 	}
 }
 
-func TestBoardFromNamedLayout(t *testing.T) {
-	m := NewModel(Options{Config: &config.File{
-		Types: map[string]config.Source{
-			"project": {Layouts: []config.Layout{
-				{Name: "Board", Kind: kindBoard, GroupBy: "status"},
-			}},
-		},
-	}})
-	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
-	for i, n := range m.nav {
-		if n.Type == "project" {
-			m.navCur = i
-			break
-		}
+func TestBoardFromNamedView(t *testing.T) {
+	m := loadNamedView(t, namedViewCfg(), "projects")
+	if m.p().spec.Kind != kindBoard || m.currentLayoutName() != "projects" {
+		t.Fatalf("kind %s name %s", m.p().spec.Kind, m.currentLayoutName())
 	}
-	m, _ = m.update(key("enter"))
-	m, _ = m.update(queryMsg{
-		gen: m.gen, typeName: "project",
-		objects: []api.Object{
-			{ID: "projects/a", Title: "Alpha", Fields: map[string]any{"status": "active"}},
-			{ID: "projects/b", Title: "Beta", Fields: map[string]any{"status": "idea"}},
-		},
-	})
-	if m.viewKind != kindBoard || m.currentLayoutName() != "Board" {
-		t.Fatalf("kind %s name %s", m.viewKind, m.currentLayoutName())
+	if len(m.p().board) < 3 {
+		t.Fatalf("cols %d", len(m.p().board))
 	}
-	if len(m.board) < 3 {
-		t.Fatalf("cols %d", len(m.board))
-	}
-	m.pane = paneMain
+	focusMain(&m)
 	m, _ = m.update(key("l"))
-	if m.boardCol == 0 {
+	if m.p().boardCol == 0 {
 		t.Fatal("expected column move")
 	}
 }
 
 func TestSavedQueryArgsPrompt(t *testing.T) {
 	m := loadBrowse(t)
-	for i, n := range m.nav {
-		if n.Label == "need" {
-			m.navCur = i
+	m, _ = m.update(key("q"))
+	for i, it := range m.pickerHit {
+		if it.Label == "need" {
+			m.pickerCur = i
 			break
 		}
 	}
@@ -221,8 +213,8 @@ func TestSavedQueryArgsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected query with inputs")
 	}
-	if m.sourceInputs["x"] != "p" || m.sourceQuery != "need" {
-		t.Fatalf("inputs=%v source=%s", m.sourceInputs, m.sourceQuery)
+	if m.p().sourceInputs["x"] != "p" || m.p().sourceQuery != "need" {
+		t.Fatalf("inputs=%v source=%s", m.p().sourceInputs, m.p().sourceQuery)
 	}
 }
 
@@ -285,6 +277,16 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyCtrlP}
 	case "ctrl+n":
 		return tea.KeyMsg{Type: tea.KeyCtrlN}
+	case "ctrl+h":
+		return tea.KeyMsg{Type: tea.KeyCtrlH}
+	case "ctrl+j":
+		return tea.KeyMsg{Type: tea.KeyCtrlJ}
+	case "ctrl+k":
+		return tea.KeyMsg{Type: tea.KeyCtrlK}
+	case "ctrl+l":
+		return tea.KeyMsg{Type: tea.KeyCtrlL}
+	case "ctrl+w":
+		return tea.KeyMsg{Type: tea.KeyCtrlW}
 	case " ":
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
 	default:

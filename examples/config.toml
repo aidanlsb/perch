@@ -1,43 +1,50 @@
 # Perch config. Raven does not read this file.
 # Default location: ~/.config/perch/config.toml
 #
-# Each type (and each saved query) has an ordered list of named layouts.
-# The first is the default. L / gL cycle only this list; gl or space l opens
-# the layout picker; 1-9 jump to layout N.
+# Names below (item, task, state, when, inbox, …) are examples. They are not
+# reserved. Perch does not assume a vault schema.
 #
-# kind: list | board | date
-# date takes group_by and granularity (day/week/month). . cycles granularity
-# inside a date layout and does not invent extra group-by fields.
-# Optional filter is an RQL predicate appended to the type source.
-# Type and field names here are yours; Perch does not treat any of them
-# as special.
+# A view is a source plus one list/board/date presentation.
+# source is a type name, a saved query name, or an RQL string.
+# {{selected}} is filled from the panel named in bind.
 #
-# Zero-config (when a type has no [[layouts]]):
-#   1. List always (the default)
-#   2. Board if the type has a scalar enum, grouped by the first such
-#      field in schema definition order
-#   3. Date if the type has a scalar date/datetime field, grouped by the
-#      first such field in schema definition order (granularity day)
+# A layout is a nested split of panels. Panels reference views by name.
+# split is row (side by side) or col (stacked).
+#
+# Browse shows every type as a plain list. Board and date views are only
+# those you declare here.
 
-[[types.item.layouts]]
-name = "Board"
-kind = "board"
-group_by = "state"
-fields = ["state", "when"]
+[views.projects]
+source = "item"
+layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
 
-[[types.item.layouts]]
-name = "By when"
-kind = "list"
-fields = ["state", "when"]
-sort = "when"
+[views.by-when]
+source = "item"
+layout = { kind = "list", fields = ["state", "when"], sort = "when" }
 
-[[types.item.layouts]]
-name = "Open"
-kind = "list"
-filter = ".state==open"
-fields = ["state", "when"]
+[views.open]
+source = "item"
+layout = { kind = "list", filter = ".state==open", fields = ["state", "when"] }
 
-[[queries.inbox.layouts]]
-name = "Inbox"
-kind = "list"
-sort = "label"
+[views.week]
+source = "event"
+layout = { kind = "date", group_by = "when", granularity = "week" }
+
+[views.inbox]
+source = "inbox"
+layout = { kind = "list", sort = "label" }
+
+[views.tasks]
+source = "task"
+inputs = { item = "{{selected}}" }
+layout = { kind = "list", fields = ["state"] }
+
+[layouts.workspace]
+split = "row"
+panels = [
+  { view = "projects" },
+  { split = "col", panels = [
+      { view = "tasks", bind = "projects" },
+      { view = "inbox" },
+  ] },
+]

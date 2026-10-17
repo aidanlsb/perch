@@ -35,75 +35,67 @@ If nothing is listening, Perch starts `rvn api --json --port 0` as a child
 and sends SIGTERM to that child on exit. If a server is already up and you
 pass a token, Perch connects and leaves it running.
 
-## Layouts
+## Views and layouts
 
-Every source — a type, a saved query, or an ad-hoc RQL string — renders
-through a named `Spec`: **list**, **board** (grouped by an enum or ref
-field), or **date** (grouped by a date/datetime field). Each type and each
-saved query has an **ordered list** of named layouts. The first is the
-default. The header shows the layout name.
+A **view** is a source plus one presentation: **list**, **board** (grouped
+by an enum or ref field), or **date** (grouped by a date/datetime field).
+`source` is a type name, a saved query name, or an RQL string. Optional
+`inputs` are sent with saved-query `query` calls. `{{selected}}` in
+`source` or `inputs` is filled from another panel's current selection.
 
-`L` cycles forward through that list only; `gL` cycles backward.
-(`L` is already shift+l in the terminal, so reverse cannot be shift-L.)
-`gl` or `space l` opens a fuzzy layout picker. Number keys `1`–`9` jump
-to layout N (1-based). `.` cycles date granularity (day → week → month)
-inside a date layout and no longer invents extra group-by fields.
+A **layout** is a nested split of panels. Each leaf names a view. `split`
+is `row` (side by side) or `col` (stacked). `bind` names the panel whose
+selection fills `{{selected}}` in that panel. Bound panels update as the
+driving selection moves. Enter in the driving panel moves focus to the
+bound panel.
 
-Zero-config: when a type has no `[[layouts]]`, Perch synthesizes a small
-set from schema structure only. Field names are not preferred. This is
-the entire L-cycle:
+Browse lists every type as a plain list. Perch does not invent board or
+date views from the schema. `.` still cycles date granularity (day →
+week → month) inside a date view.
 
-1. **List** always (and it is the default)
-2. **Board** if the type has a scalar enum field, grouped by the first
-   such field in schema definition order (named "Board")
-3. **Date** if the type has a scalar date/datetime field, grouped by the
-   first such field in schema definition order (named "Date"; granularity
-   day)
-
-Ref fields do not produce a synthesized board. Saved queries with no
-configured layouts start as List and pick up the same synthesis once the
-result type is known. Any other grouping, sort, or filter is user config.
+The sidebar has two categories, both collapsed by default: **Browse**
+(types) and **Views** (saved views and layouts). `section` is omitted
+because Raven cannot query `type:section`.
 
 ## Config
 
 Defaults live in Perch's own file (Raven never reads it), defaulting to
-`~/.config/perch/config.toml`. See `examples/config.toml`.
+`~/.config/perch/config.toml`. See `examples/config.toml`. Type, query,
+and field names in examples are not special.
 
 ```toml
-[[types.item.layouts]]
-name = "Board"
-kind = "board"
-group_by = "state"
-fields = ["state", "when"]
+[views.projects]
+source = "item"
+layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
 
-[[types.item.layouts]]
-name = "By when"
-kind = "list"
-fields = ["state", "when"]
-sort = "when"
+[views.tasks]
+source = "task"
+inputs = { item = "{{selected}}" }
+layout = { kind = "list" }
 
-[[types.item.layouts]]
-name = "Open"
-kind = "list"
-filter = ".state==open"
-
-[[queries.inbox.layouts]]
-name = "Inbox"
-kind = "list"
+[layouts.workspace]
+split = "row"
+panels = [ { view = "projects" }, { view = "tasks", bind = "projects" } ]
 ```
 
 `kind` is `list`, `board`, or `date`. Board `group_by` is an enum or ref
 field. Date `group_by` is a date/datetime field; `granularity` is `day`,
 `week`, or `month`. Optional `filter` is an RQL predicate appended to the
-type source (`type:<name>` plus the predicate). For a saved query it is
-appended to the query's RQL text. Type and field names in this file are
-the user's; Perch does not treat any of them as special.
+source.
 
-The old single `layout =` per type and the `[[views]]` table are removed.
-If they appear, Perch prints an error pointing at this shape.
+`[[types.*.layouts]]` and `[[queries.*.layouts]]` are a startup error
+pointing at this shape. The old single `layout =` form and `[[views]]`
+array of tables are likewise rejected.
 
-At startup Perch validates configured layouts against `GET /v1/schema`
-and shows warnings in the footer for unknown types, queries, or fields.
+At startup Perch validates views against `GET /v1/schema` and shows
+warnings in the footer for unknown sources or fields.
+
+`,` opens the config file in the editor from `GET /v1/session`. `space c`
+jumps to the current view's table where the editor supports a line
+argument. On return Perch reloads and validates; errors include line
+numbers and the last good config is kept. `S` prompts for a name and
+writes the on-screen view (source plus layout settings) as `[views.x]`.
+Writes go only to Perch's config, never the vault.
 
 ## Pickers and search
 
@@ -111,17 +103,17 @@ and shows warnings in the footer for unknown types, queries, or fields.
 | --- | --- |
 | `t` / `space t` | Types (fuzzy) |
 | `q` / `space q` | Saved queries (fuzzy) |
-| `gl` / `space l` | Named layouts for the current source |
+| `gl` / `space l` | Saved views and layouts |
 | `ctrl-p` / `space f` | Notes: fuzzy over the `objects` corpus (paginated, cached, background), plus Raven `search` after two characters |
 | `/` | Fuzzy search in the current view; `n` / `N` next/previous hit |
 | `:` | Ad-hoc RQL |
 | `d` / `space d` | Today's daily note from `GET /v1/session` `daily` (`today_id` when `today_exists`); otherwise a status message. Perch does not guess a type or directory. |
+| `,` | Perch config in the editor |
+| `space c` | Config at the current view's entry |
+| `S` | Save the on-screen view as `[views.name]` |
 
 Saved queries that declare `args` open an argument prompt. Values are sent as
 `query` `inputs` (`{{args.*}}`). Esc cancels.
-
-The sidebar is generated from `GET /v1/schema` (types and saved queries).
-`section` is omitted because Raven cannot query `type:section`.
 
 ## Preview and editor
 
@@ -139,30 +131,38 @@ note; from browse, `q` is the query picker. `ctrl+c` quits.
 
 | Key | Action |
 | --- | --- |
-| `hjkl` / arrows | Move |
-| `tab` | Sidebar ↔ list ↔ preview |
+| `hjkl` / arrows | Move inside the focused panel |
+| `ctrl-h/j/k/l` | Move focus by direction |
+| `ctrl-w h/j/k/l` | Same as `ctrl-h/j/k/l` |
+| `tab` / `shift-tab` | Cycle focus |
+| `ctrl-w o` | Zoom the focused panel |
+| `ctrl-w =` | Restore splits |
 | `gg` / `G` | Top / bottom |
 | `ctrl-d` / `ctrl-u` | Half-page down / up |
-| `enter` | Open note / follow link |
+| `enter` | Open note / follow link / move to the bound panel |
 | `t` | Type picker |
 | `q` | Saved query picker (back, in a note or overlay) |
 | `ctrl-p` / `space f` | Notes picker |
+| `gl` / `space l` | Views and layouts |
 | `/` | Fuzzy search in view |
 | `n` / `N` | Next / previous search hit |
 | `d` | Daily note |
-| `L` | Next named layout |
-| `gL` | Previous named layout |
-| `gl` / `space l` | Layout picker |
-| `1`–`9` | Jump to layout N |
 | `.` | Cycle date granularity |
 | `p` | Toggle preview |
 | `:` | Ad-hoc RQL |
+| `,` | Open Perch config |
+| `space c` | Open config at this view |
+| `S` | Save on-screen view |
 | `e` | Open in editor |
-| `r` | Refresh |
+| `r` | Refresh (and reload config) |
 | `[` `]` | Note history back / forward |
 | `?` | Help |
 | `esc` | Close overlay / clear search / back |
 | `ctrl+c` | Quit |
+
+Focus follows the panel. The focused panel has a highlighted border.
+Help and the status line show keys for that panel. In-panel movement is
+unchanged (`hjkl` in a board still moves columns and rows).
 
 ## Editor
 
@@ -206,7 +206,7 @@ A backlinks pane lists `data.backlinks`.
    launches the editor itself using session `editor` / `editor_mode` and
    `vault_path` + `data.path`.
 2. **Query sort.** There is no `sort:` in RQL yet. Perch sorts
-   client-side from the layout `sort` field.
+   client-side from the view `sort` field.
 
 Closed by Raven PR 308 (consumed here): `GET /v1/session` `daily`, `query`
 `inputs` for saved-query args, and the paginated `objects` corpus. Perch

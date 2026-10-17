@@ -34,6 +34,8 @@ func (m Model) View() string {
 		return overlayOn(frame, m.width, m.height, m.viewRQL())
 	case overlayArgs:
 		return overlayOn(frame, m.width, m.height, m.viewArgs())
+	case overlaySave:
+		return overlayOn(frame, m.width, m.height, m.viewSave())
 	case overlaySearch:
 		return frame
 	}
@@ -42,12 +44,20 @@ func (m Model) View() string {
 
 func (m Model) viewHeader() string {
 	left := styleHeader.Render("perch")
-	mid := styleMuted.Render(" · " + m.sourceLabel)
-	if m.viewKind != "" && m.screen != kindNote {
+	p := m.p()
+	label := p.sourceLabel
+	if m.currentLayout != "" {
+		label = m.currentLayout
+		if m.focus != focusSidebar && m.focus != focusPreview && m.focus != "" {
+			label += " · " + m.focus
+		}
+	}
+	mid := styleMuted.Render(" · " + label)
+	if p.spec.Kind != "" && m.screen != kindNote {
 		name := m.currentLayoutName()
 		mid += styleMuted.Render("  " + name)
-		if m.viewKind == kindDate && m.granularity != "" {
-			mid += styleDim.Render(" / " + m.granularity)
+		if p.spec.Kind == kindDate && p.granularity != "" {
+			mid += styleDim.Render(" / " + p.granularity)
 		}
 	}
 	if m.screen == kindNote && m.note != nil {
@@ -81,11 +91,21 @@ func (m Model) viewFooter() string {
 	if len(m.cfgWarnings) > 0 {
 		return styleWarn.Render(truncate(strings.Join(m.cfgWarnings, "; "), m.width))
 	}
-	keys := footerKeys(m.overlay, m.screen, m.previewOn)
+	keys := footerKeys(m)
 	return styleFooter.Render(truncate(keys, m.width))
 }
 
 func (m Model) viewBrowse(height int) string {
+	if m.zoomed {
+		switch m.focus {
+		case focusSidebar:
+			return m.viewSidebar(height)
+		case focusPreview:
+			return m.viewPreview(m.width, height)
+		default:
+			return m.viewPaneBox(m.viewByID(m.focus), m.width, height, true)
+		}
+	}
 	side := m.viewSidebar(height)
 	rest := max(10, m.width-lipgloss.Width(side))
 	if m.previewOn {
@@ -94,12 +114,50 @@ func (m Model) viewBrowse(height int) string {
 			pw = max(previewMinW, rest/3)
 		}
 		mainW := max(12, rest-pw)
-		main := m.viewMain(mainW, height)
+		main := m.viewTree(m.tree, mainW, height)
 		prev := m.viewPreview(pw, height)
 		return lipgloss.JoinHorizontal(lipgloss.Top, side, main, prev)
 	}
-	main := m.viewMain(rest, height)
+	main := m.viewTree(m.tree, rest, height)
 	return lipgloss.JoinHorizontal(lipgloss.Top, side, main)
+}
+
+func (m Model) viewTree(n layoutTree, width, height int) string {
+	if n.split == "" || len(n.kids) == 0 {
+		id := n.id
+		if id == "" && len(m.panes) == 1 {
+			id = m.panes[0].id
+		}
+		return m.viewPaneBox(m.viewByID(id), width, height, m.focus == id)
+	}
+	sizes := splitSizes(splitAxis(n.split, width, height), len(n.kids))
+	parts := make([]string, 0, len(n.kids))
+	for i, kid := range n.kids {
+		if n.split == "col" {
+			parts = append(parts, m.viewTree(kid, width, sizes[i]))
+		} else {
+			parts = append(parts, m.viewTree(kid, sizes[i], height))
+		}
+	}
+	if n.split == "col" {
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+}
+
+func (m Model) viewPaneBox(v *viewState, width, height int, focused bool) string {
+	fg := colBorder
+	if focused {
+		fg = colAccent
+	}
+	box := lipgloss.NewStyle().
+		Width(max(1, width-2)).
+		Height(max(1, height-2)).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(fg)
+	innerW := max(1, width-2)
+	innerH := max(1, height-2)
+	return box.Render(m.viewPane(v, innerW, innerH, focused))
 }
 
 type sideRow struct {
@@ -109,18 +167,22 @@ type sideRow struct {
 }
 
 func (m Model) sidebarRows() []sideRow {
-	titles := map[navKind]string{
-		navType:  "types",
-		navQuery: "queries",
-	}
 	var rows []sideRow
-	lastKind := navKind(-1)
 	for i, item := range m.nav {
-		if item.Kind != lastKind {
-			rows = append(rows, sideRow{title: true, nav: -1, text: titles[item.Kind]})
-			lastKind = item.Kind
+		text := item.Label
+		title := false
+		switch item.Kind {
+		case navCat:
+			title = true
+			mark := "▸ "
+			if (item.Category == catBrowse && m.browseOpen) || (item.Category == catViews && m.viewsOpen) {
+				mark = "▾ "
+			}
+			text = mark + item.Label
+		default:
+			text = item.Label
 		}
-		rows = append(rows, sideRow{nav: i, text: item.Label})
+		rows = append(rows, sideRow{title: title, nav: i, text: text})
 	}
 	return rows
 }
@@ -186,21 +248,30 @@ func (m Model) viewSidebar(height int) string {
 		b.WriteString(styleDim.Width(w).Render(" ▲"))
 		b.WriteByte('\n')
 	}
+	sideFocused := m.focus == focusSidebar
+	fg := colBorder
+	if sideFocused {
+		fg = colAccent
+	}
 	for i := start; i < end; i++ {
 		r := rows[i]
-		if r.title {
-			b.WriteString(styleSidebarTitle.Width(w).Render(r.text))
-			b.WriteByte('\n')
-			continue
-		}
 		label := r.text
 		if lipgloss.Width(label) > w-2 {
 			label = truncate(label, w-2)
 		}
+		if r.title {
+			st := styleSidebarTitle
+			if r.nav == m.navCur {
+				st = styleNavSel
+			}
+			b.WriteString(st.Width(w).Render(label))
+			b.WriteByte('\n')
+			continue
+		}
 		line := styleNav.Width(w).Render("  " + label)
 		if r.nav == m.navCur {
 			prefix := "▸ "
-			if m.pane != paneSidebar {
+			if !sideFocused {
 				prefix = "  "
 			}
 			line = styleNavSel.Width(w).Render(prefix + label)
@@ -216,60 +287,62 @@ func (m Model) viewSidebar(height int) string {
 	box := lipgloss.NewStyle().
 		Width(w).
 		Height(height).
-		Border(lipgloss.NormalBorder(), false, true, false, false).
-		BorderForeground(colBorder)
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(fg)
 	return box.Render(out)
 }
 
-func (m Model) viewMain(width, height int) string {
+func (m Model) viewPane(v *viewState, width, height int, focused bool) string {
 	pad := lipgloss.NewStyle().Width(width).Height(height).PaddingLeft(1)
-	if m.loading && len(m.objects) == 0 {
+	if v == nil {
+		return pad.Render(styleMuted.Render("empty"))
+	}
+	if v.loading && len(v.objects) == 0 {
 		return pad.Render(styleMuted.Render("loading…"))
 	}
-	switch m.viewKind {
+	switch v.spec.Kind {
 	case kindBoard:
-		return pad.Render(m.viewBoard(width-1, height))
+		return pad.Render(m.viewBoard(v, width-1, height, focused))
 	case kindDate:
-		return pad.Render(m.viewDate(width-1, height))
+		return pad.Render(m.viewDate(v, width-1, height, focused))
 	default:
-		return pad.Render(m.viewList(width-1, height))
+		return pad.Render(m.viewList(v, width-1, height, focused))
 	}
 }
 
-func (m Model) viewList(width, height int) string {
-	if len(m.filtered) == 0 {
+func (m Model) viewList(v *viewState, width, height int, focused bool) string {
+	if len(v.filtered) == 0 {
 		return styleMuted.Render("no objects")
 	}
-	fields := m.listFields
+	fields := v.listFields
 	if len(fields) == 0 {
-		fields = defaultFields(m.typeSchema())
+		fields = defaultFields(m.typeSchemaFor(v))
 	}
 	cols := append([]string{"id"}, fields...)
-	// keep cursor in view
-	off := m.listOff
-	if m.listCur < off {
-		off = m.listCur
+	off := v.listOff
+	if v.listCur < off {
+		off = v.listCur
 	}
-	if m.listCur >= off+height-1 {
-		off = m.listCur - (height - 2)
+	if v.listCur >= off+height-1 {
+		off = v.listCur - (height - 2)
 	}
 	if off < 0 {
 		off = 0
 	}
 
-	widths := columnWidths(m.filtered, cols, width)
+	widths := columnWidths(v.filtered, cols, width)
 	var b strings.Builder
 	b.WriteString(styleColHead.Render(formatRow(cols, widths)))
 	b.WriteByte('\n')
 	rows := height - 1
-	end := min(len(m.filtered), off+rows)
+	end := min(len(v.filtered), off+rows)
 	for i := off; i < end; i++ {
-		obj := m.filtered[i]
+		obj := v.filtered[i]
 		cells := rowCells(obj, cols)
 		line := formatRow(cells, widths)
-		if i == m.listCur {
+		if i == v.listCur {
 			st := styleRowSel
-			if m.pane != paneMain {
+			if !focused {
 				st = styleRow
 			}
 			b.WriteString(st.Width(width).Render(line))
@@ -281,41 +354,40 @@ func (m Model) viewList(width, height int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func (m Model) viewBoard(width, height int) string {
-	if len(m.board) == 0 {
+func (m Model) viewBoard(v *viewState, width, height int, focused bool) string {
+	if len(v.board) == 0 {
 		return styleMuted.Render("no columns")
 	}
-	n := len(m.board)
+	n := len(v.board)
 	colW := max(12, (width-n+1)/max(1, n))
 	if colW*n > width {
 		colW = max(12, width/max(1, min(n, 4)))
 	}
-	// show a window of columns around the cursor
 	maxCols := max(1, width/max(colW, 12))
 	start := 0
-	if m.boardCol >= maxCols {
-		start = m.boardCol - maxCols + 1
+	if v.boardCol >= maxCols {
+		start = v.boardCol - maxCols + 1
 	}
 	end := min(n, start+maxCols)
 	colW = max(12, (width-(end-start)+1)/max(1, end-start))
 
 	var cols []string
 	for i := start; i < end; i++ {
-		c := m.board[i]
+		c := v.board[i]
 		head := styleBoardHead.Width(colW).Render(truncate(fmt.Sprintf("%s (%d)", c.Label, len(c.Items)), colW))
 		var rows []string
 		rows = append(rows, head)
 		rows = append(rows, styleDim.Render(strings.Repeat("─", min(colW, 8))))
 		visible := height - 2
 		off := 0
-		if i == m.boardCol && m.boardRow >= visible {
-			off = m.boardRow - visible + 1
+		if i == v.boardCol && v.boardRow >= visible {
+			off = v.boardRow - visible + 1
 		}
 		for j := off; j < len(c.Items) && j-off < visible; j++ {
 			label := truncate(c.Items[j].Title, colW)
-			if i == m.boardCol && j == m.boardRow {
+			if i == v.boardCol && j == v.boardRow {
 				st := styleRowSel
-				if m.pane != paneMain {
+				if !focused {
 					st = styleRow
 				}
 				rows = append(rows, st.Width(colW).Render(label))
@@ -331,18 +403,18 @@ func (m Model) viewBoard(width, height int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 }
 
-func (m Model) viewDate(width, height int) string {
-	if len(m.dateCols) == 0 {
+func (m Model) viewDate(v *viewState, width, height int, focused bool) string {
+	if len(v.dateCols) == 0 {
 		return styleMuted.Render("no dates")
 	}
 	var lines []string
-	for si, sec := range m.dateCols {
+	for si, sec := range v.dateCols {
 		lines = append(lines, styleDateHead.Width(width).Render(fmt.Sprintf("%s  %d", sec.Label, len(sec.Items))))
 		for ri, obj := range sec.Items {
 			label := truncate("  "+obj.Title, width)
-			if si == m.dateSec && ri == m.dateRow {
+			if si == v.dateSec && ri == v.dateRow {
 				st := styleRowSel
-				if m.pane != paneMain {
+				if !focused {
 					st = styleRow
 				}
 				lines = append(lines, st.Width(width).Render(label))
@@ -351,14 +423,13 @@ func (m Model) viewDate(width, height int) string {
 			}
 		}
 	}
-	// window
 	total := len(lines)
 	curLine := 0
 	n := 0
-	for si, sec := range m.dateCols {
+	for si, sec := range v.dateCols {
 		n++ // header
-		if si == m.dateSec {
-			curLine = n + m.dateRow
+		if si == v.dateSec {
+			curLine = n + v.dateRow
 			break
 		}
 		n += len(sec.Items)
@@ -479,7 +550,11 @@ func (m Model) viewBacklinks(width, height int) string {
 
 func (m Model) viewHelp() string {
 	var b strings.Builder
-	b.WriteString(styleHeader.Render("perch") + styleMuted.Render("  keys") + "\n")
+	focus := m.focus
+	if m.screen == kindNote {
+		focus = "note"
+	}
+	b.WriteString(styleHeader.Render("perch") + styleMuted.Render("  keys  focused: "+focus) + "\n")
 	section := ""
 	for _, bind := range Keymap {
 		if bind.Section != section {
@@ -489,7 +564,6 @@ func (m Model) viewHelp() string {
 		keys := padTrunc(bind.Keys, 26)
 		b.WriteString(styleMuted.Render(keys) + "  " + bind.Desc + "\n")
 	}
-	b.WriteString("\n" + styleDim.Render("named layouts on the type; L / gL cycle; gl picker; 1-9 jump; / search"))
 	w := min(72, max(40, m.width-4))
 	return styleHelpBox.Width(w).Render(strings.TrimRight(b.String(), "\n"))
 }
@@ -501,8 +575,8 @@ func (m Model) viewPicker() string {
 		title = "saved queries"
 	case pickerNotes:
 		title = "notes"
-	case pickerLayouts:
-		title = "layouts"
+	case pickerViews:
+		title = "views"
 	}
 	var b strings.Builder
 	b.WriteString(styleMuted.Render(title+"  ") + m.pickerQ + "█\n")
@@ -537,9 +611,16 @@ t  types
 q  saved queries
 f  notes
 d  daily
-l  cycle layout
+l  views
+c  config
 `)
 	return styleModal.Width(min(28, m.width-4)).Render("space\n" + text)
+}
+
+func (m Model) viewSave() string {
+	return styleModal.Width(min(48, m.width-4)).Render(
+		styleMuted.Render("save view as  ") + m.saveName + "█",
+	)
 }
 
 func (m Model) viewRQL() string {
@@ -573,16 +654,18 @@ func (m Model) viewArgs() string {
 }
 
 func (m Model) viewPreview(width, height int) string {
+	title := "preview"
+	fg := colBorder
+	if m.focus == focusPreview {
+		title = "▸ preview"
+		fg = colAccent
+	}
 	box := lipgloss.NewStyle().
 		Width(width).
 		Height(height).
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(colBorder).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(fg).
 		PaddingLeft(1)
-	title := "preview"
-	if m.pane == panePreview {
-		title = "▸ preview"
-	}
 	var body string
 	switch {
 	case !m.previewOn:
@@ -642,7 +725,7 @@ func (m Model) objectType(id string) string {
 	if obj, ok := m.noteIndex[id]; ok && obj.Type != "" {
 		return obj.Type
 	}
-	return m.typeName
+	return m.p().typeName
 }
 
 func (m Model) schemaNameField(typeName string) string {
@@ -651,8 +734,8 @@ func (m Model) schemaNameField(typeName string) string {
 			return ts.NameField
 		}
 	}
-	if m.typeName != "" {
-		return m.schema.Types[m.typeName].NameField
+	if tn := m.p().typeName; tn != "" {
+		return m.schema.Types[tn].NameField
 	}
 	return ""
 }

@@ -17,6 +17,7 @@ type schemaMsg struct {
 
 type queryMsg struct {
 	gen      int
+	pane     string
 	objects  []api.Object
 	typeName string
 	hasMore  bool
@@ -59,6 +60,7 @@ type prefetchMsg struct {
 type editorDoneMsg struct {
 	err      error
 	objectID string
+	config   bool
 }
 
 func fetchSchema(c *api.Client) tea.Cmd {
@@ -84,16 +86,16 @@ func fetchSchema(c *api.Client) tea.Cmd {
 	}
 }
 
-func fetchQuery(c *api.Client, gen int, query, typeName string, limit int, ts api.TypeSchema, inputs map[string]string) tea.Cmd {
+func fetchQuery(c *api.Client, pane string, gen int, query, typeName string, limit int, ts api.TypeSchema, inputs map[string]string) tea.Cmd {
 	return func() tea.Msg {
 		if c == nil {
-			return queryMsg{gen: gen, err: errNoClient}
+			return queryMsg{gen: gen, pane: pane, err: errNoClient}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		qr, meta, err := c.QueryInputs(ctx, query, limit, inputs)
 		if err != nil {
-			return queryMsg{gen: gen, err: err}
+			return queryMsg{gen: gen, pane: pane, err: err}
 		}
 		if typeName == "" {
 			typeName = qr.Type
@@ -104,6 +106,7 @@ func fetchQuery(c *api.Client, gen int, query, typeName string, limit int, ts ap
 		}
 		return queryMsg{
 			gen:      gen,
+			pane:     pane,
 			objects:  api.ObjectsFromQuery(qr, ts),
 			typeName: typeName,
 			hasMore:  qr.HasMore,

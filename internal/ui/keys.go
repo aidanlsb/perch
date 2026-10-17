@@ -14,34 +14,40 @@ var Keymap = []Binding{
 	{"global", "ctrl+c", "quit"},
 	{"global", "?", "toggle this help"},
 	{"global", "e", "open selected file in editor"},
+	{"global", ",", "open Perch config in editor"},
+	{"global", "space c", "open config at the current view"},
+	{"global", "S", "save the on-screen view as [views.name]"},
 
-	{"browse", "hjkl / arrows", "move"},
-	{"browse", "tab", "sidebar ↔ list ↔ preview"},
+	{"focus", "ctrl-h/j/k/l", "move focus by direction"},
+	{"focus", "ctrl-w h/j/k/l", "same as ctrl-h/j/k/l"},
+	{"focus", "tab / shift-tab", "cycle focus"},
+	{"focus", "ctrl-w o", "zoom focused panel"},
+	{"focus", "ctrl-w =", "restore splits"},
+
+	{"browse", "hjkl / arrows", "move inside the focused panel"},
 	{"browse", "gg / G", "top / bottom"},
 	{"browse", "ctrl-d / ctrl-u", "half-page down / up"},
-	{"browse", "enter", "open note"},
+	{"browse", "enter", "open note, or move to the bound panel"},
 	{"browse", "q", "saved query picker (args prompt if needed)"},
 	{"browse", "t", "type picker"},
+	{"browse", "gl / space l", "saved views and layouts"},
 	{"browse", "ctrl-p / space f", "fuzzy notes picker"},
 	{"browse", "/", "fuzzy search in current view"},
 	{"browse", "n / N", "next / previous search hit"},
 	{"browse", "d", "today's daily note from session"},
-	{"browse", "L", "next named layout"},
-	{"browse", "gL", "previous named layout"},
-	{"browse", "gl / space l", "layout picker"},
-	{"browse", "1-9", "jump to layout N"},
 	{"browse", ".", "cycle date granularity (day/week/month)"},
 	{"browse", "p", "toggle preview pane"},
 	{"browse", ":", "run an ad-hoc RQL query"},
-	{"browse", "r", "refresh"},
-	{"browse", "space", "leader (t/q/f/d/l)"},
+	{"browse", "r", "refresh (and reload config)"},
+	{"browse", "space", "leader (t/q/f/d/l/c)"},
 	{"browse", "esc", "clear search / close overlay"},
 
 	{"leader", "space t", "type picker"},
 	{"leader", "space q", "saved query picker"},
 	{"leader", "space f", "notes picker"},
 	{"leader", "space d", "daily note"},
-	{"leader", "space l", "layout picker"},
+	{"leader", "space l", "views and layouts"},
+	{"leader", "space c", "open config at this view"},
 
 	{"note", "q / esc / backspace", "back to browse"},
 	{"note", "/", "fuzzy search in browse"},
@@ -69,8 +75,8 @@ var Keymap = []Binding{
 	{"args", "esc", "cancel"},
 }
 
-func footerKeys(overlay overlay, screen string, preview bool) string {
-	switch overlay {
+func footerKeys(m Model) string {
+	switch m.overlay {
 	case overlayHelp:
 		return "? / q / esc close"
 	case overlaySearch:
@@ -78,19 +84,44 @@ func footerKeys(overlay overlay, screen string, preview bool) string {
 	case overlayPicker:
 		return "picker  j/k  enter  e edit  esc"
 	case overlayLeader:
-		return "t types  q queries  f notes  d daily  l layouts  esc"
+		return "t types  q queries  f notes  d daily  l views  c config  esc"
 	case overlayRQL:
 		return "query  enter run  esc"
 	case overlayArgs:
 		return "args  enter next  esc cancel"
+	case overlaySave:
+		return "save view  enter write  esc"
 	}
-	if screen == kindNote {
+	if m.screen == kindNote {
 		return "hjkl  tab link  enter follow  / search  e edit  q back  ? help"
 	}
-	if preview {
-		return "hjkl  t/q pickers  / search  p preview  e edit  L layout  ? help"
+	return focusFooter(m) + "  " + panelFooter(m)
+}
+
+func focusFooter(m Model) string {
+	if m.zoomed {
+		return "ctrl-w = restore"
 	}
-	return "hjkl  t types  q queries  / search  e edit  L layout  p preview  ? help"
+	return "ctrl-hjkl focus"
+}
+
+func panelFooter(m Model) string {
+	switch m.focus {
+	case focusSidebar:
+		return "j/k nav  enter open  h/l fold  , config  ? help"
+	case focusPreview:
+		return "j/k scroll  h back  e edit  p close  ? help"
+	default:
+		p := m.p()
+		switch p.spec.Kind {
+		case kindBoard:
+			return "hjkl board  enter  / search  S save  ? help"
+		case kindDate:
+			return "jk dates  . gran  enter  / search  S save  ? help"
+		default:
+			return "jk list  enter  / search  S save  , config  ? help"
+		}
+	}
 }
 
 // keyIdent is the string we switch on for bindings.
