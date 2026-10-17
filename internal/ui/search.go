@@ -5,7 +5,7 @@ import "github.com/aidanlsb/perch/internal/api"
 func (m *Model) recomputeSearchHits() {
 	q := m.searchQ
 	m.searchHits = m.searchHits[:0]
-	for i, o := range m.filtered {
+	for i, o := range m.p().filtered {
 		if objectMatchesSearch(o, q) {
 			m.searchHits = append(m.searchHits, i)
 		}

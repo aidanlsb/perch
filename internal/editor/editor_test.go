@@ -82,3 +82,25 @@ func TestCommand(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestCommandLine(t *testing.T) {
+	cmd, err := CommandLine("nvim", "/tmp/config.toml", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmd.Args) != 3 || cmd.Args[1] != "+12" || cmd.Args[2] != "/tmp/config.toml" {
+		t.Fatalf("%+v", cmd.Args)
+	}
+	args := LineArgs("hx", "/tmp/x.toml", 4)
+	if len(args) != 1 || args[0] != "/tmp/x.toml:4" {
+		t.Fatalf("%v", args)
+	}
+	args = LineArgs("code", "/tmp/x.toml", 4)
+	if len(args) != 2 || args[0] != "-g" {
+		t.Fatalf("%v", args)
+	}
+	args = LineArgs("unknown", "/tmp/x.toml", 4)
+	if len(args) != 1 || args[0] != "/tmp/x.toml" {
+		t.Fatalf("unsupported editors skip the jump: %v", args)
+	}
+}

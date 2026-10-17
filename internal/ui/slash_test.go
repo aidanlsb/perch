@@ -52,38 +52,34 @@ func TestSlashOpensSearchEveryContext(t *testing.T) {
 	}{
 		{"sidebar", func(t *testing.T) Model {
 			m := loadBrowse(t)
-			m.pane = paneSidebar
+			m.setFocus(focusSidebar)
 			return m
 		}},
 		{"list", func(t *testing.T) Model {
 			m := loadBrowse(t)
-			m.pane = paneMain
+			focusMain(&m)
 			return m
 		}},
 		{"board", func(t *testing.T) Model {
-			m := loadProjectBoard(t)
-			m, _ = m.update(key("L"))
-			m.pane = paneMain
-			if m.viewKind != kindBoard {
-				t.Fatalf("kind %s", m.viewKind)
+			m := loadNamedView(t, namedViewCfg(), "projects")
+			focusMain(&m)
+			if m.p().spec.Kind != kindBoard {
+				t.Fatalf("kind %s", m.p().spec.Kind)
 			}
 			return m
 		}},
 		{"date", func(t *testing.T) Model {
-			m := loadProjectBoard(t)
-			m, _ = m.update(key("L"))
-			m, _ = m.update(key("L"))
-			m.pane = paneMain
-			if m.viewKind != kindDate {
-				t.Fatalf("kind %s", m.viewKind)
+			m := loadNamedView(t, namedViewCfg(), "week")
+			focusMain(&m)
+			if m.p().spec.Kind != kindDate {
+				t.Fatalf("kind %s", m.p().spec.Kind)
 			}
 			return m
 		}},
 		{"preview", func(t *testing.T) Model {
 			m := loadBrowse(t)
-			m.pane = paneMain
 			m.previewOn = true
-			m.pane = panePreview
+			m.setFocus(focusPreview)
 			return m
 		}},
 		{"note", func(t *testing.T) Model {
@@ -102,7 +98,7 @@ func TestSlashOpensSearchEveryContext(t *testing.T) {
 				m := ctx.prep(t)
 				m, _ = m.update(sl.msg)
 				if m.overlay != overlaySearch {
-					t.Fatalf("overlay=%v screen=%s pane=%v kind=%s", m.overlay, m.screen, m.pane, m.viewKind)
+					t.Fatalf("overlay=%v screen=%s pane=%v kind=%s", m.overlay, m.screen, m.pane, m.p().spec.Kind)
 				}
 				if ctx.name == "note" && m.screen != "browse" {
 					t.Fatalf("note / should return to browse, screen=%s", m.screen)
@@ -194,7 +190,7 @@ func TestHelpOverlayListsSlashSearch(t *testing.T) {
 
 func TestSlashTypesIntoSearchQuery(t *testing.T) {
 	m := loadBrowse(t)
-	m.pane = paneMain
+	focusMain(&m)
 	m, _ = m.update(tea.KeyMsg{Type: tea.KeyType('/')})
 	if m.overlay != overlaySearch {
 		t.Fatal("open")

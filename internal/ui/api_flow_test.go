@@ -93,10 +93,10 @@ func TestModelInitAgainstFakeAPI(t *testing.T) {
 		t.Fatal("expected query")
 	}
 	m, _ = m.update(cmd())
-	if len(m.filtered) != 1 || m.filtered[0].Title != "Alpha" {
-		t.Fatalf("%+v err=%s", m.filtered, m.errMsg)
+	if len(m.p().filtered) != 1 || m.p().filtered[0].Title != "Alpha" {
+		t.Fatalf("%+v err=%s", m.p().filtered, m.errMsg)
 	}
-	m.pane = paneMain
+	focusMain(&m)
 	m, cmd = m.update(key("enter"))
 	if cmd == nil {
 		t.Fatal("read")

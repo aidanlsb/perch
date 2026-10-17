@@ -1,13 +1,11 @@
 package ui
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/fuzzy"
-	"github.com/aidanlsb/perch/internal/layout"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -30,18 +28,10 @@ func (m Model) openTypePicker() (Model, tea.Cmd) {
 	m.pickerCur = 0
 	var items []pickItem
 	for _, name := range m.schema.SortedTypeNames() {
-		ls, _ := m.resolveLayouts(name, "")
-		sub := "List"
-		if len(ls) > 0 {
-			sub = ls[0].DisplayName()
-			if len(ls) > 1 {
-				sub = fmt.Sprintf("%s · %d layouts", ls[0].DisplayName(), len(ls))
-			}
-		}
 		items = append(items, pickItem{
 			Kind:  pickerTypes,
 			Label: name,
-			Sub:   sub,
+			Sub:   "list",
 			ID:    name,
 			Type:  name,
 		})
@@ -77,36 +67,33 @@ func (m Model) openQueryPicker() (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) openLayoutPicker() (Model, tea.Cmd) {
+func (m Model) openViewsPicker() (Model, tea.Cmd) {
 	m.overlay = overlayPicker
-	m.pickerKind = pickerLayouts
+	m.pickerKind = pickerViews
 	m.pickerQ = ""
-	m.pickerCur = m.layoutIdx
+	m.pickerCur = 0
 	var items []pickItem
-	for i, s := range m.layouts {
-		sub := s.Kind
-		if s.GroupBy != "" {
-			sub += " by " + s.GroupBy
+	if m.cfg != nil {
+		for _, name := range m.cfg.ViewNames() {
+			v := m.cfg.Views[name]
+			items = append(items, pickItem{
+				Kind:  pickerViews,
+				Label: name,
+				Sub:   "view · " + v.Source,
+				ID:    "view:" + name,
+			})
 		}
-		if s.Kind == layout.KindDate && s.Granularity != "" {
-			sub += " / " + s.Granularity
+		for _, name := range m.cfg.LayoutNames() {
+			items = append(items, pickItem{
+				Kind:  pickerViews,
+				Label: name,
+				Sub:   "layout",
+				ID:    "layout:" + name,
+			})
 		}
-		if s.Filter != "" {
-			sub += "  " + s.Filter
-		}
-		items = append(items, pickItem{
-			Kind:  pickerLayouts,
-			Label: s.DisplayName(),
-			Sub:   sub,
-			ID:    s.DisplayName(),
-			Index: i,
-		})
 	}
 	m.pickerAll = items
 	m.refilterPicker()
-	if m.layoutIdx >= 0 && m.layoutIdx < len(m.pickerHit) && m.pickerQ == "" {
-		m.pickerCur = m.layoutIdx
-	}
 	return m, nil
 }
 
@@ -197,8 +184,15 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 			return m.loadQuery(it.Query)
 		}
 		return m, nil
-	case pickerLayouts:
-		return m.selectLayout(it.Index)
+	case pickerViews:
+		if strings.HasPrefix(it.ID, "layout:") {
+			return m.loadNamedLayout(strings.TrimPrefix(it.ID, "layout:"))
+		}
+		name := strings.TrimPrefix(it.ID, "view:")
+		if name == "" {
+			name = it.Label
+		}
+		return m.loadNamedView(name)
 	default:
 		id := it.ID
 		if it.Object != nil && it.Object.ID != "" {
@@ -206,15 +200,6 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 		}
 		return m.openNote(id)
 	}
-}
-
-func (m Model) loadType(name string) (Model, tea.Cmd) {
-	for i, n := range m.nav {
-		if n.Kind == navType && n.Type == name {
-			return m.loadNav(i)
-		}
-	}
-	return m.loadSource(name, "type:"+name, name, nil, false)
 }
 
 func inputsComplete(names []string, inputs map[string]string) bool {
@@ -288,20 +273,7 @@ func (m Model) finishArgs() (Model, tea.Cmd) {
 	if q == nil {
 		return m, nil
 	}
-	m.sourceInputs = inputs
-	return m.loadQuery(q)
-}
-
-func (m Model) loadQuery(q *api.SavedQuery) (Model, tea.Cmd) {
-	if q == nil {
-		return m, nil
-	}
-	for i, n := range m.nav {
-		if n.Kind == navQuery && n.Label == q.Name {
-			return m.loadNav(i)
-		}
-	}
-	return m.loadSource(q.Name, q.Name, "", q, true)
+	return m.loadQueryWithInputs(q, inputs)
 }
 
 func (m Model) keysPicker(msg tea.KeyMsg) (Model, tea.Cmd) {

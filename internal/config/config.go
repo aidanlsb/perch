@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -12,60 +15,67 @@ import (
 	"github.com/aidanlsb/perch/internal/layout"
 )
 
-const (
-	legacyRemoved = `the old single layout = form and [[views]] table were removed.
+const SelectedToken = "{{selected}}"
 
-Use an ordered list of named layouts on each type (and each saved query):
+const legacyRemoved = `[[types.*.layouts]] and [[queries.*.layouts]] were removed.
 
-[[types.item.layouts]]
-name = "Board"
-kind = "board"
-group_by = "state"
-fields = ["state", "when"]
+Use named views and layouts. Type, query, and field names are yours;
+Perch does not treat any of them as special:
 
-[[types.item.layouts]]
-name = "By when"
-kind = "list"
-fields = ["state", "when"]
-sort = "when"
+[views.projects]
+source = "item"
+layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
 
-kind is list, board, or date. Optional filter is an RQL predicate appended to
-the type source. The first layout is the
-default. See examples/config.toml.`
-)
+[views.tasks]
+source = "task"
+inputs = { item = "{{selected}}" }
+layout = { kind = "list" }
+
+[layouts.workspace]
+split = "row"
+panels = [ { view = "projects" }, { view = "tasks", bind = "projects" } ]
+
+source is a type name, a saved query name, or an RQL string.
+kind is list, board, or date. See examples/config.toml.`
 
 // File is Perch's own config. Raven does not read it.
-//
-// Each type and saved query has an ordered list of named layouts. The first
-// is the default. L / gL cycle that list; gl opens the layout picker.
 type File struct {
-	Types   map[string]Source `toml:"types"`
-	Queries map[string]Source `toml:"queries"`
-	Views   any               `toml:"views"` // present only to reject the old table
+	Path    string            `toml:"-"`
+	Source  string            `toml:"-"`
+	Lines   map[string]int    `toml:"-"` // "views.name" / "layouts.name" → 1-based line
+	Views   map[string]View   `toml:"views"`
+	Layouts map[string]Layout `toml:"layouts"`
 }
 
-// Source is [types.<name>] or [queries.<name>]: a list of named layouts.
-type Source struct {
-	Layouts []Layout `toml:"layouts"`
+// View is [views.<name>]: one source plus a list/board/date presentation.
+type View struct {
+	Source string            `toml:"source"`
+	Inputs map[string]string `toml:"inputs"`
+	Layout Present           `toml:"layout"`
+}
 
-	// Legacy single-table keys. Any of these set is a hard error.
-	Layout      string   `toml:"layout"`
+// Present is the inline layout = { kind, group_by, ... } table on a view.
+type Present struct {
 	Kind        string   `toml:"kind"`
 	GroupBy     string   `toml:"group_by"`
-	Granularity string   `toml:"granularity"`
-	Fields      []string `toml:"fields"`
-	Sort        string   `toml:"sort"`
-}
-
-// Layout is one named presentation of a type or saved query.
-type Layout struct {
-	Name        string   `toml:"name"`
-	Kind        string   `toml:"kind"` // list, board, date
-	GroupBy     string   `toml:"group_by"`
-	Granularity string   `toml:"granularity"`
 	Fields      []string `toml:"fields"`
 	Sort        string   `toml:"sort"`
 	Filter      string   `toml:"filter"`
+	Granularity string   `toml:"granularity"`
+}
+
+// Layout is [layouts.<name>]: a nested split of panels that reference views.
+type Layout struct {
+	Split  string  `toml:"split"`
+	Panels []Panel `toml:"panels"`
+}
+
+// Panel is a leaf ({ view, bind }) or a nested split ({ split, panels }).
+type Panel struct {
+	View   string  `toml:"view"`
+	Bind   string  `toml:"bind"`
+	Split  string  `toml:"split"`
+	Panels []Panel `toml:"panels"`
 }
 
 const (
@@ -75,216 +85,480 @@ const (
 	GranDay   = layout.GranDay
 	GranWeek  = layout.GranWeek
 	GranMonth = layout.GranMonth
+	SplitRow  = "row"
+	SplitCol  = "col"
 )
 
 // Load reads a TOML config. Missing file yields an empty File, not an error.
 func Load(path string) (*File, error) {
 	path = strings.TrimSpace(path)
+	f := &File{
+		Path:    path,
+		Views:   map[string]View{},
+		Layouts: map[string]Layout{},
+		Lines:   map[string]int{},
+	}
 	if path == "" {
-		return &File{}, nil
+		return f, nil
 	}
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return &File{}, nil
-	}
-	var f File
-	if _, err := toml.DecodeFile(path, &f); err != nil {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return f, nil
+		}
 		return nil, fmt.Errorf("perch config %s: %w", path, err)
 	}
-	if f.Views != nil {
-		return nil, fmt.Errorf("perch config %s: [[views]] was removed.\n\n%s", path, legacyRemoved)
-	}
-	if f.Types == nil {
-		f.Types = map[string]Source{}
-	}
-	if f.Queries == nil {
-		f.Queries = map[string]Source{}
-	}
-	for name, src := range f.Types {
-		if src.hasLegacyKeys() {
-			return nil, fmt.Errorf("perch config %s: types.%s: %s", path, name, legacyRemoved)
-		}
-		layouts, err := normalizeLayouts(src.Layouts)
-		if err != nil {
-			return nil, fmt.Errorf("types.%s: %w", name, err)
-		}
-		src.Layouts = layouts
-		f.Types[name] = src
-	}
-	for name, src := range f.Queries {
-		if src.hasLegacyKeys() {
-			return nil, fmt.Errorf("perch config %s: queries.%s: %s", path, name, legacyRemoved)
-		}
-		layouts, err := normalizeLayouts(src.Layouts)
-		if err != nil {
-			return nil, fmt.Errorf("queries.%s: %w", name, err)
-		}
-		src.Layouts = layouts
-		f.Queries[name] = src
-	}
-	return &f, nil
-}
+	src := string(data)
+	f.Source = src
+	f.Lines = tableLines(src)
 
-func (s Source) hasLegacyKeys() bool {
-	return strings.TrimSpace(s.Layout) != "" ||
-		strings.TrimSpace(s.Kind) != "" ||
-		strings.TrimSpace(s.GroupBy) != "" ||
-		strings.TrimSpace(s.Granularity) != "" ||
-		len(s.Fields) > 0 ||
-		strings.TrimSpace(s.Sort) != ""
-}
+	var probe struct {
+		Views   any `toml:"views"`
+		Layouts any `toml:"layouts"`
+		Types   any `toml:"types"`
+		Queries any `toml:"queries"`
+	}
+	meta, err := toml.Decode(src, &probe)
+	if err != nil {
+		return nil, wrapDecode(path, err)
+	}
+	if meta.IsDefined("types") || meta.IsDefined("queries") {
+		return nil, &Error{Path: path, Line: firstLine(src, "types", "queries"), Msg: legacyRemoved}
+	}
+	if isSlice(probe.Views) {
+		return nil, &Error{
+			Path: path,
+			Line: firstLine(src, "views"),
+			Msg:  "[[views]] (array of tables) was removed.\n\n" + legacyRemoved,
+		}
+	}
 
-func normalizeLayouts(in []Layout) ([]Layout, error) {
-	out := make([]Layout, 0, len(in))
-	for i, l := range in {
+	var decoded File
+	if _, err := toml.Decode(src, &decoded); err != nil {
+		return nil, wrapDecode(path, err)
+	}
+	f.Views = decoded.Views
+	f.Layouts = decoded.Layouts
+	if f.Views == nil {
+		f.Views = map[string]View{}
+	}
+	if f.Layouts == nil {
+		f.Layouts = map[string]Layout{}
+	}
+
+	for name, v := range f.Views {
+		nv, err := v.normalize()
+		if err != nil {
+			return nil, &Error{Path: path, Line: f.viewLine(name), Msg: fmt.Sprintf("views.%s: %s", name, err.Error())}
+		}
+		if strings.TrimSpace(nv.Source) == "" {
+			return nil, &Error{Path: path, Line: f.viewLine(name), Msg: fmt.Sprintf("views.%s: source is required", name)}
+		}
+		f.Views[name] = nv
+	}
+	for name, l := range f.Layouts {
 		nl, err := l.normalize()
 		if err != nil {
-			return nil, fmt.Errorf("layouts[%d]: %w", i, err)
+			return nil, &Error{Path: path, Line: f.layoutLine(name), Msg: fmt.Sprintf("layouts.%s: %s", name, err.Error())}
 		}
-		out = append(out, nl)
+		if err := validateLayoutTree(name, nl, f.Views); err != nil {
+			return nil, &Error{Path: path, Line: f.layoutLine(name), Msg: err.Error()}
+		}
+		f.Layouts[name] = nl
+	}
+	return f, nil
+}
+
+func (v View) normalize() (View, error) {
+	v.Source = strings.TrimSpace(v.Source)
+	p, err := v.Layout.normalize()
+	if err != nil {
+		return v, err
+	}
+	v.Layout = p
+	if v.Inputs != nil {
+		clean := make(map[string]string, len(v.Inputs))
+		for k, val := range v.Inputs {
+			k = strings.TrimSpace(k)
+			if k == "" {
+				continue
+			}
+			clean[k] = val
+		}
+		v.Inputs = clean
+	}
+	return v, nil
+}
+
+func (p Present) normalize() (Present, error) {
+	p.Kind = strings.ToLower(strings.TrimSpace(p.Kind))
+	p.GroupBy = strings.TrimSpace(p.GroupBy)
+	p.Granularity = strings.ToLower(strings.TrimSpace(p.Granularity))
+	p.Sort = strings.TrimSpace(p.Sort)
+	p.Filter = strings.TrimSpace(p.Filter)
+	if p.Kind == "" {
+		p.Kind = KindList
+	}
+	switch p.Kind {
+	case KindList, KindBoard, KindDate:
+	default:
+		return p, fmt.Errorf("unknown kind %q (list, board, date)", p.Kind)
+	}
+	if p.Granularity != "" {
+		switch p.Granularity {
+		case GranDay, GranWeek, GranMonth:
+		default:
+			return p, fmt.Errorf("unknown granularity %q (day, week, month)", p.Granularity)
+		}
+	}
+	spec := p.Spec("").Normalize()
+	if spec.Kind == KindBoard && spec.GroupBy == "" {
+		return p, fmt.Errorf("board layouts require group_by")
+	}
+	if spec.Kind == KindDate && spec.GroupBy == "" {
+		return p, fmt.Errorf("date layouts require group_by")
+	}
+	p.Kind = spec.Kind
+	p.GroupBy = spec.GroupBy
+	p.Granularity = spec.Granularity
+	p.Sort = spec.Sort
+	p.Filter = spec.Filter
+	return p, nil
+}
+
+func (l Layout) normalize() (Layout, error) {
+	l.Split = strings.ToLower(strings.TrimSpace(l.Split))
+	if l.Split == "" {
+		l.Split = SplitRow
+	}
+	if l.Split != SplitRow && l.Split != SplitCol {
+		return l, fmt.Errorf("split must be row or col, got %q", l.Split)
+	}
+	if len(l.Panels) == 0 {
+		return l, fmt.Errorf("layouts require at least one panel")
+	}
+	var err error
+	l.Panels, err = normalizePanels(l.Panels)
+	if err != nil {
+		return l, err
+	}
+	return l, nil
+}
+
+func normalizePanels(in []Panel) ([]Panel, error) {
+	out := make([]Panel, 0, len(in))
+	for i, p := range in {
+		np, err := p.normalize()
+		if err != nil {
+			return nil, fmt.Errorf("panels[%d]: %w", i, err)
+		}
+		out = append(out, np)
 	}
 	return out, nil
 }
 
-func (l Layout) normalize() (Layout, error) {
-	l.Name = strings.TrimSpace(l.Name)
-	l.Kind = strings.ToLower(strings.TrimSpace(l.Kind))
-	l.GroupBy = strings.TrimSpace(l.GroupBy)
-	l.Granularity = strings.ToLower(strings.TrimSpace(l.Granularity))
-	l.Sort = strings.TrimSpace(l.Sort)
-	l.Filter = strings.TrimSpace(l.Filter)
-	if l.Kind == "" {
-		l.Kind = KindList
+func (p Panel) normalize() (Panel, error) {
+	p.View = strings.TrimSpace(p.View)
+	p.Bind = strings.TrimSpace(p.Bind)
+	p.Split = strings.ToLower(strings.TrimSpace(p.Split))
+	leaf := p.View != ""
+	split := p.Split != "" || len(p.Panels) > 0
+	if leaf && split {
+		return p, fmt.Errorf("panel cannot set both view and split")
 	}
-	switch l.Kind {
-	case KindList, KindBoard, KindDate:
-	default:
-		return l, fmt.Errorf("unknown kind %q (list, board, date)", l.Kind)
+	if !leaf && !split {
+		return p, fmt.Errorf("panel needs view or split")
 	}
-	if l.Name == "" {
-		l.Name = layout.DefaultName(l.Kind)
+	if leaf {
+		if p.Split != "" || len(p.Panels) > 0 {
+			return p, fmt.Errorf("view panel %q cannot nest panels", p.View)
+		}
+		return p, nil
 	}
-	spec := layout.Spec{
-		Name:        l.Name,
-		Kind:        l.Kind,
-		GroupBy:     l.GroupBy,
-		Granularity: l.Granularity,
-		Fields:      l.Fields,
-		Sort:        l.Sort,
-		Filter:      l.Filter,
-	}.Normalize()
-	if l.Granularity != "" {
-		switch l.Granularity {
-		case GranDay, GranWeek, GranMonth:
-		default:
-			return l, fmt.Errorf("unknown granularity %q (day, week, month)", l.Granularity)
+	if p.Split == "" {
+		p.Split = SplitRow
+	}
+	if p.Split != SplitRow && p.Split != SplitCol {
+		return p, fmt.Errorf("split must be row or col, got %q", p.Split)
+	}
+	if p.Bind != "" {
+		return p, fmt.Errorf("bind is only valid on a view panel")
+	}
+	if len(p.Panels) == 0 {
+		return p, fmt.Errorf("split panel requires panels")
+	}
+	var err error
+	p.Panels, err = normalizePanels(p.Panels)
+	return p, err
+}
+
+func validateLayoutTree(name string, l Layout, views map[string]View) error {
+	leaves := l.Leaves()
+	if len(leaves) == 0 {
+		return fmt.Errorf("layouts.%s: no view panels", name)
+	}
+	seen := map[string]struct{}{}
+	ids := map[string]struct{}{}
+	for _, p := range leaves {
+		if _, ok := views[p.View]; !ok {
+			return fmt.Errorf("layouts.%s: unknown view %q", name, p.View)
+		}
+		if _, ok := seen[p.View]; ok {
+			return fmt.Errorf("layouts.%s: duplicate view %q", name, p.View)
+		}
+		seen[p.View] = struct{}{}
+		ids[p.View] = struct{}{}
+	}
+	binds := map[string]string{}
+	for _, p := range leaves {
+		if p.Bind == "" {
+			continue
+		}
+		if p.Bind == p.View {
+			return fmt.Errorf("layouts.%s: panel %q cannot bind to itself", name, p.View)
+		}
+		if _, ok := ids[p.Bind]; !ok {
+			return fmt.Errorf("layouts.%s: panel %q bind %q is not a panel in this layout", name, p.View, p.Bind)
+		}
+		binds[p.View] = p.Bind
+	}
+	if err := bindCycles(binds); err != nil {
+		return fmt.Errorf("layouts.%s: %w", name, err)
+	}
+	return nil
+}
+
+func bindCycles(binds map[string]string) error {
+	const visiting, done = 1, 2
+	state := map[string]int{}
+	var walk func(string) error
+	walk = func(n string) error {
+		switch state[n] {
+		case done:
+			return nil
+		case visiting:
+			return fmt.Errorf("bind cycle involving %q", n)
+		}
+		state[n] = visiting
+		if next, ok := binds[n]; ok {
+			if err := walk(next); err != nil {
+				return err
+			}
+		}
+		state[n] = done
+		return nil
+	}
+	names := make([]string, 0, len(binds))
+	for n := range binds {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if err := walk(n); err != nil {
+			return err
 		}
 	}
-	if spec.Kind == KindBoard && spec.GroupBy == "" {
-		return l, fmt.Errorf("board layouts require group_by")
-	}
-	if spec.Kind == KindDate && spec.GroupBy == "" {
-		return l, fmt.Errorf("date layouts require group_by")
-	}
-	l.Kind = spec.Kind
-	l.GroupBy = spec.GroupBy
-	l.Granularity = spec.Granularity
-	l.Sort = spec.Sort
-	l.Filter = spec.Filter
-	return l, nil
+	return nil
 }
 
-// Spec converts a named layout into a layout.Spec.
-func (l Layout) Spec() layout.Spec {
+// Leaves returns view panels in depth-first order.
+func (l Layout) Leaves() []Panel {
+	return flattenPanels(l.Panels)
+}
+
+func flattenPanels(ps []Panel) []Panel {
+	var out []Panel
+	for _, p := range ps {
+		if p.View != "" {
+			out = append(out, p)
+			continue
+		}
+		out = append(out, flattenPanels(p.Panels)...)
+	}
+	return out
+}
+
+// Spec converts a view's presentation into a layout.Spec named after the view.
+func (v View) Spec(name string) layout.Spec {
+	return v.Layout.Spec(name)
+}
+
+func (p Present) Spec(name string) layout.Spec {
 	return layout.Spec{
-		Name:        l.Name,
-		Kind:        l.Kind,
-		GroupBy:     l.GroupBy,
-		Granularity: l.Granularity,
-		Fields:      l.Fields,
-		Sort:        l.Sort,
-		Filter:      l.Filter,
+		Name:        name,
+		Kind:        p.Kind,
+		GroupBy:     p.GroupBy,
+		Granularity: p.Granularity,
+		Fields:      p.Fields,
+		Sort:        p.Sort,
+		Filter:      p.Filter,
 	}.Normalize()
 }
 
-// TypeLayouts returns configured layouts for a type, or nil if none.
-func (f *File) TypeLayouts(name string) []layout.Spec {
-	if f == nil || f.Types == nil {
-		return nil
+func (p Present) FromSpec(s layout.Spec) Present {
+	s = s.Normalize()
+	return Present{
+		Kind:        s.Kind,
+		GroupBy:     s.GroupBy,
+		Granularity: s.Granularity,
+		Fields:      s.Fields,
+		Sort:        s.Sort,
+		Filter:      s.Filter,
 	}
-	src, ok := f.Types[name]
-	if !ok || len(src.Layouts) == 0 {
-		return nil
-	}
-	out := make([]layout.Spec, 0, len(src.Layouts))
-	for _, l := range src.Layouts {
-		out = append(out, l.Spec())
-	}
-	return out
 }
 
-// QueryLayouts returns configured layouts for a saved query, or nil if none.
-func (f *File) QueryLayouts(name string) []layout.Spec {
-	if f == nil || f.Queries == nil {
-		return nil
+// NeedsSelected reports whether source or inputs reference {{selected}}.
+func (v View) NeedsSelected() bool {
+	if strings.Contains(v.Source, SelectedToken) {
+		return true
 	}
-	src, ok := f.Queries[name]
-	if !ok || len(src.Layouts) == 0 {
-		return nil
+	for _, val := range v.Inputs {
+		if strings.Contains(val, SelectedToken) {
+			return true
+		}
 	}
-	out := make([]layout.Spec, 0, len(src.Layouts))
-	for _, l := range src.Layouts {
-		out = append(out, l.Spec())
-	}
-	return out
+	return false
 }
 
-// Validate checks configured layouts against a live schema. Unknown types,
-// queries, and fields become warnings (not load errors).
+// SubstituteSelected replaces {{selected}} in s.
+func SubstituteSelected(s, id string) string {
+	return strings.ReplaceAll(s, SelectedToken, id)
+}
+
+func (f *File) ViewNames() []string {
+	if f == nil || len(f.Views) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(f.Views))
+	for name := range f.Views {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (f *File) LayoutNames() []string {
+	if f == nil || len(f.Layouts) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(f.Layouts))
+	for name := range f.Layouts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (f *File) viewLine(name string) int {
+	if f == nil || f.Lines == nil {
+		return 0
+	}
+	return f.Lines["views."+name]
+}
+
+func (f *File) layoutLine(name string) int {
+	if f == nil || f.Lines == nil {
+		return 0
+	}
+	return f.Lines["layouts."+name]
+}
+
+// ViewLine is the 1-based line of [views.name], or 0.
+func (f *File) ViewLine(name string) int { return f.viewLine(name) }
+
+// LayoutLine is the 1-based line of [layouts.name], or 0.
+func (f *File) LayoutLine(name string) int { return f.layoutLine(name) }
+
+// Validate checks configured views against a live schema. Unknown sources and
+// fields become warnings (not load errors). Layout structure is already a load error.
 func (f *File) Validate(schema api.Schema) []string {
 	if f == nil {
 		return nil
 	}
 	var warns []string
-	typeNames := make([]string, 0, len(f.Types))
-	for name := range f.Types {
-		typeNames = append(typeNames, name)
+	for _, name := range f.ViewNames() {
+		v := f.Views[name]
+		warns = append(warns, validateView("views."+name, v, schema)...)
 	}
-	sort.Strings(typeNames)
-	for _, name := range typeNames {
-		src := f.Types[name]
-		ts, ok := schema.Types[name]
+	return warns
+}
+
+func validateView(prefix string, v View, schema api.Schema) []string {
+	source := strings.TrimSpace(v.Source)
+	source = SubstituteSelected(source, "")
+	var ts api.TypeSchema
+	var warns []string
+	switch {
+	case source == "":
+		return nil
+	case looksLikeRQL(source):
+		ts = typeSchemaForRQL(schema, source)
+	default:
+		if t, ok := schema.Types[source]; ok {
+			ts = t
+		} else if q, ok := schema.Queries[source]; ok {
+			ts = typeSchemaForRQL(schema, q.Query)
+		} else {
+			warns = append(warns, fmt.Sprintf("%s: unknown source %q", prefix, v.Source))
+			return warns
+		}
+	}
+	if ts.Name == "" && len(ts.Fields) == 0 {
+		return warns
+	}
+	spec := v.Spec(prefix)
+	check := func(kind, field string) {
+		if field == "" {
+			return
+		}
+		f, ok := ts.Fields[field]
 		if !ok {
-			warns = append(warns, fmt.Sprintf("types.%s: unknown type", name))
+			warns = append(warns, fmt.Sprintf("%s: unknown %s field %q", prefix, kind, field))
+			return
+		}
+		if kind != "group_by" {
+			return
+		}
+		switch spec.Kind {
+		case KindBoard:
+			if !f.IsEnum() && !f.IsRef() {
+				warns = append(warns, fmt.Sprintf("%s: group_by %q is not an enum or ref field", prefix, field))
+			}
+		case KindDate:
+			if !f.IsDate() || f.IsArray() {
+				warns = append(warns, fmt.Sprintf("%s: group_by %q is not a date/datetime field", prefix, field))
+			}
+		}
+	}
+	check("group_by", spec.GroupBy)
+	check("sort", spec.Sort)
+	for _, field := range spec.Fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
 			continue
 		}
-		for i, l := range src.Layouts {
-			warns = append(warns, validateLayout("types."+name, i, l, ts)...)
-		}
-	}
-	queryNames := make([]string, 0, len(f.Queries))
-	for name := range f.Queries {
-		queryNames = append(queryNames, name)
-	}
-	sort.Strings(queryNames)
-	for _, name := range queryNames {
-		src := f.Queries[name]
-		q, ok := schema.Queries[name]
-		if !ok {
-			warns = append(warns, fmt.Sprintf("queries.%s: unknown saved query", name))
-		}
-		ts := typeSchemaForQuery(schema, q)
-		if ts.Name == "" && len(ts.Fields) == 0 {
-			continue
-		}
-		for i, l := range src.Layouts {
-			warns = append(warns, validateLayout("queries."+name, i, l, ts)...)
+		if _, ok := ts.Fields[field]; !ok {
+			warns = append(warns, fmt.Sprintf("%s: unknown fields entry %q", prefix, field))
 		}
 	}
 	return warns
 }
 
-func typeSchemaForQuery(schema api.Schema, q api.SavedQuery) api.TypeSchema {
-	body := strings.TrimSpace(q.Query)
+func looksLikeRQL(source string) bool {
+	if strings.ContainsAny(source, " \t") {
+		return true
+	}
+	if strings.HasPrefix(source, "type:") {
+		return true
+	}
+	if strings.Contains(source, ".") {
+		return true
+	}
+	return false
+}
+
+func typeSchemaForRQL(schema api.Schema, q string) api.TypeSchema {
+	body := strings.TrimSpace(q)
 	if !strings.HasPrefix(body, "type:") {
 		return api.TypeSchema{}
 	}
@@ -294,50 +568,6 @@ func typeSchemaForQuery(schema api.Schema, q api.SavedQuery) api.TypeSchema {
 		return api.TypeSchema{}
 	}
 	return schema.Types[name[0]]
-}
-
-func validateLayout(prefix string, i int, l Layout, ts api.TypeSchema) []string {
-	label := l.Name
-	if label == "" {
-		label = l.Kind
-	}
-	head := fmt.Sprintf("%s layouts[%d] %q", prefix, i, label)
-	var warns []string
-	checkField := func(kind, field string) {
-		if field == "" {
-			return
-		}
-		f, ok := ts.Fields[field]
-		if !ok {
-			warns = append(warns, fmt.Sprintf("%s: unknown %s field %q", head, kind, field))
-			return
-		}
-		switch kind {
-		case "group_by":
-			switch l.Kind {
-			case KindBoard:
-				if !f.IsEnum() && !f.IsRef() {
-					warns = append(warns, fmt.Sprintf("%s: group_by %q is not an enum or ref field", head, field))
-				}
-			case KindDate:
-				if !f.IsDate() || f.IsArray() {
-					warns = append(warns, fmt.Sprintf("%s: group_by %q is not a date/datetime field", head, field))
-				}
-			}
-		}
-	}
-	checkField("group_by", l.GroupBy)
-	checkField("sort", l.Sort)
-	for _, field := range l.Fields {
-		field = strings.TrimSpace(field)
-		if field == "" {
-			continue
-		}
-		if _, ok := ts.Fields[field]; !ok {
-			warns = append(warns, fmt.Sprintf("%s: unknown fields entry %q", head, field))
-		}
-	}
-	return warns
 }
 
 // DefaultPath is ~/.config/perch/config.toml (XDG).
@@ -350,4 +580,105 @@ func DefaultPath() string {
 		return "perch.toml"
 	}
 	return filepath.Join(home, ".config", "perch", "config.toml")
+}
+
+// Error is a config problem, with a line number when known.
+type Error struct {
+	Path string
+	Line int
+	Msg  string
+}
+
+func (e *Error) Error() string {
+	if e == nil {
+		return "perch config error"
+	}
+	msg := strings.TrimSpace(e.Msg)
+	if e.Line > 0 && e.Path != "" {
+		return fmt.Sprintf("perch config %s:%d: %s", e.Path, e.Line, msg)
+	}
+	if e.Path != "" {
+		return fmt.Sprintf("perch config %s: %s", e.Path, msg)
+	}
+	if e.Line > 0 {
+		return fmt.Sprintf("perch config line %d: %s", e.Line, msg)
+	}
+	return "perch config: " + msg
+}
+
+func wrapDecode(path string, err error) error {
+	line := tomlLine(err)
+	if line == 0 {
+		line = 1
+	}
+	return &Error{Path: path, Line: line, Msg: err.Error()}
+}
+
+func tomlLine(err error) int {
+	if err == nil {
+		return 0
+	}
+	s := err.Error()
+	for _, prefix := range []string{"Near line ", "line "} {
+		if i := strings.Index(s, prefix); i >= 0 {
+			rest := s[i+len(prefix):]
+			n := 0
+			for _, r := range rest {
+				if r < '0' || r > '9' {
+					break
+				}
+				n = n*10 + int(r-'0')
+			}
+			if n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+var tableHeader = regexp.MustCompile(`(?m)^[ \t]*\[(views|layouts)\.(("([^"\\]|\\.)*")|([A-Za-z0-9_-]+))\]`)
+
+func tableLines(src string) map[string]int {
+	out := map[string]int{}
+	for _, m := range tableHeader.FindAllStringSubmatchIndex(src, -1) {
+		if len(m) < 12 {
+			continue
+		}
+		kind := src[m[2]:m[3]]
+		name := src[m[4]:m[5]]
+		if strings.HasPrefix(name, `"`) {
+			if un, err := strconv.Unquote(name); err == nil {
+				name = un
+			} else {
+				name = strings.Trim(name, `"`)
+			}
+		}
+		line := 1 + strings.Count(src[:m[0]], "\n")
+		key := kind + "." + name
+		if _, ok := out[key]; !ok {
+			out[key] = line
+		}
+	}
+	return out
+}
+
+func isSlice(v any) bool {
+	if v == nil {
+		return false
+	}
+	return reflect.ValueOf(v).Kind() == reflect.Slice
+}
+
+func firstLine(src string, keys ...string) int {
+	lines := strings.Split(src, "\n")
+	for i, line := range lines {
+		trim := strings.TrimSpace(line)
+		for _, k := range keys {
+			if strings.HasPrefix(trim, "["+k) || strings.HasPrefix(trim, "[["+k) {
+				return i + 1
+			}
+		}
+	}
+	return 1
 }

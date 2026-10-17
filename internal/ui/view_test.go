@@ -80,12 +80,20 @@ func manyTypesModel(t *testing.T, n int) Model {
 
 func TestSidebarScrollsWithMotionAndResize(t *testing.T) {
 	m := manyTypesModel(t, 30)
+	m = m.toggleCategory(catBrowse)
 	m.pane = paneSidebar
+	m.setFocus(focusSidebar)
 	if len(m.nav) < 30 {
 		t.Fatalf("nav %d", len(m.nav))
 	}
-	first := m.nav[0].Label
-	last := m.nav[len(m.nav)-1].Label
+	first := m.nav[1].Label
+	lastType := ""
+	for _, n := range m.nav {
+		if n.Kind == navType {
+			lastType = n.Label
+		}
+	}
+	last := lastType
 	const sideH = 8
 
 	side := m.viewSidebar(sideH)
@@ -99,9 +107,11 @@ func TestSidebarScrollsWithMotionAndResize(t *testing.T) {
 		t.Fatalf("expected below indicator: %s", side)
 	}
 
-	m, _ = m.update(key("G"))
-	if m.navCur != len(m.nav)-1 {
-		t.Fatalf("G navCur=%d", m.navCur)
+	for i, n := range m.nav {
+		if n.Kind == navType && n.Label == last {
+			m.navCur = i
+			break
+		}
 	}
 	side = m.viewSidebar(sideH)
 	if !strings.Contains(side, last) {

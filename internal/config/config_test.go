@@ -11,193 +11,321 @@ import (
 
 func TestLoadMissingIsEmpty(t *testing.T) {
 	f, err := Load(filepath.Join(t.TempDir(), "nope.toml"))
-	if err != nil || len(f.Types) != 0 || len(f.Queries) != 0 {
+	if err != nil || len(f.Views) != 0 || len(f.Layouts) != 0 {
 		t.Fatalf("%v %+v", err, f)
 	}
 }
 
-func TestLoadNamedLayouts(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	body := `
-[[types.project.layouts]]
-name = "Board"
-kind = "board"
-group_by = "status"
-fields = ["status", "due"]
+func TestLoadViewsAndLayouts(t *testing.T) {
+	path := writeTOML(t, `
+[views.projects]
+source = "item"
+layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
 
-[[types.project.layouts]]
-name = "By due"
-kind = "list"
-fields = ["status", "due"]
-sort = "due"
+[views.by-when]
+source = "item"
+layout = { kind = "list", fields = ["state", "when"], sort = "when" }
 
-[[types.project.layouts]]
-name = "Active"
-kind = "list"
-filter = ".status==active"
+[views.open]
+source = "item"
+layout = { kind = "list", filter = ".state==open" }
 
-[[types.date.layouts]]
-name = "Week"
-kind = "date"
-group_by = "date"
-granularity = "week"
+[views.week]
+source = "event"
+layout = { kind = "date", group_by = "when", granularity = "week" }
 
-[[queries.open.layouts]]
-name = "Open"
-kind = "list"
-sort = "name"
-`
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+[views.inbox]
+source = "inbox"
+layout = { kind = "list", sort = "label" }
+
+[views.tasks]
+source = "task"
+inputs = { item = "{{selected}}" }
+layout = { kind = "list" }
+
+[layouts.workspace]
+split = "row"
+panels = [
+  { view = "projects" },
+  { view = "tasks", bind = "projects" },
+]
+`)
 	f, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ls := f.TypeLayouts("project")
-	if len(ls) != 3 {
-		t.Fatalf("%d %+v", len(ls), ls)
+	v := f.Views["projects"]
+	if v.Source != "item" || v.Layout.Kind != KindBoard || v.Layout.GroupBy != "state" {
+		t.Fatalf("%+v", v)
 	}
-	if ls[0].Name != "Board" || ls[0].Kind != KindBoard || ls[0].GroupBy != "status" {
-		t.Fatalf("first %+v", ls[0])
+	spec := v.Spec("projects")
+	if spec.Name != "projects" || spec.Kind != KindBoard {
+		t.Fatalf("spec %+v", spec)
 	}
-	if ls[1].Name != "By due" || ls[1].Kind != KindList || ls[1].Sort != "due" {
-		t.Fatalf("second %+v", ls[1])
+	if f.Views["open"].Layout.Filter != ".state==open" {
+		t.Fatalf("filter %+v", f.Views["open"])
 	}
-	if ls[2].Filter != ".status==active" {
-		t.Fatalf("filter %+v", ls[2])
+	if f.Views["week"].Layout.Granularity != GranWeek {
+		t.Fatalf("%+v", f.Views["week"])
 	}
-	date := f.TypeLayouts("date")
-	if len(date) != 1 || date[0].Granularity != GranWeek {
-		t.Fatalf("%+v", date)
+	if f.Views["tasks"].Inputs["item"] != SelectedToken {
+		t.Fatalf("inputs %+v", f.Views["tasks"].Inputs)
 	}
-	q := f.QueryLayouts("open")
-	if len(q) != 1 || q[0].Kind != KindList || q[0].Name != "Open" {
-		t.Fatalf("%+v", q)
+	if f.ViewLine("projects") < 2 {
+		t.Fatalf("line %d", f.ViewLine("projects"))
 	}
-}
-
-func TestLoadDefaultNameFromKind(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(`
-[[types.project.layouts]]
-kind = "list"
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ls := f.TypeLayouts("project")
-	if len(ls) != 1 || ls[0].Name != "List" {
+	ls := f.Layouts["workspace"]
+	if ls.Split != SplitRow || len(ls.Leaves()) != 2 {
 		t.Fatalf("%+v", ls)
 	}
+	if ls.Leaves()[1].Bind != "projects" {
+		t.Fatalf("bind %+v", ls.Leaves())
+	}
 }
 
-func TestLoadRejectsLegacyLayoutEquals(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(`
-[types.project]
-layout = "board"
-group_by = "status"
-`), 0o644); err != nil {
+func TestLoadNestedPanels(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+source = "item"
+layout = { kind = "list" }
+[views.b]
+source = "item"
+layout = { kind = "list" }
+[views.c]
+source = "item"
+layout = { kind = "list" }
+
+[layouts.nested]
+split = "row"
+panels = [
+  { view = "a" },
+  { split = "col", panels = [
+      { view = "b", bind = "a" },
+      { view = "c", bind = "b" },
+  ] },
+]
+`)
+	f, err := Load(path)
+	if err != nil {
 		t.Fatal(err)
 	}
+	leaves := f.Layouts["nested"].Leaves()
+	if len(leaves) != 3 || leaves[0].View != "a" || leaves[1].View != "b" || leaves[2].View != "c" {
+		t.Fatalf("%+v", leaves)
+	}
+	if leaves[1].Bind != "a" || leaves[2].Bind != "b" {
+		t.Fatalf("binds %+v", leaves)
+	}
+}
+
+func TestLoadRejectsLegacyTypeLayouts(t *testing.T) {
+	path := writeTOML(t, `
+[[types.item.layouts]]
+name = "Board"
+kind = "board"
+group_by = "state"
+`)
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "[[types.") || !strings.Contains(err.Error(), ".layouts]]") {
+	msg := err.Error()
+	if !strings.Contains(msg, "[views.") || !strings.Contains(msg, "[layouts.") {
+		t.Fatalf("want pointer at new shape, got %v", err)
+	}
+	if !strings.Contains(msg, ":") {
+		t.Fatalf("want line number, got %v", err)
+	}
+}
+
+func TestLoadRejectsLegacyQueryLayouts(t *testing.T) {
+	path := writeTOML(t, `
+[[queries.inbox.layouts]]
+name = "Inbox"
+kind = "list"
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "[views.") {
 		t.Fatalf("want pointer at new shape, got %v", err)
 	}
 }
 
-func TestLoadRejectsLegacyViews(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(`
+func TestLoadRejectsLegacyViewsArray(t *testing.T) {
+	path := writeTOML(t, `
 [[views]]
 name = "Projects"
-source = "type:project"
+source = "type:item"
 kind = "board"
-group_by = "status"
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+group_by = "state"
+`)
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "[[views]]") || !strings.Contains(err.Error(), "[[types.") {
+	if !strings.Contains(err.Error(), "[[views]]") || !strings.Contains(err.Error(), "[views.") {
 		t.Fatalf("want views-removed pointer, got %v", err)
 	}
 }
 
-func TestLoadRejectsBadKind(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(`
-[[types.project.layouts]]
-name = "x"
-kind = "kanban"
-`), 0o644); err != nil {
-		t.Fatal(err)
+func TestLoadRejectsLegacyLayoutEquals(t *testing.T) {
+	path := writeTOML(t, `
+[types.item]
+layout = "board"
+group_by = "state"
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
 	}
+	if !strings.Contains(err.Error(), "[views.") {
+		t.Fatalf("want pointer at new shape, got %v", err)
+	}
+}
+
+func TestLoadRejectsBadKind(t *testing.T) {
+	path := writeTOML(t, `
+[views.x]
+source = "item"
+layout = { kind = "kanban" }
+`)
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestLoadRejectsBoardWithoutGroupBy(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(`
-[[types.project.layouts]]
-name = "Board"
-kind = "board"
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	path := writeTOML(t, `
+[views.board]
+source = "item"
+layout = { kind = "board" }
+`)
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
+func TestLoadRejectsUnknownViewInLayout(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+source = "item"
+layout = { kind = "list" }
+[layouts.x]
+split = "row"
+panels = [ { view = "a" }, { view = "ghost" } ]
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), `unknown view "ghost"`) {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestLoadRejectsBindToMissingPanel(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+source = "item"
+layout = { kind = "list" }
+[views.b]
+source = "item"
+layout = { kind = "list" }
+[layouts.x]
+split = "row"
+panels = [ { view = "a" }, { view = "b", bind = "nope" } ]
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "not a panel") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestLoadRejectsBindCycle(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+source = "item"
+layout = { kind = "list" }
+[views.b]
+source = "item"
+layout = { kind = "list" }
+[layouts.x]
+split = "row"
+panels = [ { view = "a", bind = "b" }, { view = "b", bind = "a" } ]
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestLoadRejectsDuplicateView(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+source = "item"
+layout = { kind = "list" }
+[layouts.x]
+split = "col"
+panels = [ { view = "a" }, { view = "a" } ]
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestLoadTOMLErrorHasLine(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+source = "item"
+layout = { kind = "list"
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), ":") {
+		t.Fatalf("want path:line, got %v", err)
+	}
+}
+
 func TestValidateUnknownFields(t *testing.T) {
 	f := &File{
-		Types: map[string]Source{
-			"project": {Layouts: []Layout{
-				{Name: "Board", Kind: KindBoard, GroupBy: "nope", Fields: []string{"status", "missing"}, Sort: "zzz"},
-			}},
-			"ghost": {Layouts: []Layout{{Name: "List", Kind: KindList}}},
-		},
-		Queries: map[string]Source{
-			"nope": {Layouts: []Layout{{Name: "List", Kind: KindList}}},
+		Views: map[string]View{
+			"board": {Source: "item", Layout: Present{Kind: KindBoard, GroupBy: "nope", Fields: []string{"state", "missing"}, Sort: "zzz"}},
+			"ghost": {Source: "ghost", Layout: Present{Kind: KindList}},
+			"rql":   {Source: "type:item .state==open", Layout: Present{Kind: KindList, Fields: []string{"missing"}}},
 		},
 	}
 	schema := api.Schema{
 		Types: map[string]api.TypeSchema{
-			"project": {
-				Name: "project",
+			"item": {
+				Name: "item",
 				Fields: map[string]api.FieldSchema{
-					"status": {Type: "enum", Values: []string{"a"}},
-					"due":    {Type: "date"},
+					"state": {Type: "enum", Values: []string{"a"}},
+					"when":  {Type: "date"},
 				},
 			},
 		},
 		Queries: map[string]api.SavedQuery{
-			"open": {Name: "open", Query: "type:project"},
+			"inbox": {Name: "inbox", Query: "type:item"},
 		},
 	}
 	warns := f.Validate(schema)
 	joined := strings.Join(warns, "\n")
 	for _, want := range []string{
-		`types.ghost: unknown type`,
-		`queries.nope: unknown saved query`,
+		`views.ghost: unknown source "ghost"`,
 		`unknown group_by field "nope"`,
 		`unknown fields entry "missing"`,
 		`unknown sort field "zzz"`,
@@ -209,18 +337,68 @@ func TestValidateUnknownFields(t *testing.T) {
 }
 
 func TestValidateBoardGroupByType(t *testing.T) {
-	f := &File{Types: map[string]Source{
-		"project": {Layouts: []Layout{
-			{Name: "Board", Kind: KindBoard, GroupBy: "due"},
-		}},
+	f := &File{Views: map[string]View{
+		"board": {Source: "item", Layout: Present{Kind: KindBoard, GroupBy: "when"}},
 	}}
 	schema := api.Schema{Types: map[string]api.TypeSchema{
-		"project": {Name: "project", Fields: map[string]api.FieldSchema{
-			"due": {Type: "date"},
+		"item": {Name: "item", Fields: map[string]api.FieldSchema{
+			"when": {Type: "date"},
 		}},
 	}}
 	warns := f.Validate(schema)
 	if len(warns) != 1 || !strings.Contains(warns[0], "not an enum or ref") {
 		t.Fatalf("%v", warns)
 	}
+}
+
+func TestUpsertViewWritesAndReplaces(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("# keep me\n[views.old]\nsource = \"item\"\nlayout = { kind = \"list\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v := View{Source: "item", Layout: Present{Kind: KindList, Fields: []string{"state"}, Sort: "when"}}
+	if err := UpsertView(path, "saved", v); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if !strings.Contains(s, "# keep me") || !strings.Contains(s, "[views.saved]") || !strings.Contains(s, "[views.old]") {
+		t.Fatalf("%s", s)
+	}
+	v.Layout.Kind = KindBoard
+	v.Layout.GroupBy = "state"
+	if err := UpsertView(path, "saved", v); err != nil {
+		t.Fatal(err)
+	}
+	body, _ = os.ReadFile(path)
+	s = string(body)
+	if strings.Count(s, "[views.saved]") != 1 {
+		t.Fatalf("duplicate section:\n%s", s)
+	}
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Views["saved"].Layout.Kind != KindBoard || f.Views["saved"].Layout.GroupBy != "state" {
+		t.Fatalf("%+v", f.Views["saved"])
+	}
+}
+
+func TestSubstituteSelected(t *testing.T) {
+	if got := SubstituteSelected("type:task .item=="+SelectedToken, "items/a"); got != "type:task .item==items/a" {
+		t.Fatal(got)
+	}
+}
+
+func writeTOML(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

@@ -1,7 +1,5 @@
 // Package layout is Perch's presentation primitive: list, board, or date grouping.
-// Any source (type, saved query, ad-hoc RQL) renders through a named Spec. Config
-// supplies an ordered list; the TUI cycles that list at runtime. Grouping itself
-// lives in package group.
+// A view's config supplies one Spec. Grouping itself lives in package group.
 package layout
 
 import (
@@ -119,52 +117,10 @@ func (s Spec) Label() string {
 	}
 }
 
-// Synthesize builds the zero-config layout list for a type from schema
-// structure only. Field names are not preferred.
-//
-//  1. List always (first, so it is the default)
-//  2. Board if the type has a scalar enum field, grouped by the first such
-//     field in schema definition order (named "Board")
-//  3. Date if the type has a scalar date/datetime field, grouped by the first
-//     such field in schema definition order (named "Date"; granularity day)
-//
-// Ref fields do not produce a synthesized board. This list is the entire
-// L-cycle; Perch does not invent extra group-by options at runtime.
-func Synthesize(ts api.TypeSchema) []Spec {
-	list := Spec{Name: "List", Kind: KindList, Sort: ts.NameField}.Normalize()
-	out := []Spec{list}
-
-	if enums := ts.EnumFields(); len(enums) > 0 {
-		out = append(out, Spec{
-			Name:    "Board",
-			Kind:    KindBoard,
-			GroupBy: enums[0],
-			Sort:    ts.NameField,
-		}.Normalize())
-	}
-
-	if dates := ts.DateFields(); len(dates) > 0 {
-		out = append(out, Spec{
-			Name:        "Date",
-			Kind:        KindDate,
-			GroupBy:     dates[0],
-			Granularity: GranDay,
-			Sort:        dates[0],
-		}.Normalize())
-	}
-	return out
-}
-
-// Cycle walks an ordered named-layout list. delta is +1 (L) or -1 (gL).
-func Cycle(layouts []Spec, idx, delta int) (Spec, int) {
-	if len(layouts) == 0 {
-		s := Spec{Name: "List", Kind: KindList}.Normalize()
-		return s, 0
-	}
-	n := len(layouts)
-	idx = (idx%n + n) % n
-	idx = (idx + delta%n + n) % n
-	return layouts[idx].Normalize(), idx
+// DefaultList is the Browse presentation for a type: a plain list. Perch does
+// not synthesize board or date views from the schema.
+func DefaultList(ts api.TypeSchema) Spec {
+	return Spec{Name: "List", Kind: KindList, Sort: ts.NameField}.Normalize()
 }
 
 // NextGranularity cycles day → week → month → day. No-op for non-date specs.

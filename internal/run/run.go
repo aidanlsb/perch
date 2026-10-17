@@ -17,7 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const Version = "0.4.1"
+const Version = "0.5.0"
 
 // Main is the perch CLI entrypoint.
 func Main(args []string, stdout, stderr io.Writer) error {
@@ -92,6 +92,7 @@ Flags:
 	model := ui.NewModel(ui.Options{
 		Client:     client,
 		Config:     cfg,
+		ConfigPath: cfgFile,
 		VaultPath:  vaultPath,
 		Editor:     ed,
 		EditorMode: edMode,
