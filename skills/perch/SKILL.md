@@ -125,6 +125,15 @@ perch open projects --json
 
 `--json` on `open` only affects launch errors. A successful open is the TUI.
 
+## Editor
+
+The TUI opens files with the session `editor` / `editor_mode` from
+`GET /v1/session` (`$VISUAL`, then `$EDITOR` if empty). `terminal` suspends
+the TUI; `gui` does not; `auto` uses the same heuristic as `rvn open`.
+
+Line jumps are editor-specific. quill (`quill path:line`, GUI, no suspend)
+is not a terminal editor, so `auto` does not suspend the TUI.
+
 ## Error codes
 
 | Code | When |

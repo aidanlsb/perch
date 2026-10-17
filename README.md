@@ -293,7 +293,11 @@ the sidebar. In-panel scrolling is `ctrl-d` / `ctrl-u` only.
 - `terminal`: suspend the TUI, run the editor in the foreground, refresh on return.
 - `gui`: spawn the editor detached and keep the TUI running.
 - `auto`: same heuristic as `rvn open` (vim/nvim/helix/nano/emacs/… in the
-  foreground; `code` and other GUI commands in the background).
+  foreground; `code`, `quill`, and other GUI commands in the background).
+
+Line jumps use editor-specific arguments: vim-family `+N`, Helix `path:line`,
+VS Code `-g path:line`. quill (`quill path:line`, GUI, no suspend) is treated
+as a GUI editor, so `auto` does not suspend the TUI.
 
 If `editor` is empty, or the server has no `/v1/session` (older `rvn`),
 Perch falls back to `$VISUAL`, then `$EDITOR`.
