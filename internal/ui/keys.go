@@ -1,5 +1,7 @@
 package ui
 
+import tea "github.com/charmbracelet/bubbletea"
+
 // Binding is one documented key. Help, footer, and tests share this table.
 type Binding struct {
 	Section string
@@ -42,6 +44,7 @@ var Keymap = []Binding{
 	{"leader", "space l", "layout picker"},
 
 	{"note", "q / esc / backspace", "back to browse"},
+	{"note", "/", "fuzzy search in browse"},
 	{"note", "hjkl / arrows", "scroll / backlinks"},
 	{"note", "gg / G", "top / bottom"},
 	{"note", "ctrl-d / ctrl-u", "half-page"},
@@ -82,10 +85,58 @@ func footerKeys(overlay overlay, screen string, preview bool) string {
 		return "args  enter next  esc cancel"
 	}
 	if screen == kindNote {
-		return "hjkl  tab link  enter follow  e edit  q back  ? help"
+		return "hjkl  tab link  enter follow  / search  e edit  q back  ? help"
 	}
 	if preview {
 		return "hjkl  t/q pickers  / search  p preview  e edit  L layout  ? help"
 	}
 	return "hjkl  t types  q queries  / search  e edit  L layout  p preview  ? help"
+}
+
+// keyIdent is the string we switch on for bindings.
+//
+// Bubble Tea usually reports printable keys as KeyRunes, so String() is the
+// character ("/", "a", …). On some terminals — notably macOS Terminal.app —
+// punctuation such as '/' arrives as a named KeyType equal to the ASCII
+// code. That form is not in Bubble Tea's keyNames map, so String() is empty
+// and a `case "/"` never matches. Fall back to the printable rune.
+func keyIdent(msg tea.KeyMsg) string {
+	if s := msg.String(); s != "" {
+		return s
+	}
+	if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
+		return string(msg.Runes)
+	}
+	r := rune(msg.Type)
+	if r >= 32 && r < 127 {
+		return string(r)
+	}
+	return ""
+}
+
+func isSlash(msg tea.KeyMsg) bool {
+	switch keyIdent(msg) {
+	case "/", "slash", "alt+/":
+		return true
+	}
+	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == '/' {
+		return true
+	}
+	return false
+}
+
+// typedText is printable input for search / RQL / picker / args overlays.
+func typedText(msg tea.KeyMsg) string {
+	if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
+		return string(msg.Runes)
+	}
+	id := keyIdent(msg)
+	if len(id) != 1 {
+		return ""
+	}
+	r := rune(id[0])
+	if r >= 32 && r < 127 {
+		return id
+	}
+	return ""
 }

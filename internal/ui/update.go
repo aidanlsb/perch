@@ -339,7 +339,7 @@ func (m Model) onEditorDone(msg editorDoneMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
+	key := keyIdent(msg)
 	if key == "ctrl+c" {
 		return m, tea.Quit
 	}
@@ -367,6 +367,9 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.overlay = overlayHelp
 		return m, nil
 	}
+	if isSlash(msg) {
+		return m.startSearch()
+	}
 	if m.screen == kindNote {
 		return m.keysNote(msg)
 	}
@@ -374,8 +377,11 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
+	key := keyIdent(msg)
 	m.overlay = overlayNone
+	if isSlash(msg) {
+		return m.startSearch()
+	}
 	switch key {
 	case "t":
 		return m.openTypePicker()
@@ -394,7 +400,7 @@ func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
+	key := keyIdent(msg)
 	switch key {
 	case "esc":
 		m.overlay = overlayNone
@@ -411,14 +417,14 @@ func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.rql = dropLastRune(m.rql)
 		return m, nil
 	}
-	if msg.Type == tea.KeyRunes {
-		m.rql += string(msg.Runes)
+	if text := typedText(msg); text != "" {
+		m.rql += text
 	}
 	return m, nil
 }
 
 func (m Model) keysSearch(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
+	key := keyIdent(msg)
 	switch key {
 	case "esc":
 		m.searchQ = ""
@@ -437,15 +443,15 @@ func (m Model) keysSearch(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	}
-	if msg.Type == tea.KeyRunes {
-		m.searchQ += string(msg.Runes)
+	if text := typedText(msg); text != "" {
+		m.searchQ += text
 		m.jumpSearchFirst()
 	}
 	return m, nil
 }
 
 func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
+	key := keyIdent(msg)
 	if m.pending == "g" {
 		m.pending = ""
 		switch key {
@@ -457,6 +463,10 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		case "L":
 			return m.cycleLayout(-1)
 		}
+		// Unmatched second key (including /) falls through.
+	}
+	if isSlash(msg) {
+		return m.startSearch()
 	}
 	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 		return m.jumpLayout(int(key[0] - '0'))
@@ -477,9 +487,6 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openNotesPicker()
 	case " ":
 		m.overlay = overlayLeader
-		return m, nil
-	case "/":
-		m.overlay = overlaySearch
 		return m, nil
 	case "n":
 		m.jumpSearch(1)
@@ -570,14 +577,28 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) startSearch() (Model, tea.Cmd) {
+	m.pending = ""
+	if m.screen == kindNote {
+		m.screen = "browse"
+		m.note = nil
+		m.status = m.sourceLabel
+	}
+	m.overlay = overlaySearch
+	return m, nil
+}
+
 func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := msg.String()
+	key := keyIdent(msg)
 	if m.pending == "g" {
 		m.pending = ""
 		if key == "g" {
 			m.noteScroll = 0
 			return m, nil
 		}
+	}
+	if isSlash(msg) {
+		return m.startSearch()
 	}
 	switch key {
 	case "q", "esc", "backspace":

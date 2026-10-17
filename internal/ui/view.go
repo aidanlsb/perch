@@ -101,49 +101,103 @@ func (m Model) viewBrowse(height int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, side, main)
 }
 
-func (m Model) viewSidebar(height int) string {
-	w := min(sidebarWidth, max(12, m.width/4))
-	var b strings.Builder
-	lastKind := navKind(-1)
+type sideRow struct {
+	title bool
+	nav   int
+	text  string
+}
+
+func (m Model) sidebarRows() []sideRow {
 	titles := map[navKind]string{
 		navType:  "types",
 		navQuery: "queries",
 	}
-	visible := 0
-	start := 0
-	if m.navCur < start {
-		start = m.navCur
-	}
-	inner := height
-	for inner > 0 && start > 0 && m.navCur-start+3 > inner {
-		start++
-	}
-	mNav := m.nav
-	for i := 0; i < len(mNav); i++ {
-		item := mNav[i]
+	var rows []sideRow
+	lastKind := navKind(-1)
+	for i, item := range m.nav {
 		if item.Kind != lastKind {
-			if visible >= inner {
-				break
-			}
-			if i >= start {
-				b.WriteString(styleSidebarTitle.Width(w).Render(titles[item.Kind]))
-				b.WriteByte('\n')
-				visible++
-			}
+			rows = append(rows, sideRow{title: true, nav: -1, text: titles[item.Kind]})
 			lastKind = item.Kind
 		}
-		if i < start {
+		rows = append(rows, sideRow{nav: i, text: item.Label})
+	}
+	return rows
+}
+
+// sidebarClip keeps navCur visible in a viewport of `height` lines, reserving
+// a line each for ▲ / ▼ when more items exist above or below.
+func sidebarClip(n, cur, height int) (start, end int, moreAbove, moreBelow bool) {
+	if n <= 0 || height <= 0 {
+		return 0, 0, false, false
+	}
+	if cur < 0 {
+		cur = 0
+	}
+	if cur >= n {
+		cur = n - 1
+	}
+	start = 0
+	for pass := 0; pass < 6; pass++ {
+		inner := height
+		if start > 0 {
+			inner--
+		}
+		if start+inner < n {
+			inner--
+		}
+		if inner < 1 {
+			inner = 1
+		}
+		if cur < start {
+			start = cur
 			continue
 		}
-		if visible >= inner {
+		if cur >= start+inner {
+			start = cur - inner + 1
+			if start < 0 {
+				start = 0
+			}
+			continue
+		}
+		end = start + inner
+		if end > n {
+			end = n
+		}
+		return start, end, start > 0, end < n
+	}
+	end = min(n, start+max(1, height))
+	return start, end, start > 0, end < n
+}
+
+func (m Model) viewSidebar(height int) string {
+	w := min(sidebarWidth, max(12, m.width/4))
+	rows := m.sidebarRows()
+	curRow := 0
+	for i, r := range rows {
+		if !r.title && r.nav == m.navCur {
+			curRow = i
 			break
 		}
-		label := item.Label
+	}
+	start, end, moreAbove, moreBelow := sidebarClip(len(rows), curRow, height)
+	var b strings.Builder
+	if moreAbove {
+		b.WriteString(styleDim.Width(w).Render(" ▲"))
+		b.WriteByte('\n')
+	}
+	for i := start; i < end; i++ {
+		r := rows[i]
+		if r.title {
+			b.WriteString(styleSidebarTitle.Width(w).Render(r.text))
+			b.WriteByte('\n')
+			continue
+		}
+		label := r.text
 		if lipgloss.Width(label) > w-2 {
 			label = truncate(label, w-2)
 		}
 		line := styleNav.Width(w).Render("  " + label)
-		if i == m.navCur {
+		if r.nav == m.navCur {
 			prefix := "▸ "
 			if m.pane != paneSidebar {
 				prefix = "  "
@@ -152,7 +206,10 @@ func (m Model) viewSidebar(height int) string {
 		}
 		b.WriteString(line)
 		b.WriteByte('\n')
-		visible++
+	}
+	if moreBelow {
+		b.WriteString(styleDim.Width(w).Render(" ▼"))
+		b.WriteByte('\n')
 	}
 	out := strings.TrimRight(b.String(), "\n")
 	box := lipgloss.NewStyle().
@@ -428,7 +485,7 @@ func (m Model) viewHelp() string {
 		keys := padTrunc(bind.Keys, 26)
 		b.WriteString(styleMuted.Render(keys) + "  " + bind.Desc + "\n")
 	}
-	b.WriteString("\n" + styleDim.Render("named layouts on the type; L / gL cycle; gl picker; 1-9 jump"))
+	b.WriteString("\n" + styleDim.Render("named layouts on the type; L / gL cycle; gl picker; 1-9 jump; / search"))
 	w := min(72, max(40, m.width-4))
 	return styleHelpBox.Width(w).Render(strings.TrimRight(b.String(), "\n"))
 }
