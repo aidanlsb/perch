@@ -54,8 +54,11 @@ date views from the schema. `.` still cycles date granularity (day →
 week → month) inside a date view.
 
 The sidebar has two categories, both collapsed by default: **Browse**
-(types) and **Views** (saved views and layouts). `section` is omitted
-because Raven cannot query `type:section`.
+(types) and **Views** (saved views and layouts). `ctrl-b` hides or shows
+it and expands the main area; `ctrl-e` toggles focus between the sidebar
+and the last-focused main panel (and shows a hidden sidebar). Panel
+motions stay in the main area. `section` is omitted because Raven cannot
+query `type:section`.
 
 ## Config
 
@@ -222,9 +225,11 @@ note; from browse, `q` is the query picker. `ctrl+c` quits.
 | Key | Action |
 | --- | --- |
 | `hjkl` / arrows | Move inside the focused panel |
-| `ctrl-h/j/k/l` | Move focus by direction |
+| `ctrl-b` | Hide or show the sidebar |
+| `ctrl-e` | Toggle focus between sidebar and last main panel |
+| `ctrl-h/j/k/l` | Move focus among main panels |
 | `ctrl-w h/j/k/l` | Same as `ctrl-h/j/k/l` |
-| `tab` / `shift-tab` | Cycle focus |
+| `tab` / `shift-tab` | Cycle focus among main panels |
 | `ctrl-w o` | Zoom the focused panel |
 | `ctrl-w =` | Restore splits |
 | `gg` / `G` | Top / bottom |
@@ -252,7 +257,9 @@ note; from browse, `q` is the query picker. `ctrl+c` quits.
 
 Focus follows the panel. The focused panel has a highlighted border.
 Help and the status line show keys for that panel. In-panel movement is
-unchanged (`hjkl` in a board still moves columns and rows).
+unchanged (`hjkl` in a board still moves columns and rows). Panel
+motions (`ctrl-h/j/k/l`, `ctrl-w` plus a direction, tab) never enter
+the sidebar. In-panel scrolling is `ctrl-d` / `ctrl-u` only.
 
 ## Editor
 

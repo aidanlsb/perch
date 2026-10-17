@@ -122,6 +122,8 @@ type Model struct {
 	tree          layoutTree
 	panes         []*viewState
 	focus         string
+	lastMainFocus string
+	sidebarHidden bool
 	zoomed        bool
 	regs          []region
 	currentView   string

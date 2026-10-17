@@ -18,9 +18,11 @@ var Keymap = []Binding{
 	{"global", "space c", "open config at the current view"},
 	{"global", "S", "save the on-screen view as [views.name]"},
 
-	{"focus", "ctrl-h/j/k/l", "move focus by direction"},
+	{"focus", "ctrl-b", "hide or show the sidebar"},
+	{"focus", "ctrl-e", "toggle focus between sidebar and last panel"},
+	{"focus", "ctrl-h/j/k/l", "move focus among main panels"},
 	{"focus", "ctrl-w h/j/k/l", "same as ctrl-h/j/k/l"},
-	{"focus", "tab / shift-tab", "cycle focus"},
+	{"focus", "tab / shift-tab", "cycle focus among main panels"},
 	{"focus", "ctrl-w o", "zoom focused panel"},
 	{"focus", "ctrl-w =", "restore splits"},
 
@@ -102,7 +104,10 @@ func focusFooter(m Model) string {
 	if m.zoomed {
 		return "ctrl-w = restore"
 	}
-	return "ctrl-hjkl focus"
+	if m.sidebarHidden {
+		return "ctrl-e sidebar  ctrl-b show"
+	}
+	return "ctrl-e/b sidebar  ctrl-hjkl panels"
 }
 
 func panelFooter(m Model) string {

@@ -133,8 +133,8 @@ func TestFocusMovementAndZoom(t *testing.T) {
 	}
 	m.setFocus("projects")
 	m, _ = m.update(key("tab"))
-	if m.focus == "projects" {
-		t.Fatal("tab should cycle")
+	if m.focus == "projects" || m.focus == focusSidebar {
+		t.Fatalf("tab should cycle within main, got %s", m.focus)
 	}
 	m.setFocus("projects")
 	m, _ = m.update(key("ctrl+w"))

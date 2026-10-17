@@ -287,6 +287,10 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyCtrlL}
 	case "ctrl+w":
 		return tea.KeyMsg{Type: tea.KeyCtrlW}
+	case "ctrl+e":
+		return tea.KeyMsg{Type: tea.KeyCtrlE}
+	case "ctrl+b":
+		return tea.KeyMsg{Type: tea.KeyCtrlB}
 	case " ":
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
 	default:

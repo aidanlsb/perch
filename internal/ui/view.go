@@ -97,17 +97,24 @@ func (m Model) viewFooter() string {
 
 func (m Model) viewBrowse(height int) string {
 	if m.zoomed {
-		switch m.focus {
+		switch m.zoomTarget() {
 		case focusSidebar:
-			return m.viewSidebar(height)
+			if !m.sidebarHidden {
+				return m.viewSidebar(height)
+			}
+			return m.viewPaneBox(m.viewByID(m.mainFocusID()), m.width, height, true)
 		case focusPreview:
 			return m.viewPreview(m.width, height)
 		default:
-			return m.viewPaneBox(m.viewByID(m.focus), m.width, height, true)
+			return m.viewPaneBox(m.viewByID(m.zoomTarget()), m.width, height, true)
 		}
 	}
-	side := m.viewSidebar(height)
-	rest := max(10, m.width-lipgloss.Width(side))
+	rest := m.width
+	var side string
+	if !m.sidebarHidden {
+		side = m.viewSidebar(height)
+		rest = max(10, m.width-lipgloss.Width(side))
+	}
 	if m.previewOn {
 		pw := max(previewMinW, rest*2/5)
 		if pw > rest-16 {
@@ -116,9 +123,15 @@ func (m Model) viewBrowse(height int) string {
 		mainW := max(12, rest-pw)
 		main := m.viewTree(m.tree, mainW, height)
 		prev := m.viewPreview(pw, height)
+		if side == "" {
+			return lipgloss.JoinHorizontal(lipgloss.Top, main, prev)
+		}
 		return lipgloss.JoinHorizontal(lipgloss.Top, side, main, prev)
 	}
 	main := m.viewTree(m.tree, rest, height)
+	if side == "" {
+		return main
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, side, main)
 }
 

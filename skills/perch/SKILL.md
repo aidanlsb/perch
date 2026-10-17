@@ -32,6 +32,15 @@ changed, validated, or opened. Drive Perch through its CLI. Do not edit
 - Writes are temp-file + rename. The existing validator runs before replace.
   Invalid config is not written.
 
+## TUI sidebar
+
+Prefer the CLI. If the user is already in the TUI: `ctrl-b` hides or shows
+the sidebar (the main area expands). `ctrl-e` toggles focus between the
+sidebar and the last-focused main panel, and shows the sidebar first if it
+was hidden. Panel motions (`ctrl-h/j/k/l`, `ctrl-w` plus a direction, tab)
+stay in the main area and never enter the sidebar. In-panel scrolling is
+`ctrl-d` / `ctrl-u` only.
+
 ## Views
 
 A view is a source plus one presentation: **list**, **board** (grouped by an
