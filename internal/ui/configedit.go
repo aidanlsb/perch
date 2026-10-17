@@ -98,7 +98,7 @@ func (m Model) commitSaveView() (Model, tea.Cmd) {
 	m.overlay = overlayNone
 	m.saveName = ""
 	if name == "" {
-		m.status = "save cancelled"
+		m.status = "save canceled"
 		return m, nil
 	}
 	path := strings.TrimSpace(m.cfgPath)

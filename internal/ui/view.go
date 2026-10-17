@@ -170,17 +170,13 @@ func (m Model) sidebarRows() []sideRow {
 	var rows []sideRow
 	for i, item := range m.nav {
 		text := item.Label
-		title := false
-		switch item.Kind {
-		case navCat:
-			title = true
+		title := item.Kind == navCat
+		if title {
 			mark := "▸ "
 			if (item.Category == catBrowse && m.browseOpen) || (item.Category == catViews && m.viewsOpen) {
 				mark = "▾ "
 			}
 			text = mark + item.Label
-		default:
-			text = item.Label
 		}
 		rows = append(rows, sideRow{title: title, nav: i, text: text})
 	}

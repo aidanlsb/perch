@@ -84,10 +84,6 @@ func (m Model) typeSchemaFor(v *viewState) api.TypeSchema {
 	return m.schema.Types[v.typeName]
 }
 
-func (m Model) typeSchema() api.TypeSchema {
-	return m.typeSchemaFor(m.p())
-}
-
 func (v *viewState) applySpec(s layout.Spec, ts api.TypeSchema) {
 	s = s.Normalize()
 	v.spec = s

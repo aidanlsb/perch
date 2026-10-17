@@ -189,7 +189,7 @@ func TestSaveViewWritesConfig(t *testing.T) {
 	if m.overlay != overlaySave {
 		t.Fatal("save overlay")
 	}
-	for _, r := range []rune("my-board") {
+	for _, r := range "my-board" {
 		m, _ = m.update(runeKey(r))
 	}
 	m, _ = m.update(key("enter"))
