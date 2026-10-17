@@ -15,7 +15,7 @@ import (
 func TestViewsListJSON(t *testing.T) {
 	path := writeCfg(t, `
 [views.projects]
-source = "item"
+type = "item"
 layout = { kind = "board", group_by = "state", fields = ["state"] }
 `)
 	env := runJSON(t, "views", "list", "--config", path)
@@ -28,7 +28,7 @@ layout = { kind = "board", group_by = "state", fields = ["state"] }
 		t.Fatalf("%v", views)
 	}
 	v := asMap(t, views[0])
-	if v["name"] != "projects" || v["source"] != "item" {
+	if v["name"] != "projects" || v["type"] != "item" {
 		t.Fatalf("%v", v)
 	}
 	layout := asMap(t, v["layout"])
@@ -40,14 +40,14 @@ layout = { kind = "board", group_by = "state", fields = ["state"] }
 func TestViewsShowAndMissing(t *testing.T) {
 	path := writeCfg(t, `
 [views.projects]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `)
 	env := runJSON(t, "views", "show", "projects", "--config", path)
 	if !env.OK {
 		t.Fatalf("%+v", env)
 	}
-	if asMap(t, env.Data)["source"] != "item" {
+	if asMap(t, env.Data)["type"] != "item" {
 		t.Fatalf("%v", env.Data)
 	}
 	fail := runJSONErr(t, "views", "show", "ghost", "--config", path)
@@ -59,7 +59,7 @@ layout = { kind = "list" }
 func TestViewsAddAndRMJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	env := runJSON(t, "views", "add", "projects", "--source", "item",
+	env := runJSON(t, "views", "add", "projects", "--type", "item",
 		"--layout", "kind=board,group_by=state,fields=state,when",
 		"--inputs", "q=1", "--config", path)
 	if !env.OK {
@@ -73,7 +73,7 @@ func TestViewsAddAndRMJSON(t *testing.T) {
 	if !strings.Contains(string(body), "[views.projects]") {
 		t.Fatalf("%s", body)
 	}
-	dup := runJSONErr(t, "views", "add", "projects", "--source", "item", "--config", path)
+	dup := runJSONErr(t, "views", "add", "projects", "--type", "item", "--config", path)
 	if dup.Error == nil || dup.Error.Code != CodeDuplicateName {
 		t.Fatalf("%+v", dup)
 	}
@@ -87,7 +87,7 @@ func TestViewsAddAndRMJSON(t *testing.T) {
 	}
 }
 
-func TestViewsAddMissingSource(t *testing.T) {
+func TestViewsAddMissingTypeOrQuery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "c.toml")
 	fail := runJSONErr(t, "views", "add", "x", "--config", path)
 	if fail.Error == nil || fail.Error.Code != CodeMissingArgument {
@@ -95,13 +95,48 @@ func TestViewsAddMissingSource(t *testing.T) {
 	}
 }
 
+func TestViewsAddRejectsSource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.toml")
+	fail := runJSONErr(t, "views", "add", "x", "--source", "item", "--config", path)
+	if fail.Error == nil || fail.Error.Code != CodeInvalidArgs {
+		t.Fatalf("%+v", fail)
+	}
+	if !strings.Contains(fail.Error.Message, "--type") || !strings.Contains(fail.Error.Message, "--query") {
+		t.Fatalf("%+v", fail)
+	}
+}
+
+func TestViewsAddRejectsTypeAndQuery(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.toml")
+	fail := runJSONErr(t, "views", "add", "x", "--type", "item", "--query", "inbox", "--config", path)
+	if fail.Error == nil || fail.Error.Code != CodeInvalidArgs {
+		t.Fatalf("%+v", fail)
+	}
+}
+
+func TestViewsAddQuery(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.toml")
+	env := runJSON(t, "views", "add", "inbox", "--query", "inbox", "--config", path)
+	if !env.OK {
+		t.Fatalf("%+v", env)
+	}
+	data := asMap(t, env.Data)
+	if data["query"] != "inbox" || data["type"] != nil {
+		t.Fatalf("%v", data)
+	}
+	body, _ := os.ReadFile(path)
+	if !strings.Contains(string(body), `query = "inbox"`) || strings.Contains(string(body), "source") {
+		t.Fatalf("%s", body)
+	}
+}
+
 func TestViewsRMRequiresForce(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [views.b]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [layouts.ws]
 split = "row"
@@ -120,10 +155,10 @@ panels = [ { view = "a" }, { view = "b" } ]
 func TestLayoutsListShowAddRM(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [views.b]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `)
 	add := runJSON(t, "layouts", "add", "ws", "--split", "row",
@@ -157,7 +192,7 @@ layout = { kind = "list" }
 func TestLayoutsAddFromTOMLAndJSON(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `)
 	tomlAdd := runJSON(t, "layouts", "add", "fromtoml", "--from", `split = "col"
@@ -177,7 +212,7 @@ panels = [ { view = "a" } ]`, "--config", path)
 func TestLayoutsAddFromFile(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `)
 	snippet := filepath.Join(t.TempDir(), "lay.json")
@@ -193,7 +228,7 @@ layout = { kind = "list" }
 func TestConfigPathAndCheck(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `)
 	got := runJSON(t, "config", "path", "--config", path)
@@ -206,7 +241,7 @@ layout = { kind = "list" }
 	}
 	bad := writeCfg(t, `
 [views.board]
-source = "item"
+type = "item"
 layout = { kind = "board" }
 `)
 	fail := runJSONErr(t, "config", "check", "--config", bad)
@@ -233,7 +268,7 @@ func TestUnknownCommandJSON(t *testing.T) {
 func TestHumanViewsList(t *testing.T) {
 	path := writeCfg(t, `
 [views.projects]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `)
 	var out, errb bytes.Buffer
@@ -258,7 +293,7 @@ func TestErrorEnvelopeShape(t *testing.T) {
 func TestResolveOpen(t *testing.T) {
 	path := writeCfg(t, `
 [views.projects]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 [layouts.ws]
 split = "row"

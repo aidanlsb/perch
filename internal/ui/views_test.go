@@ -13,12 +13,12 @@ import (
 func nestedLayoutCfg() *config.File {
 	return &config.File{
 		Views: map[string]config.View{
-			"projects": {Source: "project", Layout: config.Present{Kind: kindList}},
+			"projects": {Type: "project", Layout: config.Present{Kind: kindList}},
 			"tasks": {
-				Source: "type:project .id=={{selected}}",
-				Layout: config.Present{Kind: kindList},
+				Type:   "project",
+				Layout: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
-			"notes": {Source: "person", Layout: config.Present{Kind: kindList}},
+			"notes": {Type: "person", Layout: config.Present{Kind: kindList}},
 		},
 		Layouts: map[string]config.Layout{
 			"workspace": {
@@ -160,7 +160,7 @@ func TestReloadKeepsLastGoodOnError(t *testing.T) {
 	path := filepath.Join(dir, "config.toml")
 	good := `
 [views.ok]
-source = "item"
+type = "item"
 layout = { kind = "list" }
 `
 	if err := os.WriteFile(path, []byte(good), 0o644); err != nil {
@@ -172,7 +172,7 @@ layout = { kind = "list" }
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.cfg.Views["ok"].Source != "item" {
+	if m.cfg.Views["ok"].Type != "item" {
 		t.Fatalf("%+v", m.cfg.Views["ok"])
 	}
 	bad := `[[types.item.layouts]]
@@ -184,7 +184,7 @@ group_by = "state"
 		t.Fatal(err)
 	}
 	m2, _ := m.onConfigEditorDone(editorDoneMsg{config: true})
-	if m2.cfg == nil || m2.cfg.Views["ok"].Source != "item" {
+	if m2.cfg == nil || m2.cfg.Views["ok"].Type != "item" {
 		t.Fatalf("should keep last good, got %+v", m2.cfg)
 	}
 	if !strings.Contains(m2.status, "keeping last good") {
@@ -217,11 +217,32 @@ func TestSaveViewWritesConfig(t *testing.T) {
 	if !strings.Contains(s, "[views.my-board]") {
 		t.Fatalf("%s", s)
 	}
-	if !strings.Contains(s, "source") {
-		t.Fatalf("missing source:\n%s", s)
+	if !strings.Contains(s, `type = "project"`) || strings.Contains(s, "source") {
+		t.Fatalf("want type, got:\n%s", s)
 	}
-	if m.cfg == nil || m.cfg.Views["my-board"].Source == "" {
+	if m.cfg == nil || m.cfg.Views["my-board"].Type != "project" {
 		t.Fatalf("cfg not reloaded %+v", m.cfg)
+	}
+}
+
+func TestSaveAdHocRQLRefuses(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	m := loadBrowse(t)
+	m.cfgPath = path
+	m, _ = m.loadRQL("type:project .status==active")
+	focusMain(&m)
+	m, _ = m.update(key("S"))
+	for _, r := range "from-rql" {
+		m, _ = m.update(runeKey(r))
+	}
+	m, _ = m.update(key("enter"))
+	if !strings.Contains(m.status, "Save this query in Raven first") {
+		t.Fatalf("status %q", m.status)
+	}
+	if _, err := os.Stat(path); err == nil {
+		body, _ := os.ReadFile(path)
+		t.Fatalf("ad-hoc save must not write config:\n%s", body)
 	}
 }
 
@@ -237,5 +258,14 @@ func TestTypePickerListsSchemaTypes(t *testing.T) {
 	}
 	if len(m.pickerHit) == 0 {
 		t.Fatal("expected types")
+	}
+	name := m.pickerHit[0].Type
+	m, _ = m.update(key("enter"))
+	p := m.p()
+	if p.sourceIsQuery || p.typeName != name || p.sourceBase != "type:"+name {
+		t.Fatalf("type picker should open as Type, got type=%s base=%s query=%v", p.typeName, p.sourceBase, p.sourceIsQuery)
+	}
+	if p.sourceQuery != "type:"+name {
+		t.Fatalf("sourceQuery %s", p.sourceQuery)
 	}
 }

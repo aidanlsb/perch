@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/aidanlsb/perch/internal/api"
+	"github.com/aidanlsb/perch/internal/config"
 	"github.com/aidanlsb/perch/internal/fuzzy"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -79,7 +80,7 @@ func (m Model) openViewsPicker() (Model, tea.Cmd) {
 			items = append(items, pickItem{
 				Kind:  pickerViews,
 				Label: name,
-				Sub:   "view · " + v.Source,
+				Sub:   "view · " + viewPickerSub(v),
 				ID:    "view:" + name,
 			})
 		}
@@ -95,6 +96,13 @@ func (m Model) openViewsPicker() (Model, tea.Cmd) {
 	m.pickerAll = items
 	m.refilterPicker()
 	return m, nil
+}
+
+func viewPickerSub(v config.View) string {
+	if strings.TrimSpace(v.Query) != "" {
+		return "query " + v.Query
+	}
+	return "type " + v.Type
 }
 
 func (m Model) openSearchPicker() (Model, tea.Cmd) {

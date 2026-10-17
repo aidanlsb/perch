@@ -331,22 +331,33 @@ func (m *Model) selectID(id string) bool {
 	return false
 }
 
-func resolveSource(schema api.Schema, source string) (query, typeName string, q *api.SavedQuery, isQuery bool) {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return "", "", nil, false
+func applyViewSource(p *viewState, schema api.Schema, v config.View) {
+	if p == nil {
+		return
 	}
-	if _, ok := schema.Types[source]; ok {
-		return "type:" + source, source, nil, false
-	}
-	if sq, ok := schema.Queries[source]; ok {
-		if sq.Name == "" {
-			sq.Name = source
+	p.rawInputs = v.Inputs
+	p.savedQuery = nil
+	p.sourceIsQuery = false
+	p.sourceRQL = ""
+	p.typeName = ""
+	if qname := strings.TrimSpace(v.Query); qname != "" {
+		p.sourceIsQuery = true
+		p.sourceBase = qname
+		if sq, ok := schema.Queries[qname]; ok {
+			if sq.Name == "" {
+				sq.Name = qname
+			}
+			cp := sq
+			p.savedQuery = &cp
+			p.sourceRQL = sq.Query
+			p.sourceBase = sq.Name
+			p.typeName = typeFromRQL(sq.Query)
 		}
-		cp := sq
-		return source, typeFromRQL(sq.Query), &cp, true
+		return
 	}
-	return source, typeFromRQL(source), nil, false
+	t := strings.TrimSpace(v.Type)
+	p.sourceBase = "type:" + t
+	p.typeName = t
 }
 
 func typeFromRQL(q string) string {

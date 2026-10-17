@@ -12,11 +12,9 @@ func (m Model) loadType(name string) (Model, tea.Cmd) {
 	p := &viewState{
 		id:          "type:" + name,
 		spec:        layout.DefaultList(ts),
-		sourceBase:  "type:" + name,
-		sourceQuery: "type:" + name,
 		sourceLabel: name,
-		typeName:    name,
 	}
+	applyViewSource(p, m.schema, config.View{Type: name})
 	p.applySpec(p.spec, ts)
 	m.screen = "browse"
 	m.note = nil
@@ -91,24 +89,15 @@ func (m Model) loadNamedLayout(name string) (Model, tea.Cmd) {
 }
 
 func (m *Model) paneFromView(name string, v config.View, bind string) *viewState {
-	query, typeName, sq, isQuery := resolveSource(m.schema, v.Source)
 	spec := v.Spec(name)
 	p := &viewState{
-		id:            name,
-		viewName:      name,
-		bind:          bind,
-		spec:          spec,
-		sourceBase:    query,
-		sourceLabel:   name,
-		sourceIsQuery: isQuery,
-		typeName:      typeName,
-		rawInputs:     v.Inputs,
-		savedQuery:    sq,
+		id:          name,
+		viewName:    name,
+		bind:        bind,
+		spec:        spec,
+		sourceLabel: name,
 	}
-	if sq != nil {
-		p.sourceRQL = sq.Query
-		p.sourceBase = sq.Name
-	}
+	applyViewSource(p, m.schema, v)
 	p.applySpec(spec, m.typeSchemaFor(p))
 	return p
 }

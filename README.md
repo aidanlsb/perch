@@ -43,11 +43,13 @@ pass a token, Perch connects and leaves it running.
 
 ## Views and layouts
 
-A **view** is a source plus one presentation: **list**, **board** (grouped
-by an enum or ref field), or **date** (grouped by a date/datetime field).
-`source` is a type name, a saved query name, or an RQL string. Optional
-`inputs` are sent with saved-query `query` calls. `{{selected}}` in
-`source` or `inputs` is filled from another panel's current selection.
+A **view** is exactly one of **type** (a schema type name) or **query**
+(a Raven saved query name), plus one presentation: **list**, **board**
+(grouped by an enum or ref field), or **date** (grouped by a
+date/datetime field). Inline RQL is not allowed in config; `:` in the
+TUI runs an ad-hoc query that stays ephemeral. Optional `inputs` are
+sent with saved-query `query` calls. `{{selected}}` in `inputs` or
+`filter` is filled from another panel's current selection.
 For trait, section, and link rows this is the containing file object
 (`object_id` / `file_object_id` / `source_id`), not the row id. A
 section-scoped id (`fileObject#slug`) is bound as the file object.
@@ -72,11 +74,11 @@ and field names in examples are not special.
 
 ```toml
 [views.projects]
-source = "item"
+type = "item"
 layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
 
 [views.tasks]
-source = "task"
+type = "task"
 inputs = { item = "{{selected}}" }
 layout = { kind = "list" }
 
@@ -85,24 +87,28 @@ split = "row"
 panels = [ { view = "projects" }, { view = "tasks", bind = "projects" } ]
 ```
 
-`kind` is `list`, `board`, or `date`. Board `group_by` is an enum or ref
-field. Date `group_by` is a date/datetime field; `granularity` is `day`,
-`week`, or `month`. Optional `filter` is an RQL predicate appended to the
-source.
+Exactly one of `type` or `query` is required. A `source` key is a startup
+error. `kind` is `list`, `board`, or `date`. Board `group_by` is an enum
+or ref field. Date `group_by` is a date/datetime field; `granularity` is
+`day`, `week`, or `month`. Optional `filter` is an RQL predicate appended
+to the type query or saved-query body.
 
 `[[types.*.layouts]]` and `[[queries.*.layouts]]` are a startup error
 pointing at this shape. The old single `layout =` form and `[[views]]`
 array of tables are likewise rejected.
 
-At startup Perch validates views against `GET /v1/schema` and shows
-warnings in the footer for unknown sources or fields.
+At startup Perch validates views against `GET /v1/schema` and
+`query_saved_list`, and shows warnings in the footer (with line numbers)
+for unknown types, queries, or fields.
 
 `,` opens the config file in the editor from `GET /v1/session`. `space ,`
 jumps to the current view's table where the editor supports a line
 argument. On return Perch reloads and validates; errors include line
 numbers and the last good config is kept. `S` prompts for a name and
-writes the on-screen view (source plus layout settings) as `[views.x]`.
-Writes go only to Perch's config, never the vault.
+writes the on-screen view (`type` or `query` plus layout settings) as
+`[views.x]`. Ad-hoc `:` queries cannot be saved that way: save them in
+Raven first, then reference the name with `query = "…"`. Writes go only
+to Perch's config, never the vault.
 
 ## CLI (for agents)
 
@@ -114,8 +120,9 @@ opens the TUI. `perch open <name>` opens the TUI on that view or layout
 ```bash
 perch views list
 perch views show projects
-perch views add projects --source item --layout kind=board,group_by=state,fields=state,when
-perch views add tasks --source task --inputs item='{{selected}}' --layout kind=list
+perch views add projects --type item --layout kind=board,group_by=state,fields=state,when
+perch views add tasks --type task --inputs item='{{selected}}' --layout kind=list
+perch views add inbox --query inbox --layout kind=list
 perch views rm projects            # errors if a layout references it
 perch views rm projects --force    # drops those panels (and empty layouts)
 
@@ -145,7 +152,7 @@ process exits nonzero. `error.details` may add line numbers or names.
 | Code | When |
 | --- | --- |
 | `INVALID_ARGS` | Bad flags or extra arguments |
-| `MISSING_ARGUMENT` | Required name or `--source` / `--panel` missing |
+| `MISSING_ARGUMENT` | Required name or `--type` / `--query` / `--panel` missing |
 | `NOT_FOUND` | Unknown view, layout, or `open` target |
 | `DUPLICATE_NAME` | `add` when the name already exists |
 | `VALIDATION_FAILED` | Config fails the existing loader (kinds, `group_by`, layout trees) |
@@ -228,8 +235,9 @@ view, or the notes picker. When the row carries `file_path` and `line`
 wait on `read` when `file_path` is already on the row.
 
 Enter on a nested row opens the containing object's note view, scrolled
-to the row's line. `S` saves the on-screen view's source and layout; it
-does not treat the selected row as an object.
+to the row's line. `S` saves the on-screen view's type or query and
+layout; it does not treat the selected row as an object. Ad-hoc RQL
+stays ephemeral.
 
 ## Keys
 
@@ -282,7 +290,11 @@ scrolling is `ctrl-d` / `ctrl-u` only.
 - `terminal`: suspend the TUI, run the editor in the foreground, refresh on return.
 - `gui`: spawn the editor detached and keep the TUI running.
 - `auto`: same heuristic as `rvn open` (vim/nvim/helix/nano/emacs/… in the
-  foreground; `code` and other GUI commands in the background).
+  foreground; `code`, `quill`, and other GUI commands in the background).
+
+Line jumps use editor-specific arguments: vim-family `+N`, Helix `path:line`,
+VS Code `-g path:line`. quill (`quill path:line`, GUI, no suspend) is treated
+as a GUI editor, so `auto` does not suspend the TUI.
 
 If `editor` is empty, or the server has no `/v1/session` (older `rvn`),
 Perch falls back to `$VISUAL`, then `$EDITOR`.

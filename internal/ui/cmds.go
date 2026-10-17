@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aidanlsb/perch/internal/api"
@@ -108,9 +109,14 @@ func fetchStartup(c *api.Client, reload bool) tea.Cmd {
 			return schemaMsg{session: sess, revision: rev, reload: reload, err: err}
 		}
 		qs, qerr := c.SavedQueries(ctx)
-		if qerr == nil && sch.Queries == nil && len(qs) > 0 {
-			sch.Queries = map[string]api.SavedQuery{}
+		if qerr == nil && len(qs) > 0 {
+			if sch.Queries == nil {
+				sch.Queries = map[string]api.SavedQuery{}
+			}
 			for _, q := range qs {
+				if strings.TrimSpace(q.Name) == "" {
+					continue
+				}
 				sch.Queries[q.Name] = q
 			}
 		}
