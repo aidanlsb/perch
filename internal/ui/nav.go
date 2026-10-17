@@ -7,104 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const (
-	catBrowse = "Browse"
-	catViews  = "Views"
-)
-
-func (m *Model) rebuildNav() {
-	cur := ""
-	if m.navCur >= 0 && m.navCur < len(m.nav) {
-		cur = navKey(m.nav[m.navCur])
-	}
-	m.nav = nil
-	m.nav = append(m.nav, navItem{Kind: navCat, Label: catBrowse, Category: catBrowse})
-	if m.browseOpen {
-		for _, name := range m.schema.SortedTypeNames() {
-			m.nav = append(m.nav, navItem{
-				Kind:   navType,
-				Label:  name,
-				Source: "type:" + name,
-				Type:   name,
-			})
-		}
-	}
-	m.nav = append(m.nav, navItem{Kind: navCat, Label: catViews, Category: catViews})
-	if m.viewsOpen && m.cfg != nil {
-		for _, name := range m.cfg.ViewNames() {
-			m.nav = append(m.nav, navItem{Kind: navView, Label: name, View: name})
-		}
-		for _, name := range m.cfg.LayoutNames() {
-			m.nav = append(m.nav, navItem{Kind: navLayout, Label: name, Layout: name})
-		}
-	}
-	m.navCur = 0
-	if cur != "" {
-		for i, n := range m.nav {
-			if navKey(n) == cur {
-				m.navCur = i
-				break
-			}
-		}
-	}
-}
-
-func navKey(n navItem) string {
-	switch n.Kind {
-	case navCat:
-		return "cat:" + n.Category
-	case navType:
-		return "type:" + n.Type
-	case navView:
-		return "view:" + n.View
-	case navLayout:
-		return "layout:" + n.Layout
-	default:
-		return n.Label
-	}
-}
-
-func (m Model) activateNav() (Model, tea.Cmd) {
-	if m.navCur < 0 || m.navCur >= len(m.nav) {
-		return m, nil
-	}
-	item := m.nav[m.navCur]
-	switch item.Kind {
-	case navCat:
-		return m.toggleCategory(item.Category), nil
-	case navType:
-		return m.loadType(item.Type)
-	case navView:
-		return m.loadNamedView(item.View)
-	case navLayout:
-		return m.loadNamedLayout(item.Layout)
-	default:
-		return m, nil
-	}
-}
-
-func (m Model) toggleCategory(cat string) Model {
-	switch cat {
-	case catBrowse:
-		m.browseOpen = !m.browseOpen
-	case catViews:
-		m.viewsOpen = !m.viewsOpen
-	}
-	m.rebuildNav()
-	return m
-}
-
-func (m Model) expandCategory(cat string, open bool) Model {
-	switch cat {
-	case catBrowse:
-		m.browseOpen = open
-	case catViews:
-		m.viewsOpen = open
-	}
-	m.rebuildNav()
-	return m
-}
-
 func (m Model) loadType(name string) (Model, tea.Cmd) {
 	ts := m.schema.Types[name]
 	p := &viewState{
@@ -181,7 +83,7 @@ func (m Model) loadNamedLayout(name string) (Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	}
-	if m.focus != focusSidebar && m.focus != focusPreview && len(m.panes) > 0 {
+	if m.focus != focusPreview && len(m.panes) > 0 {
 		m.setFocus(m.panes[0].id)
 	}
 	m.status = "layout " + name

@@ -151,7 +151,6 @@ type liveChrome struct {
 	lastMainFocus string
 	screen        string
 	pane          pane
-	sidebarHidden bool
 	zoomed        bool
 }
 
@@ -161,13 +160,11 @@ func (m Model) snapshotLiveChrome() liveChrome {
 		lastMainFocus: m.lastMainFocus,
 		screen:        m.screen,
 		pane:          m.pane,
-		sidebarHidden: m.sidebarHidden,
 		zoomed:        m.zoomed,
 	}
 }
 
 func (m *Model) restoreLiveChrome(s liveChrome) {
-	m.sidebarHidden = s.sidebarHidden
 	m.zoomed = s.zoomed
 	m.lastMainFocus = s.lastMainFocus
 	m.focus = s.focus
@@ -232,7 +229,6 @@ func (m Model) reloadFromSchema(msg schemaMsg) (Model, tea.Cmd) {
 		m.schema = *msg.schema
 	}
 	m.applyRevision(msg.revision)
-	m.rebuildNav()
 	if m.cfg != nil {
 		m.cfgWarnings = m.cfg.Validate(m.schema)
 	}

@@ -10,19 +10,21 @@ type Binding struct {
 }
 
 // Keymap is the single source of truth for Perch's shortcuts.
+// Leader is Space. Search and pickers live under <leader>s*.
 var Keymap = []Binding{
 	{"global", "ctrl+c", "quit"},
 	{"global", "?", "toggle this help"},
 	{"global", "e", "open selected file in editor"},
 	{"global", ",", "open Perch config in editor"},
-	{"global", "space c", "open config at the current view"},
+	{"global", "space ,", "open config at the current view"},
 	{"global", "S", "save the on-screen view as [views.name]"},
 
-	{"focus", "ctrl-b", "hide or show sidebar"},
-	{"focus", "ctrl-e", "focus sidebar or last panel"},
-	{"focus", "ctrl-h/j/k/l", "move focus among main panels"},
+	{"help", "j/k", "scroll this help"},
+	{"help", "q / esc / ?", "close"},
+
+	{"focus", "ctrl-h/j/k/l", "move focus among panels"},
 	{"focus", "ctrl-w h/j/k/l", "same as ctrl-h/j/k/l"},
-	{"focus", "tab / shift-tab", "cycle main panels"},
+	{"focus", "tab / shift-tab", "cycle panels"},
 	{"focus", "ctrl-w o", "zoom focused panel"},
 	{"focus", "ctrl-w =", "restore splits"},
 
@@ -30,26 +32,28 @@ var Keymap = []Binding{
 	{"browse", "gg / G", "top / bottom"},
 	{"browse", "ctrl-d / ctrl-u", "half-page down / up"},
 	{"browse", "enter", "open note, or move to the bound panel"},
-	{"browse", "q", "saved query picker (args prompt if needed)"},
-	{"browse", "t", "type picker"},
-	{"browse", "gl / space l", "saved views and layouts"},
-	{"browse", "ctrl-p / space f", "fuzzy notes picker"},
+	{"browse", "space st", "type picker (schema types)"},
+	{"browse", "space sd", "daily-note date picker"},
+	{"browse", "space sq", "saved query picker"},
+	{"browse", "space sv", "views and layouts picker"},
+	{"browse", "ctrl-p / space sf", "fuzzy notes picker"},
+	{"browse", "space sg", "full-text content search"},
 	{"browse", "/", "fuzzy search in current view"},
 	{"browse", "n / N", "next / previous search hit"},
-	{"browse", "d", "today's daily note from session"},
 	{"browse", ".", "cycle date granularity (day/week/month)"},
 	{"browse", "p", "toggle preview pane"},
 	{"browse", ":", "run an ad-hoc RQL query"},
 	{"browse", "r", "refresh (and reload config)"},
-	{"browse", "space", "leader (t/q/f/d/l/c)"},
+	{"browse", "space", "leader (s* pickers, , config)"},
 	{"browse", "esc", "clear search / close overlay"},
 
-	{"leader", "space t", "type picker"},
-	{"leader", "space q", "saved query picker"},
-	{"leader", "space f", "notes picker"},
-	{"leader", "space d", "daily note"},
-	{"leader", "space l", "views and layouts"},
-	{"leader", "space c", "open config at this view"},
+	{"leader", "space st", "type picker"},
+	{"leader", "space sd", "daily-note date picker"},
+	{"leader", "space sq", "saved query picker"},
+	{"leader", "space sv", "views and layouts"},
+	{"leader", "space sf", "notes picker"},
+	{"leader", "space sg", "full-text content search"},
+	{"leader", "space ,", "open config at this view"},
 
 	{"note", "q / esc / backspace", "back to browse"},
 	{"note", "/", "fuzzy search in browse"},
@@ -59,10 +63,11 @@ var Keymap = []Binding{
 	{"note", "tab / shift-tab", "cycle wiki links"},
 	{"note", "enter", "follow link / open backlink"},
 	{"note", "[ / ]", "history back / forward"},
+	{"note", "[d / ]d", "previous / next daily note"},
 	{"note", "e", "open in editor"},
 	{"note", "r", "refresh"},
-	{"note", "t / Q / ctrl-p", "pickers (types / queries / notes)"},
-	{"note", "d", "daily note"},
+	{"note", "ctrl-p / space sf", "notes picker"},
+	{"note", "space s*", "pickers (types / queries / views / search / daily)"},
 
 	{"search", "enter", "keep search; n/N still jump"},
 	{"search", "esc", "clear search"},
@@ -73,6 +78,12 @@ var Keymap = []Binding{
 	{"picker", "e", "open note in editor (notes picker)"},
 	{"picker", "q / esc", "close"},
 
+	{"daily", "h/l", "previous / next day"},
+	{"daily", "j/k", "previous / next week"},
+	{"daily", "t", "today"},
+	{"daily", "enter", "open that day's daily note"},
+	{"daily", "q / esc", "close"},
+
 	{"args", "enter", "next argument / run query"},
 	{"args", "esc", "cancel"},
 }
@@ -80,13 +91,18 @@ var Keymap = []Binding{
 func footerKeys(m Model) string {
 	switch m.overlay {
 	case overlayHelp:
-		return "? / q / esc close"
+		return "help  j/k  q / esc close"
 	case overlaySearch:
 		return "search  enter keep  n/N next  esc clear"
 	case overlayPicker:
 		return "picker  j/k  enter  e edit  esc"
 	case overlayLeader:
-		return "t types  q queries  f notes  d daily  l views  c config  esc"
+		if m.leaderSeq == "s" {
+			return "st types  sd daily  sq queries  sv views  sf notes  sg search  esc"
+		}
+		return "s pickers  , config  esc"
+	case overlayDate:
+		return "daily  h/l day  j/k week  t today  enter open  esc"
 	case overlayRQL:
 		return "query  enter run  esc"
 	case overlayArgs:
@@ -95,6 +111,9 @@ func footerKeys(m Model) string {
 		return "save view  enter write  esc"
 	}
 	if m.screen == kindNote {
+		if isDailyNoteID(m.noteID()) {
+			return "hjkl  tab link  [d ]d day  enter follow  / search  e edit  q back  ? help"
+		}
 		return "hjkl  tab link  enter follow  / search  e edit  q back  ? help"
 	}
 	return focusFooter(m) + "  " + panelFooter(m)
@@ -104,27 +123,22 @@ func focusFooter(m Model) string {
 	if m.zoomed {
 		return "ctrl-w = restore"
 	}
-	if m.sidebarHidden {
-		return "ctrl-e sidebar  ctrl-b show"
-	}
-	return "ctrl-e/b sidebar  ctrl-hjkl panels"
+	return "ctrl-hjkl panels"
 }
 
 func panelFooter(m Model) string {
 	switch m.focus {
-	case focusSidebar:
-		return "j/k nav  enter open  h/l fold  , config  ? help"
 	case focusPreview:
 		return "j/k scroll  h back  e edit  p close  ? help"
 	default:
 		p := m.p()
 		switch p.spec.Kind {
 		case kindBoard:
-			return "hjkl board  enter  / search  S save  ? help"
+			return "hjkl board  enter  space s*  / search  S save  ? help"
 		case kindDate:
-			return "jk dates  . gran  enter  / search  S save  ? help"
+			return "jk dates  . gran  enter  space s*  / search  S save  ? help"
 		default:
-			return "jk list  enter  / search  S save  , config  ? help"
+			return "jk list  enter  space s*  / search  S save  , config  ? help"
 		}
 	}
 }

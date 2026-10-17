@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/frontmatter"
@@ -30,6 +31,8 @@ func (m Model) View() string {
 		return overlayOn(frame, m.width, m.height, m.viewPicker())
 	case overlayLeader:
 		return overlayOn(frame, m.width, m.height, m.viewLeader())
+	case overlayDate:
+		return overlayOn(frame, m.width, m.height, m.viewDatePicker())
 	case overlayRQL:
 		return overlayOn(frame, m.width, m.height, m.viewRQL())
 	case overlayArgs:
@@ -48,7 +51,7 @@ func (m Model) viewHeader() string {
 	label := p.sourceLabel
 	if m.currentLayout != "" {
 		label = m.currentLayout
-		if m.focus != focusSidebar && m.focus != focusPreview && m.focus != "" {
+		if m.focus != focusPreview && m.focus != "" {
 			label += " · " + m.focus
 		}
 	}
@@ -106,41 +109,23 @@ func (m Model) viewFooter() string {
 func (m Model) viewBrowse(height int) string {
 	if m.zoomed {
 		switch m.zoomTarget() {
-		case focusSidebar:
-			if !m.sidebarHidden {
-				return m.viewSidebar(height)
-			}
-			return m.viewPaneBox(m.viewByID(m.mainFocusID()), m.width, height, true)
 		case focusPreview:
 			return m.viewPreview(m.width, height)
 		default:
 			return m.viewPaneBox(m.viewByID(m.zoomTarget()), m.width, height, true)
 		}
 	}
-	rest := m.width
-	var side string
-	if !m.sidebarHidden {
-		side = m.viewSidebar(height)
-		rest = max(10, m.width-lipgloss.Width(side))
-	}
 	if m.previewOn {
-		pw := max(previewMinW, rest*2/5)
-		if pw > rest-16 {
-			pw = max(previewMinW, rest/3)
+		pw := max(previewMinW, m.width*2/5)
+		if pw > m.width-16 {
+			pw = max(previewMinW, m.width/3)
 		}
-		mainW := max(12, rest-pw)
+		mainW := max(12, m.width-pw)
 		main := m.viewTree(m.tree, mainW, height)
 		prev := m.viewPreview(pw, height)
-		if side == "" {
-			return lipgloss.JoinHorizontal(lipgloss.Top, main, prev)
-		}
-		return lipgloss.JoinHorizontal(lipgloss.Top, side, main, prev)
+		return lipgloss.JoinHorizontal(lipgloss.Top, main, prev)
 	}
-	main := m.viewTree(m.tree, rest, height)
-	if side == "" {
-		return main
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, side, main)
+	return m.viewTree(m.tree, m.width, height)
 }
 
 func (m Model) viewTree(n layoutTree, width, height int) string {
@@ -179,134 +164,6 @@ func (m Model) viewPaneBox(v *viewState, width, height int, focused bool) string
 	innerW := max(1, width-2)
 	innerH := max(1, height-2)
 	return box.Render(m.viewPane(v, innerW, innerH, focused))
-}
-
-type sideRow struct {
-	title bool
-	nav   int
-	text  string
-}
-
-func (m Model) sidebarRows() []sideRow {
-	var rows []sideRow
-	for i, item := range m.nav {
-		text := item.Label
-		title := item.Kind == navCat
-		if title {
-			mark := "▸ "
-			if (item.Category == catBrowse && m.browseOpen) || (item.Category == catViews && m.viewsOpen) {
-				mark = "▾ "
-			}
-			text = mark + item.Label
-		}
-		rows = append(rows, sideRow{title: title, nav: i, text: text})
-	}
-	return rows
-}
-
-// sidebarClip keeps navCur visible in a viewport of `height` lines, reserving
-// a line each for ▲ / ▼ when more items exist above or below.
-func sidebarClip(n, cur, height int) (start, end int, moreAbove, moreBelow bool) {
-	if n <= 0 || height <= 0 {
-		return 0, 0, false, false
-	}
-	if cur < 0 {
-		cur = 0
-	}
-	if cur >= n {
-		cur = n - 1
-	}
-	start = 0
-	for pass := 0; pass < 6; pass++ {
-		inner := height
-		if start > 0 {
-			inner--
-		}
-		if start+inner < n {
-			inner--
-		}
-		if inner < 1 {
-			inner = 1
-		}
-		if cur < start {
-			start = cur
-			continue
-		}
-		if cur >= start+inner {
-			start = cur - inner + 1
-			if start < 0 {
-				start = 0
-			}
-			continue
-		}
-		end = start + inner
-		if end > n {
-			end = n
-		}
-		return start, end, start > 0, end < n
-	}
-	end = min(n, start+max(1, height))
-	return start, end, start > 0, end < n
-}
-
-func (m Model) viewSidebar(height int) string {
-	w := min(sidebarWidth, max(12, m.width/4))
-	rows := m.sidebarRows()
-	curRow := 0
-	for i, r := range rows {
-		if !r.title && r.nav == m.navCur {
-			curRow = i
-			break
-		}
-	}
-	start, end, moreAbove, moreBelow := sidebarClip(len(rows), curRow, height)
-	var b strings.Builder
-	if moreAbove {
-		b.WriteString(styleDim.Width(w).Render(" ▲"))
-		b.WriteByte('\n')
-	}
-	sideFocused := m.focus == focusSidebar
-	fg := colBorder
-	if sideFocused {
-		fg = colAccent
-	}
-	for i := start; i < end; i++ {
-		r := rows[i]
-		label := r.text
-		if lipgloss.Width(label) > w-2 {
-			label = truncate(label, w-2)
-		}
-		if r.title {
-			st := styleSidebarTitle
-			if r.nav == m.navCur {
-				st = styleNavSel
-			}
-			b.WriteString(st.Width(w).Render(label))
-			b.WriteByte('\n')
-			continue
-		}
-		line := styleNav.Width(w).Render("  " + label)
-		if r.nav == m.navCur {
-			prefix := "▸ "
-			if !sideFocused {
-				prefix = "  "
-			}
-			line = styleNavSel.Width(w).Render(prefix + label)
-		}
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	if moreBelow {
-		b.WriteString(styleDim.Width(w).Render(" ▼"))
-		b.WriteByte('\n')
-	}
-	out := strings.TrimRight(b.String(), "\n")
-	box := lipgloss.NewStyle().
-		Width(w).
-		Height(height).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(fg)
-	return box.Render(out)
 }
 
 func (m Model) viewPane(v *viewState, width, height int, focused bool) string {
@@ -543,7 +400,7 @@ func (m Model) viewBacklinks(width, height int) string {
 	if m.pane == paneBacklinks {
 		title = "▸ backlinks"
 	}
-	b.WriteString(styleSidebarTitle.Render(title))
+	b.WriteString(styleSectionTitle.Render(title))
 	b.WriteByte('\n')
 	if m.note == nil || len(m.note.Backlinks) == 0 {
 		b.WriteString(styleDim.Render("none"))
@@ -576,13 +433,24 @@ func (m Model) viewHelp() string {
 	for _, bind := range Keymap {
 		if bind.Section != section {
 			section = bind.Section
-			b.WriteString("\n" + styleSidebarTitle.Render(section) + "\n")
+			b.WriteString("\n" + styleSectionTitle.Render(section) + "\n")
 		}
 		keys := padTrunc(bind.Keys, 26)
 		b.WriteString(styleMuted.Render(keys) + "  " + bind.Desc + "\n")
 	}
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	h := max(8, m.height-2)
+	off := m.helpOff
+	if off > len(lines)-h {
+		off = max(0, len(lines)-h)
+	}
+	if off < 0 {
+		off = 0
+	}
+	end := min(len(lines), off+h)
+	body := strings.Join(lines[off:end], "\n")
 	w := min(84, max(40, m.width-2))
-	return styleHelpBox.Width(w).Padding(0, 2).Render(strings.TrimRight(b.String(), "\n"))
+	return styleHelpBox.Width(w).Height(h).Padding(0, 1).Render(body)
 }
 
 func (m Model) viewPicker() string {
@@ -594,6 +462,8 @@ func (m Model) viewPicker() string {
 		title = "notes"
 	case pickerViews:
 		title = "views"
+	case pickerSearch:
+		title = "search"
 	}
 	var b strings.Builder
 	b.WriteString(styleMuted.Render(title+"  ") + m.pickerQ + "█\n")
@@ -623,15 +493,75 @@ func (m Model) viewPicker() string {
 }
 
 func (m Model) viewLeader() string {
-	text := strings.TrimSpace(`
+	if m.leaderSeq == "s" {
+		text := strings.TrimSpace(`
 t  types
-q  saved queries
-f  notes
 d  daily
-l  views
-c  config
+q  saved queries
+v  views
+f  notes
+g  content search
 `)
-	return styleModal.Width(min(28, m.width-4)).Render("space\n" + text)
+		return styleModal.Width(min(32, m.width-4)).Render("space s\n" + text)
+	}
+	text := strings.TrimSpace(`
+s  search / pickers
+,  config at this view
+`)
+	return styleModal.Width(min(32, m.width-4)).Render("space\n" + text)
+}
+
+func (m Model) viewDatePicker() string {
+	cur, ok := parseDailyID(m.dateCur)
+	if !ok {
+		cur = time.Now()
+	}
+	today, todayOK := parseDailyID(m.todayID())
+	var b strings.Builder
+	b.WriteString(styleMuted.Render("daily  ") + cur.Format("Monday 2006-01-02") + "\n")
+	b.WriteString(styleDim.Render(cur.Format("January 2006")) + "\n")
+	b.WriteString(styleDim.Render("Su Mo Tu We Th Fr Sa") + "\n")
+	first := time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, time.UTC)
+	startPad := int(first.Weekday())
+	days := daysInMonth(cur)
+	col := 0
+	for i := 0; i < startPad; i++ {
+		b.WriteString("   ")
+		col++
+	}
+	for d := 1; d <= days; d++ {
+		day := time.Date(cur.Year(), cur.Month(), d, 0, 0, 0, 0, time.UTC)
+		label := fmt.Sprintf("%2d", d)
+		switch {
+		case sameDay(day, cur):
+			label = styleRowSel.Render(label)
+		case todayOK && sameDay(day, today):
+			label = styleOk.Render(label)
+		}
+		b.WriteString(label)
+		col++
+		if col == 7 {
+			b.WriteByte('\n')
+			col = 0
+		} else {
+			b.WriteByte(' ')
+		}
+	}
+	if col != 0 {
+		b.WriteByte('\n')
+	}
+	b.WriteString(styleDim.Render("h/l day  j/k week  t today  enter"))
+	return styleModal.Width(min(36, m.width-4)).Render(strings.TrimRight(b.String(), "\n"))
+}
+
+func daysInMonth(t time.Time) int {
+	return time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+}
+
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
 }
 
 func (m Model) viewSave() string {
@@ -702,7 +632,7 @@ func (m Model) viewPreview(width, height int) string {
 		}
 		body += windowLines(m.previewBody, m.previewScroll, max(1, height-3), width-3)
 	}
-	return box.Render(styleSidebarTitle.Render(title) + "\n" + body)
+	return box.Render(styleSectionTitle.Render(title) + "\n" + body)
 }
 
 func overlayOn(base string, width, height int, modal string) string {

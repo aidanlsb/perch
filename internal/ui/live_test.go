@@ -465,22 +465,18 @@ func TestLiveCounterRefindsTraitRowByID(t *testing.T) {
 	}
 }
 
-func TestLivePreservesSidebarHiddenAndFocus(t *testing.T) {
+func TestLivePreservesFocus(t *testing.T) {
 	f := newLiveFake()
 	m, _ := startLive(t, f)
 	focusMain(&m)
 	mainID := m.p().id
-	m = m.toggleSidebar()
-	if !m.sidebarHidden || m.focus != mainID {
-		t.Fatalf("hidden=%v focus=%s want %s", m.sidebarHidden, m.focus, mainID)
+	if m.focus != mainID {
+		t.Fatalf("focus=%s want %s", m.focus, mainID)
 	}
 
 	f.setRevision("gen-a", 2)
 	m, cmd := m.update(revisionMsg{rev: &api.Revision{Generation: "gen-a", Counter: 2}})
 	m = execCmds(t, m, cmd)
-	if !m.sidebarHidden {
-		t.Fatal("counter refresh showed the sidebar")
-	}
 	if m.focus != mainID {
 		t.Fatalf("counter focus %s want %s", m.focus, mainID)
 	}
@@ -492,26 +488,8 @@ func TestLivePreservesSidebarHiddenAndFocus(t *testing.T) {
 	f.setRevision("gen-b", 0)
 	m, cmd = m.update(revisionMsg{rev: &api.Revision{Generation: "gen-b", Counter: 0}})
 	m = execCmds(t, m, cmd)
-	if !m.sidebarHidden {
-		t.Fatal("generation refresh showed the sidebar")
-	}
 	if m.focus != mainID {
 		t.Fatalf("generation focus %s want %s", m.focus, mainID)
-	}
-
-	m = m.toggleSidebar()
-	m.setFocus(focusSidebar)
-	if m.sidebarHidden || m.focus != focusSidebar {
-		t.Fatalf("sidebar focus hidden=%v focus=%s", m.sidebarHidden, m.focus)
-	}
-	f.setRevision("gen-b", 1)
-	m, cmd = m.update(revisionMsg{rev: &api.Revision{Generation: "gen-b", Counter: 1}})
-	m = execCmds(t, m, cmd)
-	if m.sidebarHidden {
-		t.Fatal("sidebar hidden after focus refresh")
-	}
-	if m.focus != focusSidebar {
-		t.Fatalf("sidebar focus lost: %s", m.focus)
 	}
 }
 

@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	sidebarWidth = 24
-	queryLimit   = 500
-	previewMinW  = 28
+	queryLimit  = 500
+	previewMinW = 28
 
 	kindList  = config.KindList
 	kindBoard = config.KindBoard
@@ -25,8 +24,7 @@ const (
 type pane int
 
 const (
-	paneSidebar pane = iota
-	paneMain
+	paneMain pane = iota
 	panePreview
 	paneBacklinks
 )
@@ -39,6 +37,7 @@ const (
 	overlayPicker
 	overlayHelp
 	overlayLeader
+	overlayDate
 	overlayRQL
 	overlayArgs
 	overlaySave
@@ -51,27 +50,8 @@ const (
 	pickerQueries
 	pickerNotes
 	pickerViews
+	pickerSearch
 )
-
-type navKind int
-
-const (
-	navCat navKind = iota
-	navType
-	navView
-	navLayout
-)
-
-type navItem struct {
-	Kind     navKind
-	Label    string
-	Source   string
-	Type     string
-	View     string
-	Layout   string
-	Query    *api.SavedQuery
-	Category string
-}
 
 type noteFrame struct {
 	ID   string
@@ -113,28 +93,26 @@ type Model struct {
 	width  int
 	height int
 
-	pane    pane
-	overlay overlay
-	screen  string // browse | note
-	pending string // g | ctrlw | (empty)
+	pane      pane
+	overlay   overlay
+	screen    string // browse | note
+	pending   string // g | ctrlw | [ | ] | (empty)
+	leaderSeq string // "" | "s"
 
-	schema     api.Schema
-	nav        []navItem
-	navCur     int
-	browseOpen bool
-	viewsOpen  bool
+	schema api.Schema
 
 	tree          layoutTree
 	panes         []*viewState
 	focus         string
 	lastMainFocus string
-	sidebarHidden bool
 	zoomed        bool
 	regs          []region
 	currentView   string
 	currentLayout string
 	emptyPane     *viewState
 	cfgWarnings   []string
+	dateCur       string // YYYY-MM-DD in the daily picker
+	helpOff       int
 
 	searchQ    string
 	searchHits []int
@@ -220,8 +198,7 @@ func NewModel(opts Options) Model {
 		editorMode:   opts.EditorMode,
 		queryLimit:   queryLimit,
 		screen:       "browse",
-		focus:        focusSidebar,
-		pane:         paneSidebar,
+		pane:         paneMain,
 		notePtr:      -1,
 		queryCache:   map[string]queryCacheEntry{},
 		readCache:    map[string]*api.ReadResult{},

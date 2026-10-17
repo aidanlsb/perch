@@ -25,7 +25,7 @@ var (
 	styleOk    = lipgloss.NewStyle().Foreground(colOk)
 	styleWarn  = lipgloss.NewStyle().Foreground(colWarn)
 
-	styleSidebarTitle = lipgloss.NewStyle().
+	styleSectionTitle = lipgloss.NewStyle().
 				Foreground(colDim).
 				Bold(true).
 				PaddingLeft(1)

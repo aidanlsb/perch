@@ -51,34 +51,32 @@ func loadBrowse(t *testing.T) Model {
 
 func ptrSchema(s api.Schema) *api.Schema { return &s }
 
-func TestSchemaBuildsSidebar(t *testing.T) {
+func TestSchemaLoadsFirstTypeAsList(t *testing.T) {
 	m := loadBrowse(t)
-	var labels []string
-	for _, n := range m.nav {
-		labels = append(labels, n.Label)
+	if m.p().typeName == "" {
+		t.Fatal("expected a type loaded")
 	}
-	if len(labels) != 2 || labels[0] != catBrowse || labels[1] != catViews {
-		t.Fatalf("collapsed cats %v", labels)
-	}
-	m = m.toggleCategory(catBrowse)
-	labels = nil
-	for _, n := range m.nav {
-		labels = append(labels, n.Label)
-	}
-	if labels[0] != catBrowse {
-		t.Fatalf("%v", labels)
-	}
-	foundType := false
-	for _, l := range labels {
-		if l == "section" {
+	names := m.schema.SortedTypeNames()
+	for _, n := range names {
+		if n == "section" {
 			t.Fatal("section should be omitted")
 		}
-		if l == "person" || l == "project" {
+	}
+	if len(names) < 2 {
+		t.Fatalf("types %v", names)
+	}
+	m, _ = leader(m, "st")
+	foundType := false
+	for _, it := range m.pickerHit {
+		if it.Label == "section" {
+			t.Fatal("section should be omitted")
+		}
+		if it.Label == "person" || it.Label == "project" {
 			foundType = true
 		}
 	}
 	if !foundType {
-		t.Fatalf("types under Browse %v", labels)
+		t.Fatalf("types in picker %v", labelsOf(m.pickerHit))
 	}
 }
 
@@ -194,7 +192,7 @@ func TestBoardFromNamedView(t *testing.T) {
 
 func TestSavedQueryArgsPrompt(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = m.update(key("q"))
+	m, _ = leader(m, "sq")
 	for i, it := range m.pickerHit {
 		if it.Label == "need" {
 			m.pickerCur = i
