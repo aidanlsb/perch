@@ -18,11 +18,11 @@ var Keymap = []Binding{
 	{"global", "space c", "open config at the current view"},
 	{"global", "S", "save the on-screen view as [views.name]"},
 
-	{"focus", "ctrl-b", "hide or show the sidebar"},
-	{"focus", "ctrl-e", "toggle focus between sidebar and last panel"},
+	{"focus", "ctrl-b", "hide or show sidebar"},
+	{"focus", "ctrl-e", "focus sidebar or last panel"},
 	{"focus", "ctrl-h/j/k/l", "move focus among main panels"},
 	{"focus", "ctrl-w h/j/k/l", "same as ctrl-h/j/k/l"},
-	{"focus", "tab / shift-tab", "cycle focus among main panels"},
+	{"focus", "tab / shift-tab", "cycle main panels"},
 	{"focus", "ctrl-w o", "zoom focused panel"},
 	{"focus", "ctrl-w =", "restore splits"},
 

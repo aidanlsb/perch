@@ -573,8 +573,8 @@ func (m Model) viewHelp() string {
 		keys := padTrunc(bind.Keys, 26)
 		b.WriteString(styleMuted.Render(keys) + "  " + bind.Desc + "\n")
 	}
-	w := min(72, max(40, m.width-4))
-	return styleHelpBox.Width(w).Render(strings.TrimRight(b.String(), "\n"))
+	w := min(84, max(40, m.width-2))
+	return styleHelpBox.Width(w).Padding(0, 2).Render(strings.TrimRight(b.String(), "\n"))
 }
 
 func (m Model) viewPicker() string {
@@ -702,6 +702,9 @@ func overlayOn(base string, width, height int, modal string) string {
 	mh := lipgloss.Height(modal)
 	x := max(0, (width-mw)/2)
 	y := max(0, (height-mh)/3)
+	if y+mh > height {
+		y = max(0, height-mh)
+	}
 	return placeOverlay(base, modal, x, y)
 }
 
