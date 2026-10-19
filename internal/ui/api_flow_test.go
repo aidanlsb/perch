@@ -10,7 +10,6 @@ import (
 
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/editor"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestModelInitAgainstFakeAPI(t *testing.T) {
@@ -88,14 +87,17 @@ func TestModelInitAgainstFakeAPI(t *testing.T) {
 	m := NewModel(Options{Client: api.NewClient(srv.URL, "t"), PollInterval: -1})
 	m.width, m.height = 80, 24
 	msg := m.Init()()
-	var cmd tea.Cmd
-	m, cmd = m.update(msg)
+	m, _ = m.update(msg)
 	if !m.ready {
 		t.Fatalf("not ready: %+v %v", msg, m.errMsg)
 	}
 	if m.vaultPath != "/vault" || m.editor != "code" || editor.NormalizeMode(m.editorMode) != editor.ModeGUI {
 		t.Fatalf("session apply vault=%q editor=%q mode=%q", m.vaultPath, m.editor, m.editorMode)
 	}
+	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
+		t.Fatalf("no views: want type picker, overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+	m, cmd := m.update(key("enter"))
 	if cmd == nil {
 		t.Fatal("expected query")
 	}
