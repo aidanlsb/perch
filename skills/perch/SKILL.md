@@ -26,7 +26,7 @@ changed, validated, or opened. Drive Perch through its CLI. Do not edit
 - Do not assume a vault schema. Type, query, and field names in examples
   (`item`, `task`, `state`, `when`) are not reserved. Discover names with
   `rvn schema --json` or `rvn query` if the user has not given them.
-- The TUI type picker (`space st`) lists every schema type as a plain list.
+- The TUI type picker (`t`) lists every schema type as a plain list.
   Do not invent board or date views from the schema. Only views the user
   (or you, via the CLI) declare exist.
 - Writes are temp-file + rename. The existing validator runs before replace.
@@ -35,11 +35,12 @@ changed, validated, or opened. Drive Perch through its CLI. Do not edit
 ## TUI navigation
 
 Prefer the CLI. There is no sidebar. If the user is already in the TUI,
-navigation is pickers under Space leader (`space s*`: `st` types, `sd`
-daily, `sq` queries, `sv` views, `sf` notes, `sg` content search). `space ,`
-opens config at the current view. Panel motions (`ctrl-h/j/k/l`, `ctrl-w`
-plus a direction, tab) move among main panels. In-panel scrolling is
-`ctrl-d` / `ctrl-u` only.
+navigation is single-key pickers in normal mode: `t` types, `d` daily,
+`q` saved queries, `v` views/layouts, `f` notes (`ctrl-p` stays), `s`
+full-text search. `,` opens config at the current view. `q` does not quit
+(`ctrl+c` quits; `esc` / `backspace` leave a note). Panel motions
+(`ctrl-h/j/k/l`, `ctrl-w` plus a direction, tab) move among main panels.
+In-panel scrolling is `ctrl-d` / `ctrl-u` only.
 
 ## Views
 
@@ -116,8 +117,10 @@ CLI; do not patch the TOML.
 
 ## Open
 
-Bare `perch` launches the TUI. `perch open <name>` opens a named view or
-layout (views win if both exist).
+Bare `perch` launches the TUI on the first view in config file order
+(as that view's list/board/date). With no views configured, the type
+picker opens. `perch open <name>` opens a named view or layout (views
+win if both exist).
 
 ```bash
 perch open projects --json

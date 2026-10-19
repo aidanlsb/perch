@@ -161,7 +161,15 @@ func startLive(t *testing.T, f *liveFake) (Model, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(f.handler())
 	t.Cleanup(srv.Close)
-	m := NewModel(Options{Client: api.NewClient(srv.URL, "t"), PollInterval: -1, Config: &config.File{}})
+	m := NewModel(Options{
+		Client:       api.NewClient(srv.URL, "t"),
+		PollInterval: -1,
+		Config: &config.File{
+			Views: map[string]config.View{
+				"projects": {Type: "project", Layout: config.Present{Kind: kindList}},
+			},
+		},
+	})
 	m.width, m.height = 80, 24
 	m = execCmds(t, m, m.Init())
 	if !m.ready {

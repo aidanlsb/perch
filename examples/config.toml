@@ -13,7 +13,8 @@
 # split is row (side by side) or col (stacked).
 #
 # The type picker lists every schema type as a plain list. Board and date
-# views are only those you declare here.
+# views are only those you declare here. Bare `perch` opens the first view
+# in this file as that view's list, board, or date.
 
 [views.projects]
 type = "item"

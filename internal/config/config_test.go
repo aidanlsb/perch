@@ -78,12 +78,40 @@ panels = [
 	if f.ViewLine("projects") < 2 {
 		t.Fatalf("line %d", f.ViewLine("projects"))
 	}
+	order := f.ViewsInOrder()
+	if len(order) == 0 || order[0] != "projects" {
+		t.Fatalf("config order first view %v, want projects", order)
+	}
 	ls := f.Layouts["workspace"]
 	if ls.Split != SplitRow || len(ls.Leaves()) != 2 {
 		t.Fatalf("%+v", ls)
 	}
 	if ls.Leaves()[1].Bind != "projects" {
 		t.Fatalf("bind %+v", ls.Leaves())
+	}
+}
+
+func TestViewsInOrderFollowsFileNotAlphabet(t *testing.T) {
+	path := writeTOML(t, `
+[views.zebra]
+type = "person"
+layout = { kind = "list" }
+
+[views.alpha]
+type = "item"
+layout = { kind = "list" }
+`)
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := f.ViewsInOrder()
+	if len(got) != 2 || got[0] != "zebra" || got[1] != "alpha" {
+		t.Fatalf("order %v", got)
+	}
+	alpha := f.ViewNames()
+	if len(alpha) != 2 || alpha[0] != "alpha" {
+		t.Fatalf("ViewNames still alphabetical: %v", alpha)
 	}
 }
 
