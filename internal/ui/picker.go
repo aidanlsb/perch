@@ -112,7 +112,6 @@ func (m Model) openSearchPicker() (Model, tea.Cmd) {
 	m.pickerCur = 0
 	m.pickerAll = nil
 	m.pickerHit = nil
-	m.leaderSeq = ""
 	return m, nil
 }
 

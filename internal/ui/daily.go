@@ -11,7 +11,6 @@ const dailyLayout = "2006-01-02"
 
 func (m Model) openDatePicker() (Model, tea.Cmd) {
 	m.overlay = overlayDate
-	m.leaderSeq = ""
 	m.dateCur = m.todayID()
 	m.status = "daily " + m.dateCur
 	return m, nil

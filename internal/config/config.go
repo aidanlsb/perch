@@ -488,6 +488,29 @@ func (f *File) ViewNames() []string {
 	return names
 }
 
+// ViewsInOrder returns view names in config file order (table appearance).
+// Names without a recorded line sort after those with lines, then alphabetically.
+func (f *File) ViewsInOrder() []string {
+	names := f.ViewNames()
+	if f == nil || len(names) <= 1 {
+		return names
+	}
+	sort.SliceStable(names, func(i, j int) bool {
+		li, lj := f.viewLine(names[i]), f.viewLine(names[j])
+		if li == lj {
+			return names[i] < names[j]
+		}
+		if li == 0 {
+			return false
+		}
+		if lj == 0 {
+			return true
+		}
+		return li < lj
+	})
+	return names
+}
+
 func (f *File) LayoutNames() []string {
 	if f == nil || len(f.Layouts) == 0 {
 		return nil

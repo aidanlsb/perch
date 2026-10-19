@@ -252,7 +252,7 @@ func TestTypePickerListsSchemaTypes(t *testing.T) {
 	if strings.Contains(out, "Browse") {
 		t.Fatalf("sidebar chrome: %s", out)
 	}
-	m, _ = leader(m, "st")
+	m, _ = m.update(key("t"))
 	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
 		t.Fatal("type picker")
 	}

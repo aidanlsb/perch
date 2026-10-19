@@ -60,11 +60,15 @@ selection fills `{{selected}}` in that panel. Bound panels update as the
 driving selection moves. Enter in the driving panel moves focus to the
 bound panel.
 
-The type picker (`space st`) lists every schema type as a plain list.
+The type picker (`t`) lists every schema type as a plain list.
 Perch does not invent board or date views from the schema. `.` still
 cycles date granularity (day → week → month) inside a date view.
 `section` is omitted because Raven cannot query `type:section`. There is
 no sidebar: navigation is pickers and hotkeys only.
+
+Bare `perch` opens the first view in config file order as that view's
+list, board, or date. If no views are configured, the type picker opens.
+It does not pick a schema type on its own.
 
 ## Config
 
@@ -101,14 +105,14 @@ At startup Perch validates views against `GET /v1/schema` and
 `query_saved_list`, and shows warnings in the footer (with line numbers)
 for unknown types, queries, or fields.
 
-`,` opens the config file in the editor from `GET /v1/session`. `space ,`
-jumps to the current view's table where the editor supports a line
-argument. On return Perch reloads and validates; errors include line
-numbers and the last good config is kept. `S` prompts for a name and
-writes the on-screen view (`type` or `query` plus layout settings) as
-`[views.x]`. Ad-hoc `:` queries cannot be saved that way: save them in
-Raven first, then reference the name with `query = "…"`. Writes go only
-to Perch's config, never the vault.
+`,` opens the config file in the editor from `GET /v1/session`, jumping
+to the current view's table where the editor supports a line argument.
+On return Perch reloads and validates; errors include line numbers and
+the last good config is kept. `S` prompts for a name and writes the
+on-screen view (`type` or `query` plus layout settings) as `[views.x]`.
+Ad-hoc `:` queries cannot be saved that way: save them in Raven first,
+then reference the name with `query = "…"`. Writes go only to Perch's
+config, never the vault.
 
 ## CLI (for agents)
 
@@ -203,20 +207,19 @@ Perch-managed files. A skill directory without that receipt is left alone.
 
 ## Pickers and search
 
-Leader is Space. Search and pickers live under `space s*`.
+Pickers are single keys in normal mode. There is no Space leader.
 
 | Key | Opens |
 | --- | --- |
-| `space st` | Types from `GET /v1/schema` (fuzzy). Selecting fills the main pane with that type's objects as a plain list. |
-| `space sd` | Daily-note date picker, starting on today (`GET /v1/session` `daily.today_id` when present). `h`/`l` move a day, `j`/`k` a week, `t` today. Enter invokes Raven's read-only `date` hub and opens that day's daily note when `daily_exists`. |
-| `space sq` | Saved queries (fuzzy) |
-| `space sv` | Saved views and layouts |
-| `ctrl-p` / `space sf` | Notes: fuzzy over the `objects` corpus (paginated, cached, background), plus Raven `search` after two characters |
-| `space sg` | Full-text content search (`POST /v1/invoke` command `search`) |
+| `t` | Types from `GET /v1/schema` (fuzzy). Selecting fills the main pane with that type's objects as a plain list. |
+| `d` | Daily-note date picker, starting on today (`GET /v1/session` `daily.today_id` when present). `h`/`l` move a day, `j`/`k` a week, `t` today. Enter invokes Raven's read-only `date` hub and opens that day's daily note when `daily_exists`. |
+| `q` | Saved queries (fuzzy). `q` does not quit; `ctrl+c` quits. |
+| `v` | Saved views and layouts |
+| `ctrl-p` / `f` | Notes: fuzzy over the `objects` corpus (paginated, cached, background), plus Raven `search` after two characters |
+| `s` | Full-text content search (`POST /v1/invoke` command `search`) |
 | `/` | Fuzzy search in the current view; `n` / `N` next/previous hit |
 | `:` | Ad-hoc RQL |
-| `,` | Perch config in the editor |
-| `space ,` | Config at the current view's entry |
+| `,` | Config at the current view's entry |
 | `S` | Save the on-screen view as `[views.name]` |
 
 Saved queries that declare `args` open an argument prompt. Values are sent as
@@ -241,8 +244,8 @@ stays ephemeral.
 
 ## Keys
 
-`?` lists this table inside the TUI. `q` / `esc` close overlays and leave a
-note. `ctrl+c` quits.
+`?` lists this table inside the TUI. `esc` / `backspace` leave a note.
+Overlays still close with `q` / `esc`. `ctrl+c` quits.
 
 | Key | Action |
 | --- | --- |
@@ -255,26 +258,25 @@ note. `ctrl+c` quits.
 | `gg` / `G` | Top / bottom |
 | `ctrl-d` / `ctrl-u` | Half-page down / up |
 | `enter` | Open note / follow link / move to the bound panel |
-| `space st` | Type picker |
-| `space sd` | Daily-note date picker |
-| `space sq` | Saved query picker |
-| `space sv` | Views and layouts |
-| `ctrl-p` / `space sf` | Notes picker |
-| `space sg` | Full-text content search |
+| `t` | Type picker |
+| `d` | Daily-note date picker |
+| `q` | Saved query picker (does not quit) |
+| `v` | Views and layouts |
+| `ctrl-p` / `f` | Notes picker |
+| `s` | Full-text content search |
 | `/` | Fuzzy search in view |
 | `n` / `N` | Next / previous search hit |
 | `.` | Cycle date granularity |
 | `p` | Toggle preview |
 | `:` | Ad-hoc RQL |
-| `,` | Open Perch config |
-| `space ,` | Open config at this view |
+| `,` | Open config at this view |
 | `S` | Save on-screen view |
 | `e` | Open in editor |
 | `r` | Refresh (and reload config) |
 | `[` `]` | Note history back / forward |
 | `[d` `]d` | Previous / next daily note (in a daily note) |
 | `?` | Help |
-| `esc` | Close overlay / clear search / back |
+| `esc` | Close overlay / clear search / back from a note |
 | `ctrl+c` | Quit |
 
 Focus follows the panel. The focused panel has a highlighted border.

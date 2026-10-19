@@ -10,13 +10,12 @@ type Binding struct {
 }
 
 // Keymap is the single source of truth for Perch's shortcuts.
-// Leader is Space. Search and pickers live under <leader>s*.
+// Pickers are single keys in normal mode. There is no leader.
 var Keymap = []Binding{
 	{"global", "ctrl+c", "quit"},
 	{"global", "?", "toggle this help"},
 	{"global", "e", "open selected file in editor"},
-	{"global", ",", "open Perch config in editor"},
-	{"global", "space ,", "open config at the current view"},
+	{"global", ",", "open config at the current view"},
 	{"global", "S", "save the on-screen view as [views.name]"},
 
 	{"help", "j/k", "scroll this help"},
@@ -32,30 +31,21 @@ var Keymap = []Binding{
 	{"browse", "gg / G", "top / bottom"},
 	{"browse", "ctrl-d / ctrl-u", "half-page down / up"},
 	{"browse", "enter", "open note, or move to the bound panel"},
-	{"browse", "space st", "type picker (schema types)"},
-	{"browse", "space sd", "daily-note date picker"},
-	{"browse", "space sq", "saved query picker"},
-	{"browse", "space sv", "views and layouts picker"},
-	{"browse", "ctrl-p / space sf", "fuzzy notes picker"},
-	{"browse", "space sg", "full-text content search"},
+	{"browse", "t", "type picker (schema types)"},
+	{"browse", "d", "daily-note date picker"},
+	{"browse", "q", "saved query picker"},
+	{"browse", "v", "views and layouts picker"},
+	{"browse", "ctrl-p / f", "fuzzy notes picker"},
+	{"browse", "s", "full-text content search"},
 	{"browse", "/", "fuzzy search in current view"},
 	{"browse", "n / N", "next / previous search hit"},
 	{"browse", ".", "cycle date granularity (day/week/month)"},
 	{"browse", "p", "toggle preview pane"},
 	{"browse", ":", "run an ad-hoc RQL query"},
 	{"browse", "r", "refresh (and reload config)"},
-	{"browse", "space", "leader (s* pickers, , config)"},
 	{"browse", "esc", "clear search / close overlay"},
 
-	{"leader", "space st", "type picker"},
-	{"leader", "space sd", "daily-note date picker"},
-	{"leader", "space sq", "saved query picker"},
-	{"leader", "space sv", "views and layouts"},
-	{"leader", "space sf", "notes picker"},
-	{"leader", "space sg", "full-text content search"},
-	{"leader", "space ,", "open config at this view"},
-
-	{"note", "q / esc / backspace", "back to browse"},
+	{"note", "esc / backspace", "back to browse"},
 	{"note", "/", "fuzzy search in browse"},
 	{"note", "hjkl / arrows", "scroll / backlinks"},
 	{"note", "gg / G", "top / bottom"},
@@ -66,8 +56,13 @@ var Keymap = []Binding{
 	{"note", "[d / ]d", "previous / next daily note"},
 	{"note", "e", "open in editor"},
 	{"note", "r", "refresh"},
-	{"note", "ctrl-p / space sf", "notes picker"},
-	{"note", "space s*", "pickers (types / queries / views / search / daily)"},
+	{"note", "t", "type picker"},
+	{"note", "d", "daily-note date picker"},
+	{"note", "q", "saved query picker"},
+	{"note", "v", "views and layouts picker"},
+	{"note", "ctrl-p / f", "notes picker"},
+	{"note", "s", "full-text content search"},
+	{"note", ",", "open config at this view"},
 
 	{"search", "enter", "keep search; n/N still jump"},
 	{"search", "esc", "clear search"},
@@ -96,11 +91,6 @@ func footerKeys(m Model) string {
 		return "search  enter keep  n/N next  esc clear"
 	case overlayPicker:
 		return "picker  j/k  enter  e edit  esc"
-	case overlayLeader:
-		if m.leaderSeq == "s" {
-			return "st types  sd daily  sq queries  sv views  sf notes  sg search  esc"
-		}
-		return "s pickers  , config  esc"
 	case overlayDate:
 		return "daily  h/l day  j/k week  t today  enter open  esc"
 	case overlayRQL:
@@ -112,9 +102,9 @@ func footerKeys(m Model) string {
 	}
 	if m.screen == kindNote {
 		if isDailyNoteID(m.noteID()) {
-			return "hjkl  tab link  [d ]d day  enter follow  / search  e edit  q back  ? help"
+			return "hjkl  tab link  [d ]d day  enter follow  / search  e edit  esc back  ? help"
 		}
-		return "hjkl  tab link  enter follow  / search  e edit  q back  ? help"
+		return "hjkl  tab link  enter follow  / search  e edit  esc back  ? help"
 	}
 	return focusFooter(m) + "  " + panelFooter(m)
 }
@@ -134,11 +124,11 @@ func panelFooter(m Model) string {
 		p := m.p()
 		switch p.spec.Kind {
 		case kindBoard:
-			return "hjkl board  enter  space s*  / search  S save  ? help"
+			return "hjkl board  enter  t/d/q/v/f/s  / search  S save  ? help"
 		case kindDate:
-			return "jk dates  . gran  enter  space s*  / search  S save  ? help"
+			return "jk dates  . gran  enter  t/d/q/v/f/s  / search  S save  ? help"
 		default:
-			return "jk list  enter  space s*  / search  S save  , config  ? help"
+			return "jk list  enter  t/d/q/v/f/s  / search  S save  , config  ? help"
 		}
 	}
 }

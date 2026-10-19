@@ -118,8 +118,8 @@ func TestSlashNotSwallowedByPendingOrDigits(t *testing.T) {
 
 	m = loadBrowse(t)
 	m, _ = m.update(key(" "))
-	if m.overlay != overlayLeader {
-		t.Fatal("leader")
+	if m.overlay != overlayNone {
+		t.Fatalf("space overlay=%v", m.overlay)
 	}
 	m, _ = m.update(ascii)
 	if m.overlay != overlaySearch {
@@ -136,7 +136,7 @@ func TestSlashNotSwallowedByPendingOrDigits(t *testing.T) {
 
 func TestSlashInPickerTypesIntoQuery(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = leader(m, "st")
+	m, _ = m.update(key("t"))
 	if m.overlay != overlayPicker {
 		t.Fatal("picker")
 	}

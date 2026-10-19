@@ -7,7 +7,6 @@ import (
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/config"
 	"github.com/aidanlsb/perch/internal/layout"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestKeymapHelpRenders(t *testing.T) {
@@ -21,12 +20,12 @@ func TestKeymapHelpRenders(t *testing.T) {
 		t.Fatal("help")
 	}
 	out := m.View()
-	for _, want := range []string{"ctrl+c", "ctrl-h/j/k/l", "space st", "space sd", "space sg", "fuzzy search"} {
+	for _, want := range []string{"ctrl+c", "ctrl-h/j/k/l", "type picker", "daily-note date picker", "full-text content search", "fuzzy search"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help missing %q in %s", want, out)
 		}
 	}
-	for _, old := range []string{"ctrl-b", "ctrl-e", "space t", "space q", "space f", "space l", "space c"} {
+	for _, old := range []string{"ctrl-b", "ctrl-e", "space st", "space sd", "space sg", "space t", "space q", "space f", "space l", "space c", "leader"} {
 		if strings.Contains(out, old) {
 			t.Fatalf("help still lists removed key %q", old)
 		}
@@ -35,7 +34,7 @@ func TestKeymapHelpRenders(t *testing.T) {
 
 func TestTypeAndQueryPickers(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = leader(m, "st")
+	m, _ = m.update(key("t"))
 	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
 		t.Fatalf("types overlay %+v", m.overlay)
 	}
@@ -53,13 +52,13 @@ func TestTypeAndQueryPickers(t *testing.T) {
 	}
 	p := m.p()
 	if p.sourceIsQuery || p.typeName != "project" || p.sourceBase != "type:project" {
-		t.Fatalf("space st should open as Type, got type=%s base=%s query=%v", p.typeName, p.sourceBase, p.sourceIsQuery)
+		t.Fatalf("t should open as Type, got type=%s base=%s query=%v", p.typeName, p.sourceBase, p.sourceIsQuery)
 	}
 	if p.sourceQuery != "type:project" || p.spec.Kind != kindList {
 		t.Fatalf("source=%s kind=%s group=%s", p.sourceQuery, p.spec.Kind, p.groupBy)
 	}
 
-	m, _ = leader(m, "sq")
+	m, _ = m.update(key("q"))
 	if m.overlay != overlayPicker || m.pickerKind != pickerQueries {
 		t.Fatal("query picker")
 	}
@@ -98,7 +97,7 @@ func TestDateGranularityOnNamedView(t *testing.T) {
 
 func TestViewsPicker(t *testing.T) {
 	m := loadNamedView(t, namedViewCfg(), "projects")
-	m, _ = leader(m, "sv")
+	m, _ = m.update(key("v"))
 	if m.overlay != overlayPicker || m.pickerKind != pickerViews {
 		t.Fatalf("sv picker overlay=%v kind=%v", m.overlay, m.pickerKind)
 	}
@@ -119,7 +118,7 @@ func TestNamedViewFilter(t *testing.T) {
 func TestDailyPickerOpensOnToday(t *testing.T) {
 	m := loadBrowse(t)
 	m.daily = &api.DailyInfo{TodayID: "2026-10-15", TodayExists: true}
-	m, cmd := leader(m, "sd")
+	m, cmd := m.update(key("d"))
 	if cmd != nil {
 		t.Fatal("picker is local")
 	}
@@ -263,49 +262,55 @@ func TestNotesPickerFuzzy(t *testing.T) {
 	}
 }
 
-func TestSpaceLeader(t *testing.T) {
+func TestSingleLetterPickers(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = m.update(key(" "))
-	if m.overlay != overlayLeader || m.leaderSeq != "" {
-		t.Fatal("leader")
+	cases := []struct {
+		key  string
+		kind pickerKind
+		date bool
+	}{
+		{"t", pickerTypes, false},
+		{"q", pickerQueries, false},
+		{"v", pickerViews, false},
+		{"f", pickerNotes, false},
+		{"s", pickerSearch, false},
+		{"d", 0, true},
 	}
-	m, _ = m.update(key("s"))
-	if m.overlay != overlayLeader || m.leaderSeq != "s" {
-		t.Fatalf("space s overlay=%v seq=%q", m.overlay, m.leaderSeq)
-	}
-	m, _ = m.update(key("t"))
-	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
-		t.Fatal("space st")
+	for _, tc := range cases {
+		m, _ = m.update(key("esc"))
+		m, _ = m.update(key(tc.key))
+		if tc.date {
+			if m.overlay != overlayDate {
+				t.Fatalf("%s overlay %v, want daily", tc.key, m.overlay)
+			}
+			continue
+		}
+		if m.overlay != overlayPicker || m.pickerKind != tc.kind {
+			t.Fatalf("%s overlay=%v kind=%v", tc.key, m.overlay, m.pickerKind)
+		}
 	}
 }
 
-func TestOldSingleLetterLeadersGone(t *testing.T) {
+func TestSpaceIsNotALeader(t *testing.T) {
 	m := loadBrowse(t)
-	src := m.p().sourceQuery
-	for _, k := range []string{"t", "q", "f", "d"} {
-		m, _ = m.update(key(k))
-		if m.overlay != overlayNone {
-			t.Fatalf("%s opened overlay %v", k, m.overlay)
-		}
-		if m.p().sourceQuery != src {
-			t.Fatalf("%s changed source", k)
-		}
-	}
-	m, _ = m.update(key("g"))
-	m, _ = m.update(key("l"))
-	if m.overlay != overlayNone {
-		t.Fatalf("gl opened overlay %v", m.overlay)
-	}
 	m, _ = m.update(key(" "))
+	if m.overlay != overlayNone {
+		t.Fatalf("space overlay %v", m.overlay)
+	}
 	m, _ = m.update(key("c"))
 	if m.overlay != overlayNone {
-		t.Fatalf("space c still bound, overlay %v", m.overlay)
+		t.Fatalf("space c overlay %v", m.overlay)
+	}
+	src := m.p().sourceQuery
+	m, _ = m.update(key("g"))
+	m, _ = m.update(key("l"))
+	if m.overlay != overlayNone || m.p().sourceQuery != src {
+		t.Fatalf("gl overlay=%v source=%s", m.overlay, m.p().sourceQuery)
 	}
 }
 
-func TestLeaderCommaOpensConfigAtView(t *testing.T) {
+func TestCommaOpensConfigAtView(t *testing.T) {
 	m := loadNamedView(t, namedViewCfg(), "projects")
-	m, _ = m.update(key(" "))
 	m, _ = m.update(key(","))
 	if m.overlay != overlayNone {
 		t.Fatalf("overlay %v", m.overlay)
@@ -314,9 +319,9 @@ func TestLeaderCommaOpensConfigAtView(t *testing.T) {
 
 func TestContentSearchPicker(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = leader(m, "sg")
+	m, _ = m.update(key("s"))
 	if m.overlay != overlayPicker || m.pickerKind != pickerSearch {
-		t.Fatalf("sg overlay=%v kind=%v", m.overlay, m.pickerKind)
+		t.Fatalf("s overlay=%v kind=%v", m.overlay, m.pickerKind)
 	}
 	m, cmd := m.update(runeKey('r'))
 	if cmd == nil {
@@ -333,22 +338,62 @@ func TestContentSearchPicker(t *testing.T) {
 	}
 }
 
-func TestNotesPickerFromLeader(t *testing.T) {
+func TestNotesPickerFromF(t *testing.T) {
 	m := loadBrowse(t)
 	m.mergeNotes([]api.Object{{ID: "people/freya", Title: "Freya"}})
-	m, _ = leader(m, "sf")
+	m, _ = m.update(key("f"))
 	if m.overlay != overlayPicker || m.pickerKind != pickerNotes {
-		t.Fatal("space sf")
+		t.Fatal("f notes picker")
 	}
 }
 
-func leader(m Model, seq string) (Model, tea.Cmd) {
-	var cmd tea.Cmd
-	m, cmd = m.update(key(" "))
-	for _, r := range seq {
-		m, cmd = m.update(key(string(r)))
+func TestQOpensQueriesNotQuit(t *testing.T) {
+	m := loadBrowse(t)
+	m, cmd := m.update(key("q"))
+	if cmd != nil {
+		t.Fatal("q must not quit")
 	}
-	return m, cmd
+	if m.overlay != overlayPicker || m.pickerKind != pickerQueries {
+		t.Fatalf("q overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+}
+
+func TestNoteQOpensQueriesEscGoesBack(t *testing.T) {
+	m := loadBrowse(t)
+	m.width, m.height = 80, 24
+	m, _ = m.update(readMsg{gen: m.gen, result: &api.ReadResult{ObjectID: "projects/a", Path: "projects/a.md", Content: "hi\n"}})
+	if m.screen != kindNote {
+		t.Fatal("note")
+	}
+	m, cmd := m.update(key("q"))
+	if cmd != nil {
+		t.Fatal("q must not quit")
+	}
+	if m.overlay != overlayPicker || m.pickerKind != pickerQueries {
+		t.Fatalf("note q overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+	m, _ = m.update(key("esc"))
+	if m.overlay != overlayNone || m.screen != kindNote {
+		t.Fatalf("esc closes picker, screen=%s overlay=%v", m.screen, m.overlay)
+	}
+	m, _ = m.update(key("esc"))
+	if m.screen != "browse" {
+		t.Fatalf("esc back to browse, screen=%s", m.screen)
+	}
+}
+
+func TestBracketDStillDailyFromNote(t *testing.T) {
+	m := loadBrowse(t)
+	m.width, m.height = 80, 24
+	m, _ = m.update(readMsg{gen: m.gen, result: &api.ReadResult{ObjectID: "2026-10-15", Path: "journal/2026-10-15.md", Content: "today\n"}})
+	m, _ = m.update(key("["))
+	m, cmd := m.update(key("d"))
+	if cmd == nil {
+		t.Fatal("[d should still shift daily")
+	}
+	if m.overlay == overlayDate {
+		t.Fatal("[d must not open the date picker")
+	}
 }
 
 func TestCtrlDMovesHalfPage(t *testing.T) {

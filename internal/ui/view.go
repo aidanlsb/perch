@@ -29,8 +29,6 @@ func (m Model) View() string {
 		return overlayOn(frame, m.width, m.height, m.viewHelp())
 	case overlayPicker:
 		return overlayOn(frame, m.width, m.height, m.viewPicker())
-	case overlayLeader:
-		return overlayOn(frame, m.width, m.height, m.viewLeader())
 	case overlayDate:
 		return overlayOn(frame, m.width, m.height, m.viewDatePicker())
 	case overlayRQL:
@@ -490,25 +488,6 @@ func (m Model) viewPicker() string {
 		b.WriteByte('\n')
 	}
 	return styleModal.Width(min(68, m.width-4)).Render(strings.TrimRight(b.String(), "\n"))
-}
-
-func (m Model) viewLeader() string {
-	if m.leaderSeq == "s" {
-		text := strings.TrimSpace(`
-t  types
-d  daily
-q  saved queries
-v  views
-f  notes
-g  content search
-`)
-		return styleModal.Width(min(32, m.width-4)).Render("space s\n" + text)
-	}
-	text := strings.TrimSpace(`
-s  search / pickers
-,  config at this view
-`)
-	return styleModal.Width(min(32, m.width-4)).Render("space\n" + text)
 }
 
 func (m Model) viewDatePicker() string {

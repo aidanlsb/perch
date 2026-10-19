@@ -36,7 +36,6 @@ const (
 	overlaySearch
 	overlayPicker
 	overlayHelp
-	overlayLeader
 	overlayDate
 	overlayRQL
 	overlayArgs
@@ -93,11 +92,10 @@ type Model struct {
 	width  int
 	height int
 
-	pane      pane
-	overlay   overlay
-	screen    string // browse | note
-	pending   string // g | ctrlw | [ | ] | (empty)
-	leaderSeq string // "" | "s"
+	pane    pane
+	overlay overlay
+	screen  string // browse | note
+	pending string // g | ctrlw | [ | ] | (empty)
 
 	schema api.Schema
 

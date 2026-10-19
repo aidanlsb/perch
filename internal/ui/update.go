@@ -87,17 +87,8 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 		m, cmd := m.openNamed(m.open)
 		return m, batchCmds([]tea.Cmd{cmd, m.pollCmd()})
 	}
-	names := m.schema.SortedTypeNames()
-	var load tea.Cmd
-	if len(names) == 0 {
-		m.corpusLoading = true
-		load = m.corpusCmd()
-	} else {
-		var cmd tea.Cmd
-		m, cmd = m.loadType(names[0])
-		load = cmd
-	}
-	return m, batchCmds([]tea.Cmd{load, m.pollCmd()})
+	m, cmd := m.openInitial()
+	return m, batchCmds([]tea.Cmd{cmd, m.pollCmd()})
 }
 
 func (m Model) openNamed(name string) (Model, tea.Cmd) {
@@ -110,12 +101,22 @@ func (m Model) openNamed(name string) (Model, tea.Cmd) {
 		}
 	}
 	m.errMsg = "unknown view or layout " + name
-	names := m.schema.SortedTypeNames()
-	if len(names) == 0 {
-		m.corpusLoading = true
-		return m, m.corpusCmd()
+	return m.openInitial()
+}
+
+// openInitial loads the first configured view in file order as that view's
+// list, board, or date. With no views configured, the type picker opens.
+// Schema type names are never chosen automatically.
+func (m Model) openInitial() (Model, tea.Cmd) {
+	if m.cfg != nil {
+		if names := m.cfg.ViewsInOrder(); len(names) > 0 {
+			return m.loadNamedView(names[0])
+		}
 	}
-	return m.loadType(names[0])
+	m.needPrefetch = false
+	m.corpusLoading = true
+	m, _ = m.openTypePicker()
+	return m, m.corpusCmd()
 }
 
 func (m Model) corpusCmd() tea.Cmd {
@@ -445,8 +446,6 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.keysSearch(msg)
 	case overlayPicker:
 		return m.keysPicker(msg)
-	case overlayLeader:
-		return m.keysLeader(msg)
 	case overlayDate:
 		return m.keysDate(msg)
 	case overlayRQL:
@@ -497,57 +496,31 @@ func (m Model) keysHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
-	key := keyIdent(msg)
-	if isSlash(msg) {
-		m.overlay = overlayNone
-		m.leaderSeq = ""
-		return m.startSearch()
-	}
-	if m.leaderSeq == "s" {
-		m.overlay = overlayNone
-		m.leaderSeq = ""
-		switch key {
-		case "t":
-			return m.openTypePicker()
-		case "d":
-			return m.openDatePicker()
-		case "q":
-			return m.openQueryPicker()
-		case "v":
-			return m.openViewsPicker()
-		case "f":
-			return m.openNotesPicker()
-		case "g":
-			return m.openSearchPicker()
-		case "esc", " ", "s":
-			return m, nil
-		}
-		return m, nil
-	}
+func (m Model) navHotkey(key string) (Model, tea.Cmd, bool) {
 	switch key {
+	case "t":
+		m, cmd := m.openTypePicker()
+		return m, cmd, true
+	case "d":
+		m, cmd := m.openDatePicker()
+		return m, cmd, true
+	case "q":
+		m, cmd := m.openQueryPicker()
+		return m, cmd, true
+	case "v":
+		m, cmd := m.openViewsPicker()
+		return m, cmd, true
+	case "f":
+		m, cmd := m.openNotesPicker()
+		return m, cmd, true
 	case "s":
-		m.leaderSeq = "s"
-		return m, nil
+		m, cmd := m.openSearchPicker()
+		return m, cmd, true
 	case ",":
-		m.overlay = overlayNone
-		m.leaderSeq = ""
-		return m.openConfigAtView()
-	case "esc", " ":
-		m.overlay = overlayNone
-		m.leaderSeq = ""
-		return m, nil
+		m, cmd := m.openConfigAtView()
+		return m, cmd, true
 	}
-	m.overlay = overlayNone
-	m.leaderSeq = ""
-	return m, nil
-}
-
-func (m Model) startLeader() (Model, tea.Cmd) {
-	m.overlay = overlayLeader
-	m.leaderSeq = ""
-	m.pending = ""
-	return m, nil
+	return m, nil, false
 }
 
 func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -616,6 +589,9 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if isSlash(msg) {
 		return m.startSearch()
 	}
+	if next, cmd, ok := m.navHotkey(key); ok {
+		return next, cmd
+	}
 	switch key {
 	case "esc":
 		if m.searchQ != "" {
@@ -626,10 +602,6 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+p":
 		return m.openNotesPicker()
-	case " ":
-		return m.startLeader()
-	case ",":
-		return m.openConfig(0)
 	case "S":
 		return m.startSaveView()
 	case "n":
@@ -789,16 +761,17 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if isSlash(msg) {
 		return m.startSearch()
 	}
+	if next, cmd, ok := m.navHotkey(key); ok {
+		return next, cmd
+	}
 	switch key {
-	case "q", "esc", "backspace":
+	case "esc", "backspace":
 		m.screen = "browse"
 		m.note = nil
 		m.status = m.p().sourceLabel
 		return m.previewCmd()
 	case "ctrl+p":
 		return m.openNotesPicker()
-	case " ":
-		return m.startLeader()
 	case "r":
 		if m.note != nil {
 			gen := m.nextGen()

@@ -35,7 +35,8 @@ func sampleSchema() api.Schema {
 func loadBrowse(t *testing.T) Model {
 	t.Helper()
 	m := NewModel(Options{Config: &config.File{}})
-	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	m, cmd := m.loadType("project")
 	if cmd == nil {
 		t.Fatal("expected query cmd")
 	}
@@ -51,21 +52,51 @@ func loadBrowse(t *testing.T) Model {
 
 func ptrSchema(s api.Schema) *api.Schema { return &s }
 
-func TestSchemaLoadsFirstTypeAsList(t *testing.T) {
-	m := loadBrowse(t)
-	if m.p().typeName == "" {
-		t.Fatal("expected a type loaded")
+func TestStartupOpensFirstViewInConfigOrder(t *testing.T) {
+	f, err := config.Parse("config.toml", `
+[views.zebra]
+type = "person"
+layout = { kind = "list" }
+
+[views.alpha]
+type = "project"
+layout = { kind = "board", group_by = "status" }
+`)
+	if err != nil {
+		t.Fatal(err)
 	}
-	names := m.schema.SortedTypeNames()
-	for _, n := range names {
-		if n == "section" {
-			t.Fatal("section should be omitted")
-		}
+	m := NewModel(Options{Config: f})
+	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.overlay != overlayNone {
+		t.Fatalf("overlay %v, want browse list", m.overlay)
 	}
-	if len(names) < 2 {
-		t.Fatalf("types %v", names)
+	if m.screen != "browse" || m.note != nil {
+		t.Fatalf("screen=%s note=%v, want a list not a single note", m.screen, m.note != nil)
 	}
-	m, _ = leader(m, "st")
+	if m.currentView != "zebra" {
+		t.Fatalf("currentView %q, want zebra (config order, not alphabetical)", m.currentView)
+	}
+	p := m.p()
+	if p.spec.Kind != kindList || p.typeName != "person" || p.viewName != "zebra" {
+		t.Fatalf("kind=%s type=%s view=%s", p.spec.Kind, p.typeName, p.viewName)
+	}
+	if cmd == nil {
+		t.Fatal("expected view query")
+	}
+}
+
+func TestStartupOpensTypePickerWhenNoViews(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{}})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
+		t.Fatalf("overlay=%v kind=%v, want type picker", m.overlay, m.pickerKind)
+	}
+	if m.currentView != "" || m.p().typeName != "" {
+		t.Fatalf("must not auto-load a schema type, view=%q type=%q", m.currentView, m.p().typeName)
+	}
+	if m.screen == kindNote {
+		t.Fatal("must not open a note")
+	}
 	foundType := false
 	for _, it := range m.pickerHit {
 		if it.Label == "section" {
@@ -169,9 +200,9 @@ func TestOpenNoteTabFollowHistory(t *testing.T) {
 	if m.note.ObjectID != "projects/a" {
 		t.Fatal("history back")
 	}
-	m, _ = m.update(key("q"))
+	m, _ = m.update(key("esc"))
 	if m.screen != "browse" {
-		t.Fatal("q back to browse")
+		t.Fatal("esc back to browse")
 	}
 }
 
@@ -192,7 +223,7 @@ func TestBoardFromNamedView(t *testing.T) {
 
 func TestSavedQueryArgsPrompt(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = leader(m, "sq")
+	m, _ = m.update(key("q"))
 	for i, it := range m.pickerHit {
 		if it.Label == "need" {
 			m.pickerCur = i
