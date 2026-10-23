@@ -33,6 +33,13 @@ func TestPlainDropsC0AndUTF8C1(t *testing.T) {
 	}
 }
 
+func TestForTUIKeepsBoxDrawingAndEllipsis(t *testing.T) {
+	in := "│ perch … ─"
+	if got := ForTUI(in); got != in {
+		t.Fatalf("%q", got)
+	}
+}
+
 func TestForTUIDropsIncompleteESC(t *testing.T) {
 	if got := ForTUI("x\x1b"); got != "x" {
 		t.Fatalf("%q", got)

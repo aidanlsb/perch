@@ -23,6 +23,11 @@ linters:
   settings:
     misspell:
       locale: US
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
   exclusions:
     rules:
       - path: _test\.go
