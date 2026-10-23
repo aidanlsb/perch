@@ -16,7 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const Version = "0.5.0"
+const Version = "0.5.1"
 
 const usage = `perch %s — read-only terminal UI for Raven
 
