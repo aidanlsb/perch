@@ -50,6 +50,9 @@ func Connect(ctx context.Context, opts Options) (*Handle, error) {
 	if url == "" {
 		url = defaultURL
 	}
+	if err := api.CheckLoopbackURL(url); err != nil {
+		return nil, err
+	}
 	token := strings.TrimSpace(opts.Token)
 
 	if token != "" {
@@ -175,6 +178,9 @@ func ParseStartupJSON(line []byte) (api.Startup, error) {
 	}
 	if s.URL == "" || s.Token == "" {
 		return api.Startup{}, fmt.Errorf("startup JSON missing url or token")
+	}
+	if err := api.CheckLoopbackURL(s.URL); err != nil {
+		return api.Startup{}, err
 	}
 	return s, nil
 }

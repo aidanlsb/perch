@@ -243,6 +243,34 @@ func TestDoctorReportsMissingRoot(t *testing.T) {
 	}
 }
 
+func TestParseSkillRejectsPathID(t *testing.T) {
+	_, err := parseSkill("perch", []byte("---\nname: ../evil\ndescription: x\n---\n# hi\n"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	_, err = parseSkill("..", []byte("---\nname: ..\ndescription: x\n---\n# hi\n"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestSafeSkillPathRejectsTraversal(t *testing.T) {
+	root := t.TempDir()
+	if _, err := safeSkillPath(root, "../etc/passwd"); err == nil {
+		t.Fatal("relative escape")
+	}
+	if _, err := safeSkillPath(root, "/etc/passwd"); err == nil {
+		t.Fatal("absolute")
+	}
+	got, err := safeSkillPath(root, "SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != filepath.Join(root, "SKILL.md") {
+		t.Fatalf("%s", got)
+	}
+}
+
 func TestParseScope(t *testing.T) {
 	s, err := ParseScope("")
 	if err != nil || s != ScopeUser {

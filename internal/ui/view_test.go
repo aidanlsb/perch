@@ -9,6 +9,22 @@ import (
 	"github.com/aidanlsb/perch/internal/frontmatter"
 )
 
+func TestViewStripsOSCFromVaultTitles(t *testing.T) {
+	m := loadBrowse(t)
+	m.width = 80
+	m.height = 24
+	m.p().objects = []api.Object{{
+		ID: "projects/evil", Title: "x\x1b]0;pwned\x07y", Type: "project",
+		Fields:   map[string]any{"name": "x\x1b]0;pwned\x07y", "status": "active"},
+		FilePath: "projects/evil.md",
+	}}
+	m.p().applyFilterAndGroup(api.TypeSchema{})
+	out := m.View()
+	if strings.Contains(out, "\x1b]") || strings.Contains(out, "\x1b]0;") || strings.Contains(out, "\x07") {
+		t.Fatalf("osc leaked: %q", out)
+	}
+}
+
 func TestViewRenders(t *testing.T) {
 	m := loadBrowse(t)
 	m.width = 80

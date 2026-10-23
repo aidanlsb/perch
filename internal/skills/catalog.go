@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -73,11 +74,42 @@ func LoadCatalog() (map[string]*Skill, error) {
 	return catalog, nil
 }
 
+func validSkillID(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" || id == "." || id == ".." {
+		return false
+	}
+	if id != filepath.Clean(id) {
+		return false
+	}
+	if filepath.Base(id) != id {
+		return false
+	}
+	if strings.ContainsAny(id, `/\`) {
+		return false
+	}
+	for _, r := range id {
+		if r < 32 || r == 127 {
+			return false
+		}
+	}
+	return true
+}
+
 func parseSkill(dir string, data []byte) (*Skill, error) {
+	if !validSkillID(dir) {
+		return nil, fmt.Errorf("skill %s: invalid directory name", dir)
+	}
 	doc := frontmatter.Split(string(data))
 	name := strings.TrimSpace(doc.Fields["name"])
 	if name == "" {
 		name = dir
+	}
+	if !validSkillID(name) {
+		return nil, fmt.Errorf("skill %s: invalid name %q", dir, name)
+	}
+	if name != dir {
+		return nil, fmt.Errorf("skill %s: name %q must match directory", dir, name)
 	}
 	summary := strings.TrimSpace(doc.Fields["description"])
 	if summary == "" {

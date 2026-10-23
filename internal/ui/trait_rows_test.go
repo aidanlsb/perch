@@ -196,14 +196,21 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 		t.Fatalf("selected %+v", got)
 	}
 
-	path, objectID, line := m.editorTarget()
+	path, objectID, line, err := m.editorTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if objectID != "projects/raven" {
 		t.Fatalf("editor object %q", objectID)
 	}
 	if line != 18 {
 		t.Fatalf("editor line %d", line)
 	}
-	if path != editor.FilePath("/vault", "projects/raven.md") {
+	wantPath, err := editor.FilePath("/vault", "projects/raven.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != wantPath {
 		t.Fatalf("editor path %q", path)
 	}
 
@@ -295,14 +302,21 @@ func TestTraitEditorTargetFromInjectedRow(t *testing.T) {
 		Line:     9,
 	}}
 	m.p().applyFilterAndGroup(api.TypeSchema{})
-	path, objectID, line := m.editorTarget()
+	path, objectID, line, err := m.editorTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if objectID != "notes/x" {
 		t.Fatalf("OpenRef/file object %q", objectID)
 	}
 	if line != 9 {
 		t.Fatalf("line %d", line)
 	}
-	if path != editor.FilePath("/vault", "notes/x.md") {
+	wantPath, err := editor.FilePath("/vault", "notes/x.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != wantPath {
 		t.Fatalf("path %q", path)
 	}
 	if m.p().selectedID() != "notes/x" {

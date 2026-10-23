@@ -84,12 +84,10 @@ type Client struct {
 // NewClient returns a client for a loopback Raven API.
 func NewClient(baseURL, token string) *Client {
 	return &Client{
-		BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		Token:   strings.TrimSpace(token),
-		HTTPClient: &http.Client{
-			Timeout: defaultTimeout,
-		},
-		UserAgent: userAgent,
+		BaseURL:    strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		Token:      strings.TrimSpace(token),
+		HTTPClient: loopbackHTTPClient(defaultTimeout),
+		UserAgent:  userAgent,
 	}
 }
 
@@ -356,7 +354,7 @@ func (c *Client) do(req *http.Request) (*Envelope, error) {
 
 	httpClient := c.HTTPClient
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = loopbackHTTPClient(defaultTimeout)
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {

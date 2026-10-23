@@ -8,11 +8,32 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aidanlsb/perch/internal/api"
 )
+
+func TestConnectRejectsNonLoopbackURL(t *testing.T) {
+	_, err := Connect(context.Background(), Options{URL: "http://example.com:7438", Token: "tok", NoStart: true})
+	if err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestParseStartupJSONRejectsNonLoopbackURL(t *testing.T) {
+	line, _ := json.Marshal(map[string]any{
+		"ok": true,
+		"data": api.Startup{
+			URL: "http://8.8.8.8:9", Token: "abc", Port: 9,
+			Bind: "8.8.8.8", APIVersion: "1",
+		},
+	})
+	if _, err := ParseStartupJSON(line); err == nil {
+		t.Fatal("expected error")
+	}
+}
 
 func TestParseStartupJSON(t *testing.T) {
 	line, _ := json.Marshal(map[string]any{
