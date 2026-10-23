@@ -39,7 +39,7 @@ Every command accepts --json. Failures use Raven's envelope
 Flags:
   --config path        Perch config file (default ~/.config/perch/config.toml)
   --json               Machine-readable envelope on stdout
-  --url url            rvn api URL (default http://127.0.0.1:7438)
+  --url url            rvn api URL (loopback IP only; default http://127.0.0.1:7438)
   --token token        Bearer token
   --vault-path path    Vault path passed to rvn api when starting it
   --rvn path           Path to the rvn binary

@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -60,12 +62,55 @@ func TestNormalizeMode(t *testing.T) {
 }
 
 func TestFilePath(t *testing.T) {
-	got := FilePath("/vault", "projects/a.md")
-	if got != filepath.Join("/vault", "projects/a.md") {
-		t.Fatalf("%s", got)
+	vault := t.TempDir()
+	got, err := FilePath(vault, "projects/a.md")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if FilePath("/vault", "/abs/x.md") != "/abs/x.md" {
-		t.Fatal("abs")
+	want := filepath.Join(vault, "projects/a.md")
+	if got != want {
+		t.Fatalf("%s want %s", got, want)
+	}
+	inside := filepath.Join(vault, "notes/x.md")
+	got, err = FilePath(vault, inside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != inside {
+		t.Fatalf("abs inside vault: %s", got)
+	}
+}
+
+func TestFilePathRejectsTraversal(t *testing.T) {
+	vault := t.TempDir()
+	outside := filepath.Join(filepath.Dir(vault), "secret.md")
+	if _, err := FilePath(vault, "../secret.md"); err == nil {
+		t.Fatal("relative escape")
+	}
+	if _, err := FilePath(vault, outside); err == nil {
+		t.Fatal("absolute outside vault")
+	}
+	if _, err := FilePath(vault, "/etc/passwd"); err == nil {
+		t.Fatal("abs passwd")
+	}
+	if _, err := FilePath("", "a.md"); err == nil {
+		t.Fatal("empty vault")
+	}
+}
+
+func TestFilePathRejectsSymlinkEscape(t *testing.T) {
+	vault := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secret.md")
+	if err := os.WriteFile(target, []byte("nope"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(vault, "link.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FilePath(vault, "link.md"); err == nil {
+		t.Fatal("symlink escape")
 	}
 }
 
@@ -74,8 +119,8 @@ func TestCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cmd.Path == "" || len(cmd.Args) != 2 {
-		t.Fatalf("%+v", cmd)
+	if len(cmd.Args) != 2 || cmd.Args[0] != "vim" || cmd.Args[1] != "/tmp/note.md" {
+		t.Fatalf("%+v", cmd.Args)
 	}
 	_, err = Command("", "x")
 	if err == nil {
@@ -102,6 +147,64 @@ func TestCommandLine(t *testing.T) {
 	args = LineArgs("unknown", "/tmp/x.toml", 4)
 	if len(args) != 1 || args[0] != "/tmp/x.toml" {
 		t.Fatalf("unsupported editors skip the jump: %v", args)
+	}
+}
+
+func TestCommandLineDoesNotUseShell(t *testing.T) {
+	assertNoShell := func(t *testing.T, cmd *exec.Cmd) {
+		t.Helper()
+		base := filepath.Base(cmd.Path)
+		if base == "sh" || base == "bash" || (len(cmd.Args) > 0 && (cmd.Args[0] == "sh" || cmd.Args[0] == "-c")) {
+			t.Fatalf("must not invoke a shell: path=%q args=%+v", cmd.Path, cmd.Args)
+		}
+	}
+
+	cmd, err := CommandLine("vim; touch /tmp/pwned", "/tmp/note.md", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoShell(t, cmd)
+	if cmd.Args[0] != "vim;" {
+		t.Fatalf("semicolon must not start a new shell command: %+v", cmd.Args)
+	}
+
+	cmd, err = CommandLine("vim $(uname)", "/tmp/note.md", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoShell(t, cmd)
+	if len(cmd.Args) < 2 || cmd.Args[1] != "$(uname)" {
+		t.Fatalf("expansion must not run: %+v", cmd.Args)
+	}
+}
+
+func TestCommandLineSplitsFlagsWithoutShell(t *testing.T) {
+	cmd, err := CommandLine("code --wait", "/tmp/note.md", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"code", "--wait", "-g", "/tmp/note.md:4"}
+	if len(cmd.Args) != len(want) {
+		t.Fatalf("%+v", cmd.Args)
+	}
+	for i, w := range want {
+		if cmd.Args[i] != w {
+			t.Fatalf("%+v", cmd.Args)
+		}
+	}
+
+	cmd, err = CommandLine(`"/usr/bin/nvim" -u NONE`, "/tmp/note.md", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Args[0] != "/usr/bin/nvim" || cmd.Args[1] != "-u" || cmd.Args[2] != "NONE" || cmd.Args[3] != "+2" {
+		t.Fatalf("%+v", cmd.Args)
+	}
+}
+
+func TestSplitCommandRejectsUnclosedQuote(t *testing.T) {
+	if _, err := CommandLine(`nvim "oops`, "/tmp/x", 0); err == nil {
+		t.Fatal("expected error")
 	}
 }
 

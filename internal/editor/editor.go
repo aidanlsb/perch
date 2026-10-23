@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -69,19 +71,55 @@ func IsTerminalEditor(command string) bool {
 }
 
 // FilePath joins a vault-relative read path with the vault root.
-func FilePath(vaultPath, rel string) string {
+// Absolute paths are allowed only when they stay inside the vault.
+func FilePath(vaultPath, rel string) (string, error) {
 	rel = strings.TrimSpace(rel)
-	if rel == "" {
-		return ""
-	}
-	if filepath.IsAbs(rel) {
-		return rel
-	}
 	vaultPath = strings.TrimSpace(vaultPath)
-	if vaultPath == "" {
-		return rel
+	if rel == "" {
+		return "", fmt.Errorf("no file path to open")
 	}
-	return filepath.Join(vaultPath, rel)
+	if vaultPath == "" {
+		return "", fmt.Errorf("no vault path")
+	}
+	vaultAbs, err := filepath.Abs(vaultPath)
+	if err != nil {
+		return "", err
+	}
+	var candidate string
+	if filepath.IsAbs(rel) {
+		candidate = filepath.Clean(rel)
+	} else {
+		candidate = filepath.Join(vaultAbs, rel)
+	}
+	candAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", err
+	}
+	if err := confinedTo(vaultAbs, candAbs); err != nil {
+		return "", err
+	}
+	if vEval, err1 := filepath.EvalSymlinks(vaultAbs); err1 == nil {
+		if cEval, err2 := filepath.EvalSymlinks(candAbs); err2 == nil {
+			if err := confinedTo(vEval, cEval); err != nil {
+				return "", err
+			}
+			return cEval, nil
+		}
+	}
+	return candAbs, nil
+}
+
+func confinedTo(root, path string) error {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return fmt.Errorf("path %q is outside the vault", path)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path %q is outside the vault", path)
+	}
+	return nil
 }
 
 // Command builds the process that opens path in editor.
@@ -90,6 +128,7 @@ func Command(editorCmd, path string) (*exec.Cmd, error) {
 }
 
 // CommandLine opens path, jumping to line when the editor supports it.
+// The editor string is split on quotes/whitespace with no shell expansion.
 func CommandLine(editorCmd, path string, line int) (*exec.Cmd, error) {
 	editorCmd = strings.TrimSpace(editorCmd)
 	path = strings.TrimSpace(path)
@@ -99,15 +138,13 @@ func CommandLine(editorCmd, path string, line int) (*exec.Cmd, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no file path to open")
 	}
-	args := LineArgs(commandName(editorCmd), path, line)
-	if strings.Contains(editorCmd, " ") {
-		parts := make([]string, 0, len(args))
-		for _, a := range args {
-			parts = append(parts, shellQuote(a))
-		}
-		return exec.Command("sh", "-c", editorCmd+" "+strings.Join(parts, " ")), nil
+	parts, err := splitCommand(editorCmd)
+	if err != nil {
+		return nil, fmt.Errorf("editor command: %w", err)
 	}
-	return exec.Command(editorCmd, args...), nil
+	args := LineArgs(commandName(editorCmd), path, line)
+	cmdArgs := append(append([]string{}, parts[1:]...), args...)
+	return exec.Command(parts[0], cmdArgs...), nil
 }
 
 // LineArgs is the editor argument vector for path, plus a line jump when known.
@@ -131,41 +168,87 @@ func LineArgs(name, path string, line int) []string {
 }
 
 func commandName(editorCmd string) string {
-	trimmed := strings.TrimSpace(editorCmd)
-	if trimmed == "" {
+	parts, err := splitCommand(editorCmd)
+	if err != nil || len(parts) == 0 {
 		return ""
 	}
-	var cmd string
-	switch trimmed[0] {
-	case '"', '\'':
-		quote := trimmed[0]
-		if end := strings.IndexByte(trimmed[1:], quote); end >= 0 {
-			cmd = trimmed[1 : 1+end]
-		} else {
-			cmd = trimmed[1:]
-		}
-	default:
-		fields := strings.Fields(trimmed)
-		if len(fields) == 0 {
-			return ""
-		}
-		cmd = fields[0]
-	}
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" {
-		return ""
-	}
-	base := filepath.Base(cmd)
+	base := filepath.Base(parts[0])
 	base = strings.TrimSuffix(base, ".exe")
 	return strings.ToLower(base)
 }
 
-func shellQuote(s string) string {
+// splitCommand tokenizes an editor string with shell-style quotes but
+// without $ ` or other expansion, and never invokes a shell.
+func splitCommand(s string) ([]string, error) {
+	s = strings.TrimSpace(s)
 	if s == "" {
-		return "''"
+		return nil, fmt.Errorf("empty command")
 	}
-	if !strings.ContainsAny(s, " \t\n'\"\\$`") {
-		return s
+	var parts []string
+	var cur strings.Builder
+	quote := rune(0)
+	escaped := false
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		if quote == '\'' {
+			if r == '\'' {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+			continue
+		}
+		if quote == '"' {
+			if escaped {
+				cur.WriteRune(r)
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				quote = 0
+				continue
+			}
+			cur.WriteRune(r)
+			continue
+		}
+		if escaped {
+			cur.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if unicode.IsSpace(r) {
+			if cur.Len() > 0 {
+				parts = append(parts, cur.String())
+				cur.Reset()
+			}
+			continue
+		}
+		cur.WriteRune(r)
 	}
-	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+	if escaped {
+		return nil, fmt.Errorf("dangling backslash in editor command")
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("unclosed quote in editor command")
+	}
+	if cur.Len() > 0 {
+		parts = append(parts, cur.String())
+	}
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		return nil, fmt.Errorf("empty command")
+	}
+	return parts, nil
 }

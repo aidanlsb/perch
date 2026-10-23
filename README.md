@@ -6,7 +6,7 @@ Perch does not import Raven internals and does not write to the vault.
 
 ## Install
 
-Requires Go 1.22+ and a `rvn` binary on `PATH`.
+Requires Go 1.27.3+ and a `rvn` binary on `PATH`.
 
 ```bash
 go install github.com/aidanlsb/perch/cmd/perch@latest
@@ -31,6 +31,10 @@ perch --vault-path /path/to/vault
 perch --url http://127.0.0.1:7438 --token "$RAVEN_API_TOKEN" --no-start
 perch --poll-interval 2s
 ```
+
+`--url` must be `http` or `https` to a loopback IP (`127.0.0.0/8` or `::1`).
+Hostnames such as `localhost` are rejected so DNS cannot steer the bearer
+token off-box.
 
 Perch requires an `rvn api` that reports an index revision (`GET /v1/revision`,
 Raven PR 312). Older servers are a startup error. The TUI polls that endpoint

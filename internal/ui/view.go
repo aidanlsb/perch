@@ -7,10 +7,15 @@ import (
 
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/frontmatter"
+	"github.com/aidanlsb/perch/internal/termesc"
 	"github.com/charmbracelet/lipgloss"
 )
 
 func (m Model) View() string {
+	return termesc.ForTUI(m.view())
+}
+
+func (m Model) view() string {
 	if m.width == 0 {
 		return "perch"
 	}

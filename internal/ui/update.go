@@ -1062,34 +1062,38 @@ func (m *Model) applySession(sess *api.Session) {
 	}
 }
 
-func (m Model) editorTarget() (path, objectID string, line int) {
+func (m Model) editorTarget() (path, objectID string, line int, err error) {
 	if m.screen == kindNote && m.note != nil {
-		path = editor.FilePath(m.vaultPath, m.note.Path)
+		path, err = editor.FilePath(m.vaultPath, m.note.Path)
 		objectID = m.note.ObjectID
 		line = m.currentNoteLine()
-		return path, objectID, line
+		return path, objectID, line, err
 	}
 	if m.previewOn && m.focus == focusPreview && m.preview != nil {
-		path = editor.FilePath(m.vaultPath, m.preview.Path)
+		path, err = editor.FilePath(m.vaultPath, m.preview.Path)
 		objectID = m.preview.ObjectID
 		line = m.previewLine
-		return path, objectID, line
+		return path, objectID, line, err
 	}
 	if obj := m.selectedObject(); obj != nil {
-		path = editor.FilePath(m.vaultPath, obj.FilePath)
+		path, err = editor.FilePath(m.vaultPath, obj.FilePath)
 		objectID = obj.OpenRef()
 		line = obj.Line
-		if path == "" && objectID != "" {
+		if path == "" && objectID != "" && err == nil {
 			if rd, ok := m.readCache[objectID]; ok {
-				path = editor.FilePath(m.vaultPath, rd.Path)
+				path, err = editor.FilePath(m.vaultPath, rd.Path)
 			}
 		}
 	}
-	return path, objectID, line
+	return path, objectID, line, err
 }
 
 func (m Model) openEditor() (Model, tea.Cmd) {
-	path, objectID, line := m.editorTarget()
+	path, objectID, line, err := m.editorTarget()
+	if err != nil {
+		m.errMsg = err.Error()
+		return m, nil
+	}
 	ed := editor.Resolve(m.editor)
 	cmd, err := editor.CommandLine(ed, path, line)
 	if err != nil {
