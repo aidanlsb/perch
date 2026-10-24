@@ -605,8 +605,8 @@ func (m Model) viewPreview(width, height int) string {
 		innerW := max(1, width-3)
 		used := 1 // pane title
 		if sel := m.p().selectedObject(); sel != nil && !sel.IsFileObject() {
-			if cap := strings.TrimSpace(m.displayTitle(*sel)); cap != "" {
-				body = styleHeader.Render(truncate(cap, innerW)) + "\n"
+			if caption := strings.TrimSpace(m.displayTitle(*sel)); caption != "" {
+				body = styleHeader.Render(truncate(caption, innerW)) + "\n"
 				used++
 			}
 		}
@@ -714,16 +714,15 @@ func (m Model) labeled(obj api.Object) api.Object {
 	return obj
 }
 
-func listColumns(objects []api.Object, fields []string, ts api.TypeSchema) (cols []string, flex int) {
-	flex = -1
+func listColumns(objects []api.Object, fields []string, ts api.TypeSchema) ([]string, int) {
 	if traitRows(objects) {
+		var cols []string
 		if len(fields) == 0 {
 			cols = append([]string{}, api.TraitListColumns...)
 		} else {
 			cols = append([]string{}, fields...)
 		}
-		flex = flexColumnIndex(cols)
-		return cols, flex
+		return cols, flexColumnIndex(cols)
 	}
 	if len(fields) == 0 {
 		fields = defaultFields(ts)
