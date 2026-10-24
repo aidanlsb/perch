@@ -71,11 +71,56 @@ func TestObjectsFromQueryTraitRows(t *testing.T) {
 	if row.Title != "Ship it" {
 		t.Fatalf("title %q", row.Title)
 	}
+	if TraitSource(row) != "projects/raven.md:12" {
+		t.Fatalf("source %q", TraitSource(row))
+	}
 	if got[1].OpenRef() != "projects/raven" {
 		t.Fatalf("section-scoped object_id should bind the file object, got %q", got[1].OpenRef())
 	}
 	if got[1].Line != 28 {
 		t.Fatalf("line %d", got[1].Line)
+	}
+}
+
+func TestTraitTitlePrefersContentNotValueOrID(t *testing.T) {
+	got := ObjectsFromQuery(&QueryResult{
+		QueryKind: "trait",
+		Items: []map[string]any{
+			{
+				"id": "daily/2026-07-06.md:trait:1", "trait_type": "todo", "value": "true",
+				"content": "talk to tax person", "file_path": "daily/2026-07-06.md",
+				"line": 7.0, "object_id": "2026-07-06#tasks",
+			},
+			{
+				"id":         "type/issue/ambiguous-order-submissions-lose-their-idempotency-key.md:trait:0",
+				"trait_type": "priority", "value": "high", "content": "",
+				"file_path": "type/issue/ambiguous-order-submissions-lose-their-idempotency-key.md",
+				"line":      10.0, "object_id": "issue/ambiguous-order-submissions-lose-their-idempotency-key#description",
+			},
+			{
+				"id": "notes/x.md:trait:2", "trait_type": "ref", "value": "people/freya",
+				"content":   "ask [[people/freya|Freya]] about [[projects/raven]] @due(2026-07-01)",
+				"file_path": "notes/x.md", "line": 4.0, "object_id": "notes/x",
+			},
+		},
+	}, TypeSchema{NameField: "name", Fields: map[string]FieldSchema{"name": {Type: "string"}}})
+	if len(got) != 3 {
+		t.Fatalf("%+v", got)
+	}
+	if got[0].Title != "talk to tax person" {
+		t.Fatalf("content title %q", got[0].Title)
+	}
+	if got[1].Title != "ambiguous-order-submissions-lose-their-idempotency-key" {
+		t.Fatalf("empty content should fall back to parent object, got %q", got[1].Title)
+	}
+	if got[1].Title == "high" || got[1].Title == got[1].ID {
+		t.Fatalf("must not use value or raw trait id as title: %q", got[1].Title)
+	}
+	if got[2].Title != "ask Freya about projects/raven @due(2026-07-01)" {
+		t.Fatalf("wikilink title %q", got[2].Title)
+	}
+	if TraitSource(got[0]) != "daily/2026-07-06.md:7" {
+		t.Fatalf("source %q", TraitSource(got[0]))
 	}
 }
 

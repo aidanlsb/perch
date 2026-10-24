@@ -32,6 +32,28 @@ func TestBoardEnumOrderPlusEmpty(t *testing.T) {
 	}
 }
 
+func TestBoardGroupsObservedValuesWithoutSchema(t *testing.T) {
+	objs := []api.Object{
+		{ID: "a", Title: "A", Fields: map[string]any{"value": "high"}},
+		{ID: "b", Title: "B", Fields: map[string]any{"value": "low"}},
+		{ID: "c", Title: "C", Fields: map[string]any{"value": "high"}},
+		{ID: "d", Title: "D"},
+	}
+	cols := Board(objs, "value", api.TypeSchema{})
+	if len(cols) != 3 {
+		t.Fatalf("labels %v", labels(cols))
+	}
+	if cols[0].Key != "high" || len(cols[0].Items) != 2 {
+		t.Fatalf("high %+v", cols[0])
+	}
+	if cols[1].Key != "low" || len(cols[1].Items) != 1 {
+		t.Fatalf("low %+v", cols[1])
+	}
+	if cols[2].Label != emptyLabel || len(cols[2].Items) != 1 {
+		t.Fatalf("empty %+v", cols[2])
+	}
+}
+
 func TestBoardRefAndArray(t *testing.T) {
 	schema := api.TypeSchema{Fields: map[string]api.FieldSchema{
 		"owner": {Type: "ref[]", Target: "person"},

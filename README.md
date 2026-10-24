@@ -58,6 +58,14 @@ For trait, section, and link rows this is the containing file object
 (`object_id` / `file_object_id` / `source_id`), not the row id. A
 section-scoped id (`fileObject#slug`) is bound as the file object.
 
+Trait query rows (`query_kind: "trait"`) show the trait `content` as the
+primary label in list, board, and date views. Wiki-links in content are
+shown as their alias or target, not `[[…]]`. When content is empty, the
+parent note title or object id is used so the row is not blank. List
+columns then show `trait_type`, `value`, and `file_path:line` as
+secondary context; the raw trait id (`path.md:trait:N`) is not a
+column. Preview of a nested row leads with that same label.
+
 A **layout** is a nested split of panels. Each leaf names a view. `split`
 is `row` (side by side) or `col` (stacked). `bind` names the panel whose
 selection fills `{{selected}}` in that panel. Bound panels update as the

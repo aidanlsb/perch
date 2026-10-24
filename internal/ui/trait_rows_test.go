@@ -164,6 +164,19 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 	if row.ID != "projects/raven.md:trait:0" {
 		t.Fatalf("row id %q", row.ID)
 	}
+	if row.Title != "Ship it" {
+		t.Fatalf("title %q", row.Title)
+	}
+	list := m.viewList(left, 80, 8, true)
+	if !strings.Contains(list, "Ship it") {
+		t.Fatalf("list missing content:\n%s", list)
+	}
+	if strings.Contains(list, ":trait:") {
+		t.Fatalf("raw trait id in list:\n%s", list)
+	}
+	if !strings.Contains(list, "priority") || !strings.Contains(list, "high") {
+		t.Fatalf("list missing type/value:\n%s", list)
+	}
 	if row.OpenRef() != "projects/raven" {
 		t.Fatalf("OpenRef %q", row.OpenRef())
 	}
@@ -233,6 +246,10 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 	}
 	if m.previewScroll <= 0 {
 		t.Fatalf("preview should scroll to the trait line, got %d", m.previewScroll)
+	}
+	prev := m.viewPreview(48, 16)
+	if !strings.Contains(prev, "Ship it") {
+		t.Fatalf("preview should lead with trait content:\n%s", prev)
 	}
 
 	m, cmd = m.update(key("enter"))
