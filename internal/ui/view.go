@@ -191,11 +191,7 @@ func (m Model) viewList(v *viewState, width, height int, focused bool) string {
 	if len(v.filtered) == 0 {
 		return styleMuted.Render("no objects")
 	}
-	fields := v.listFields
-	if len(fields) == 0 {
-		fields = defaultFields(m.typeSchemaFor(v))
-	}
-	cols := append([]string{"id"}, fields...)
+	cols, flex := listColumns(v.filtered, v.listFields, m.typeSchemaFor(v))
 	off := v.listOff
 	if v.listCur < off {
 		off = v.listCur
@@ -207,16 +203,16 @@ func (m Model) viewList(v *viewState, width, height int, focused bool) string {
 		off = 0
 	}
 
-	widths := columnWidths(v.filtered, cols, width)
+	widths := columnWidths(v.filtered, cols, width, flex)
 	var b strings.Builder
 	b.WriteString(styleColHead.Render(formatRow(cols, widths)))
 	b.WriteByte('\n')
 	rows := height - 1
 	end := min(len(v.filtered), off+rows)
 	for i := off; i < end; i++ {
-		obj := v.filtered[i]
+		obj := m.labeled(v.filtered[i])
 		cells := rowCells(obj, cols)
-		line := formatRow(cells, widths)
+		line := formatRowFlex(cells, widths, flex)
 		if i == v.listCur {
 			st := styleRowSel
 			if !focused {
@@ -261,7 +257,7 @@ func (m Model) viewBoard(v *viewState, width, height int, focused bool) string {
 			off = v.boardRow - visible + 1
 		}
 		for j := off; j < len(c.Items) && j-off < visible; j++ {
-			label := truncate(c.Items[j].Title, colW)
+			label := truncate(m.displayTitle(c.Items[j]), colW)
 			if i == v.boardCol && j == v.boardRow {
 				st := styleRowSel
 				if !focused {
@@ -288,7 +284,7 @@ func (m Model) viewDate(v *viewState, width, height int, focused bool) string {
 	for si, sec := range v.dateCols {
 		lines = append(lines, styleDateHead.Width(width).Render(fmt.Sprintf("%s  %d", sec.Label, len(sec.Items))))
 		for ri, obj := range sec.Items {
-			label := truncate("  "+obj.Title, width)
+			label := truncate("  "+m.displayTitle(obj), width)
 			if si == v.dateSec && ri == v.dateRow {
 				st := styleRowSel
 				if !focused {
@@ -606,15 +602,25 @@ func (m Model) viewPreview(width, height int) string {
 	case m.preview == nil:
 		body = styleDim.Render("no selection")
 	default:
+		innerW := max(1, width-3)
+		used := 1 // pane title
+		if sel := m.p().selectedObject(); sel != nil && !sel.IsFileObject() {
+			if caption := strings.TrimSpace(m.displayTitle(*sel)); caption != "" {
+				body = styleHeader.Render(truncate(caption, innerW)) + "\n"
+				used++
+			}
+		}
 		head := m.headingFromDoc(m.preview.ObjectID, m.previewDoc)
 		if head == "" {
 			head = m.preview.ObjectID
 		}
-		body = styleHeader.Render(truncate(head, width-3)) + "\n"
+		body += styleHeader.Render(truncate(head, innerW)) + "\n"
+		used++
 		if m.preview.Path != "" {
-			body += styleDim.Render(truncate(m.preview.Path, width-3)) + "\n"
+			body += styleDim.Render(truncate(m.preview.Path, innerW)) + "\n"
+			used++
 		}
-		body += windowLines(m.previewBody, m.previewScroll, max(1, height-3), width-3)
+		body += windowLines(m.previewBody, m.previewScroll, max(1, height-used), innerW)
 	}
 	return box.Render(styleSectionTitle.Render(title) + "\n" + body)
 }
@@ -689,14 +695,77 @@ func (m Model) headingFromDoc(id string, doc frontmatter.Doc) string {
 	return ""
 }
 
+func (m Model) displayTitle(obj api.Object) string {
+	if !obj.IsTrait() || obj.HasTraitContent() {
+		return obj.Title
+	}
+	if parent, ok := m.noteIndex[obj.OpenRef()]; ok {
+		if t := strings.TrimSpace(parent.Title); t != "" && t != parent.ID {
+			return t
+		}
+	}
+	return obj.Title
+}
+
+func (m Model) labeled(obj api.Object) api.Object {
+	if t := m.displayTitle(obj); t != obj.Title {
+		obj.Title = t
+	}
+	return obj
+}
+
+func listColumns(objects []api.Object, fields []string, ts api.TypeSchema) ([]string, int) {
+	if traitRows(objects) {
+		var cols []string
+		if len(fields) == 0 {
+			cols = append([]string{}, api.TraitListColumns...)
+		} else {
+			cols = append([]string{}, fields...)
+		}
+		return cols, flexColumnIndex(cols)
+	}
+	if len(fields) == 0 {
+		fields = defaultFields(ts)
+	}
+	return append([]string{"id"}, fields...), -1
+}
+
+func traitRows(objects []api.Object) bool {
+	return len(objects) > 0 && objects[0].IsTrait()
+}
+
+func flexColumnIndex(cols []string) int {
+	for i, c := range cols {
+		switch c {
+		case "content", "title":
+			return i
+		}
+	}
+	if len(cols) == 0 {
+		return -1
+	}
+	return 0
+}
+
 func rowCells(obj api.Object, cols []string) []string {
 	out := make([]string, len(cols))
+	trait := obj.IsTrait()
 	for i, c := range cols {
-		if c == "id" {
-			out[i] = obj.ID
+		if c == "" {
 			continue
 		}
-		if c == "" {
+		if trait {
+			switch c {
+			case "content", "title":
+				out[i] = obj.Title
+				continue
+			case "source":
+				out[i] = api.TraitSource(obj)
+				continue
+			}
+		}
+		if c == "id" {
+			out[i] = obj.ID
 			continue
 		}
 		if s := api.ScalarString(obj.Fields[c]); s != "" {
@@ -711,18 +780,26 @@ func rowCells(obj api.Object, cols []string) []string {
 }
 
 func formatRow(cells []string, widths []int) string {
+	return formatRowFlex(cells, widths, -1)
+}
+
+func formatRowFlex(cells []string, widths []int, flex int) string {
 	parts := make([]string, len(cells))
 	for i, c := range cells {
 		w := 8
 		if i < len(widths) {
 			w = widths[i]
 		}
-		parts[i] = padTrunc(c, w)
+		p := padTrunc(c, w)
+		if flex >= 0 && i != flex {
+			p = styleDim.Render(p)
+		}
+		parts[i] = p
 	}
 	return strings.Join(parts, "  ")
 }
 
-func columnWidths(objects []api.Object, cols []string, total int) []int {
+func columnWidths(objects []api.Object, cols []string, total, flex int) []int {
 	n := len(cols)
 	if n == 0 {
 		return nil
@@ -735,23 +812,73 @@ func columnWidths(objects []api.Object, cols []string, total int) []int {
 	for i := 0; i < limit; i++ {
 		cells := rowCells(objects[i], cols)
 		for j, cell := range cells {
+			if j == flex {
+				continue
+			}
 			if l := lipgloss.Width(cell); l > w[j] {
-				w[j] = min(36, l)
+				w[j] = min(columnCap(cols[j]), l)
 			}
 		}
+	}
+	gaps := 2 * (n - 1)
+	if flex >= 0 && flex < n {
+		others := 0
+		for i, x := range w {
+			if i != flex {
+				others += x
+			}
+		}
+		remain := total - gaps - others
+		const minFlex = 12
+		if total > 0 && remain < minFlex {
+			avail := max(0, total-gaps-minFlex)
+			if others > 0 && avail < others {
+				scale := float64(avail) / float64(others)
+				for i := range w {
+					if i == flex {
+						continue
+					}
+					w[i] = max(4, int(float64(w[i])*scale))
+				}
+			}
+			others = 0
+			for i, x := range w {
+				if i != flex {
+					others += x
+				}
+			}
+			remain = total - gaps - others
+		}
+		if total <= 0 {
+			w[flex] = minFlex
+		} else {
+			w[flex] = max(4, remain)
+		}
+		return w
 	}
 	sum := 0
 	for _, x := range w {
 		sum += x
 	}
-	sum += 2 * (n - 1)
+	sum += gaps
 	if sum > total && total > 0 {
-		scale := float64(total-2*(n-1)) / float64(sum-2*(n-1))
+		scale := float64(total-gaps) / float64(sum-gaps)
 		for i := range w {
 			w[i] = max(4, int(float64(w[i])*scale))
 		}
 	}
 	return w
+}
+
+func columnCap(col string) int {
+	switch col {
+	case "trait_type", "value":
+		return 14
+	case "source":
+		return 22
+	default:
+		return 36
+	}
 }
 
 func padTrunc(s string, w int) string {

@@ -21,11 +21,12 @@ type Column struct {
 // Board groups objects by an enum or ref field. Enum values keep schema order,
 // then an empty column. Ref columns are discovered from data, sorted, plus empty.
 func Board(objects []api.Object, field string, schema api.TypeSchema) []Column {
-	f, ok := schema.Fields[field]
-	if !ok {
-		return []Column{{Key: "", Label: field, Items: objects}}
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return []Column{{Key: "", Label: "", Items: objects}}
 	}
-	if f.IsEnum() && !f.IsArray() {
+	f, ok := schema.Fields[field]
+	if ok && f.IsEnum() && !f.IsArray() {
 		return enumBoard(objects, field, f.Values)
 	}
 	return refBoard(objects, field)

@@ -139,6 +139,7 @@ func (m Model) onObjects(msg objectsMsg) (Model, tea.Cmd) {
 		return m, m.prefetchCmd()
 	}
 	m.mergeNotes(msg.objects)
+	m.refreshTraitTitles()
 	if m.overlay == overlayPicker && m.pickerKind == pickerNotes {
 		m.rebuildNotePicks()
 		m.refilterPicker()
@@ -153,6 +154,7 @@ func (m Model) onObjects(msg objectsMsg) (Model, tea.Cmd) {
 
 func (m Model) onPrefetch(msg prefetchMsg) (Model, tea.Cmd) {
 	m.mergeNotes(msg.objects)
+	m.refreshTraitTitles()
 	if len(msg.rest) == 0 {
 		return m, nil
 	}
@@ -204,6 +206,7 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 		p.listFields = defaultFields(ts)
 		p.spec.Fields = p.listFields
 	}
+	m.resolveTraitTitles(p.objects)
 	p.applyFilterAndGroup(ts)
 	m.restorePaneCursor(p)
 	p.live = false

@@ -70,6 +70,38 @@ func TestDatePickerRendersMonth(t *testing.T) {
 	}
 }
 
+func sampleTraitRows() []api.Object {
+	return api.ObjectsFromQuery(&api.QueryResult{
+		QueryKind: "trait",
+		Items: []map[string]any{
+			{
+				"id": "daily/2026-07-06.md:trait:1", "trait_type": "todo", "value": "true",
+				"content": "talk to tax person", "file_path": "daily/2026-07-06.md",
+				"line": 7.0, "object_id": "2026-07-06#tasks",
+			},
+			{
+				"id":         "type/issue/ambiguous-order-submissions-lose-their-idempotency-key.md:trait:0",
+				"trait_type": "priority", "value": "high", "content": "",
+				"file_path": "type/issue/ambiguous-order-submissions-lose-their-idempotency-key.md",
+				"line":      10.0, "object_id": "issue/ambiguous-order-submissions-lose-their-idempotency-key#description",
+			},
+			{
+				"id": "notes/x.md:trait:2", "trait_type": "mention", "value": "people/freya",
+				"content":   "ask [[people/freya|Freya]] about the spec",
+				"file_path": "notes/x.md", "line": 4.0, "object_id": "notes/x",
+			},
+		},
+	}, api.TypeSchema{})
+}
+
+func TestTypeListStillLeadsWithID(t *testing.T) {
+	objs := []api.Object{{ID: "projects/a", Title: "Alpha", Kind: "object", Fields: map[string]any{"name": "Alpha"}}}
+	cols, flex := listColumns(objs, []string{"name"}, api.TypeSchema{})
+	if flex != -1 || len(cols) < 2 || cols[0] != "id" || cols[1] != "name" {
+		t.Fatalf("cols=%v flex=%d", cols, flex)
+	}
+}
+
 func TestRowCellsUsesNamedField(t *testing.T) {
 	obj := api.Object{ID: "a", Title: "Title", Type: "item", Fields: map[string]any{"xyz": "X", "name": "N"}}
 	cells := rowCells(obj, []string{"id", "xyz", "name"})
@@ -80,6 +112,138 @@ func TestRowCellsUsesNamedField(t *testing.T) {
 	cells = rowCells(obj2, []string{"id", "title"})
 	if cells[1] != "FieldTitle" {
 		t.Fatalf("title column must read the field, not obj.Title: %v", cells)
+	}
+}
+
+func TestTraitRowCellsUseContentNotID(t *testing.T) {
+	rows := sampleTraitRows()
+	cols, flex := listColumns(rows, nil, api.TypeSchema{})
+	if flex != 0 || len(cols) != 4 || cols[0] != "content" {
+		t.Fatalf("cols=%v flex=%d", cols, flex)
+	}
+	cells := rowCells(rows[0], cols)
+	if cells[0] != "talk to tax person" {
+		t.Fatalf("primary %q", cells[0])
+	}
+	if cells[1] != "todo" || cells[2] != "true" {
+		t.Fatalf("context %v", cells)
+	}
+	if cells[3] != "daily/2026-07-06.md:7" {
+		t.Fatalf("source %q", cells[3])
+	}
+	for _, c := range cells {
+		if strings.Contains(c, ":trait:") {
+			t.Fatalf("raw trait id leaked: %v", cells)
+		}
+	}
+	empty := rowCells(rows[1], cols)
+	if empty[0] != "ambiguous-order-submissions-lose-their-idempotency-key" {
+		t.Fatalf("empty content fallback %q", empty[0])
+	}
+	if empty[0] == "high" {
+		t.Fatal("value must not be the primary label")
+	}
+	wiki := rowCells(rows[2], cols)
+	if wiki[0] != "ask Freya about the spec" {
+		t.Fatalf("wikilink cell %q", wiki[0])
+	}
+}
+
+func TestTraitListGivesContentTheWidth(t *testing.T) {
+	m := loadBrowse(t)
+	p := m.p()
+	p.objects = sampleTraitRows()
+	p.listFields = nil
+	p.spec.Fields = nil
+	p.applyFilterAndGroup(api.TypeSchema{})
+	cols, flex := listColumns(p.filtered, p.listFields, api.TypeSchema{})
+	widths := columnWidths(p.filtered, cols, 80, flex)
+	if flex != 0 || widths[0] < 20 {
+		t.Fatalf("content should be the flex column, widths=%v flex=%d", widths, flex)
+	}
+	if widths[0] <= widths[1] || widths[0] <= widths[2] {
+		t.Fatalf("content narrower than secondary cols: %v", widths)
+	}
+	out := m.viewList(p, 80, 10, true)
+	if !strings.Contains(out, "talk to tax person") {
+		t.Fatalf("missing content:\n%s", out)
+	}
+	if !strings.Contains(out, "ask Freya about the spec") {
+		t.Fatalf("missing wikilink content:\n%s", out)
+	}
+	if !strings.Contains(out, "ambiguous-order-submissions") {
+		t.Fatalf("missing empty-content fallback:\n%s", out)
+	}
+	if strings.Contains(out, ":trait:") {
+		t.Fatalf("raw trait id in list:\n%s", out)
+	}
+	if !strings.Contains(out, "todo") || !strings.Contains(out, "true") {
+		t.Fatalf("missing type/value:\n%s", out)
+	}
+	if !strings.Contains(out, "daily/2026-07-06.md:7") {
+		t.Fatalf("missing source:\n%s", out)
+	}
+}
+
+func TestTraitBoardAndDateUseContentTitle(t *testing.T) {
+	m := loadBrowse(t)
+	p := m.p()
+	p.objects = sampleTraitRows()
+	p.spec.Kind = kindBoard
+	p.spec.GroupBy = "value"
+	p.applyFilterAndGroup(api.TypeSchema{})
+	board := m.viewBoard(p, 80, 12, true)
+	if !strings.Contains(board, "talk to tax person") {
+		t.Fatalf("board missing content:\n%s", board)
+	}
+	if strings.Contains(board, ":trait:") {
+		t.Fatalf("raw trait id on board:\n%s", board)
+	}
+	if !strings.Contains(board, "high") || !strings.Contains(board, "true") {
+		t.Fatalf("board should group by value:\n%s", board)
+	}
+
+	p.spec.Kind = kindDate
+	p.spec.GroupBy = "value"
+	p.spec.Granularity = "day"
+	p.objects = []api.Object{{
+		ID: "n.md:trait:0", Kind: "trait", Title: "pay rent",
+		Fields:   map[string]any{"content": "pay rent", "value": "2026-07-06", "trait_type": "due"},
+		FilePath: "n.md", Line: 3, ObjectID: "n",
+	}}
+	p.applyFilterAndGroup(api.TypeSchema{})
+	dates := m.viewDate(p, 60, 8, true)
+	if !strings.Contains(dates, "pay rent") {
+		t.Fatalf("date missing content:\n%s", dates)
+	}
+	if strings.Contains(dates, ":trait:") {
+		t.Fatalf("raw trait id on date:\n%s", dates)
+	}
+}
+
+func TestTraitEmptyContentUsesParentNoteTitle(t *testing.T) {
+	m := loadBrowse(t)
+	m.noteIndex = map[string]api.Object{
+		"issue/ambiguous-order-submissions-lose-their-idempotency-key": {
+			ID:    "issue/ambiguous-order-submissions-lose-their-idempotency-key",
+			Title: "Ambiguous order submissions",
+		},
+	}
+	row := sampleTraitRows()[1]
+	if got := m.displayTitle(row); got != "Ambiguous order submissions" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestTraitListRespectsConfiguredFields(t *testing.T) {
+	rows := sampleTraitRows()
+	cols, flex := listColumns(rows, []string{"value", "content"}, api.TypeSchema{})
+	if len(cols) != 2 || cols[0] != "value" || flex != 1 {
+		t.Fatalf("cols=%v flex=%d", cols, flex)
+	}
+	cells := rowCells(rows[0], cols)
+	if cells[0] != "true" || cells[1] != "talk to tax person" {
+		t.Fatalf("%v", cells)
 	}
 }
 

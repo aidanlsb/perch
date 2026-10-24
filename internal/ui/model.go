@@ -284,3 +284,19 @@ func (m *Model) mergeNotes(objs []api.Object) {
 		m.noteIndex[o.ID] = o
 	}
 }
+
+func (m *Model) resolveTraitTitles(objects []api.Object) {
+	for i := range objects {
+		objects[i].Title = m.displayTitle(objects[i])
+	}
+}
+
+func (m *Model) refreshTraitTitles() {
+	for _, p := range m.panes {
+		if p == nil || !traitRows(p.objects) {
+			continue
+		}
+		m.resolveTraitTitles(p.objects)
+		p.applyFilterAndGroup(m.typeSchemaFor(p))
+	}
+}

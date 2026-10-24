@@ -37,7 +37,13 @@ func ObjectsFromQuery(q *QueryResult, typeSchema TypeSchema) []Object {
 	}
 	for _, raw := range q.Items {
 		obj := objectFromItem(raw, kind, q.Type)
-		obj.Title = DisplayTitle(obj, typeSchema)
+		if obj.IsTrait() {
+			if obj.Title == "" {
+				obj.Title = obj.ID
+			}
+		} else {
+			obj.Title = DisplayTitle(obj, typeSchema)
+		}
 		out = append(out, obj)
 	}
 	return out
@@ -72,11 +78,15 @@ func objectFromItem(raw map[string]any, kind, typeName string) Object {
 			}
 		}
 	}
-	if obj.Title == "" {
-		obj.Title = firstLine(firstString(raw, "title", "content", "display"))
-	}
-	if obj.Title == "" {
-		obj.Title = firstLine(ScalarString(raw["value"]))
+	if obj.IsTrait() {
+		obj.Title = TraitTitle(raw, obj)
+	} else {
+		if obj.Title == "" {
+			obj.Title = firstLine(firstString(raw, "title", "content", "display"))
+		}
+		if obj.Title == "" {
+			obj.Title = firstLine(ScalarString(raw["value"]))
+		}
 	}
 	if obj.ID == "" {
 		obj.ID = obj.ObjectID
