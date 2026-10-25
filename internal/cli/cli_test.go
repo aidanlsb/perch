@@ -189,6 +189,31 @@ layout = { kind = "list" }
 	}
 }
 
+func TestLayoutsAddInlineTypeQueryPanel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.toml")
+	add := runJSON(t, "layouts", "add", "ws", "--split", "row",
+		"--panel", "type=item,id=projects,kind=board,group_by=state",
+		"--panel", "query=inbox,bind=projects,kind=list",
+		"--config", path)
+	if !add.OK {
+		t.Fatalf("%+v", add)
+	}
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaves := f.Layouts["ws"].Leaves()
+	if len(leaves) != 2 {
+		t.Fatalf("%+v", leaves)
+	}
+	if leaves[0].Type != "item" || leaves[0].LeafID() != "projects" || leaves[0].Layout.Kind != config.KindBoard {
+		t.Fatalf("type panel %+v", leaves[0])
+	}
+	if leaves[1].Query != "inbox" || leaves[1].Bind != "projects" {
+		t.Fatalf("query panel %+v", leaves[1])
+	}
+}
+
 func TestLayoutsAddFromTOMLAndJSON(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]

@@ -18,12 +18,15 @@ const layoutsUsage = `perch layouts list|show <name>|add <name>|rm <name>
 
 add flags:
   --split row|col      Default row
-  --panel view=name    Repeatable. Also view=name,bind=other
+  --panel spec         Repeatable. view=name[,bind=other]
+                       or type=name / query=name with optional
+                       id, bind, kind, group_by, fields, inputs
   --from snippet       TOML or JSON body, or a file path, or -
 
 Nested splits belong in --from. Example:
 
   perch layouts add workspace --split row --panel view=projects --panel view=tasks,bind=projects
+  perch layouts add workspace --split row --panel type=item,id=projects,kind=board,group_by=state --panel query=inbox,bind=projects
   perch layouts add workspace --from 'split = "row"\npanels = [ { view = "projects" } ]'
 `
 
@@ -95,7 +98,7 @@ func layoutsList(path string) (any, string, error) {
 		items = append(items, layoutData(name, l, f.LayoutLine(name)))
 		var views []string
 		for _, p := range l.Leaves() {
-			views = append(views, p.View)
+			views = append(views, p.Summary())
 		}
 		lines = append(lines, fmt.Sprintf("%s\t%s\t%s", name, l.Split, strings.Join(views, ",")))
 	}

@@ -85,11 +85,11 @@ layout = { kind = "board", group_by = "status" }
 	}
 }
 
-func TestStartupOpensTypePickerWhenNoViews(t *testing.T) {
+func TestStartupOpensNavWhenNoViews(t *testing.T) {
 	m := NewModel(Options{Config: &config.File{}})
 	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
-	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
-		t.Fatalf("overlay=%v kind=%v, want type picker", m.overlay, m.pickerKind)
+	if m.overlay != overlayPicker || m.pickerKind != pickerNav {
+		t.Fatalf("overlay=%v kind=%v, want navigation menu", m.overlay, m.pickerKind)
 	}
 	if m.currentView != "" || m.p().typeName != "" {
 		t.Fatalf("must not auto-load a schema type, view=%q type=%q", m.currentView, m.p().typeName)
@@ -97,17 +97,66 @@ func TestStartupOpensTypePickerWhenNoViews(t *testing.T) {
 	if m.screen == kindNote {
 		t.Fatal("must not open a note")
 	}
-	foundType := false
-	for _, it := range m.pickerHit {
-		if it.Label == "section" {
-			t.Fatal("section should be omitted")
+	want := []string{"types", "saved queries", "daily note", "find notes", "content search", "open config"}
+	got := labelsOf(m.pickerHit)
+	for _, label := range want {
+		found := false
+		for _, g := range got {
+			if g == label {
+				found = true
+				break
+			}
 		}
-		if it.Label == "person" || it.Label == "project" {
-			foundType = true
+		if !found {
+			t.Fatalf("nav missing %q in %v", label, got)
 		}
 	}
-	if !foundType {
-		t.Fatalf("types in picker %v", labelsOf(m.pickerHit))
+	for _, g := range got {
+		if g == "views & layouts" {
+			t.Fatalf("no views configured, should hide views item: %v", got)
+		}
+	}
+}
+
+func TestStartupOpensLayoutWhenNoViews(t *testing.T) {
+	f, err := config.Parse("config.toml", `
+[layouts.only]
+split = "row"
+panels = [ { type = "project", layout = { kind = "list" } } ]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(Options{Config: f})
+	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.overlay != overlayNone {
+		t.Fatalf("overlay %v, want layout", m.overlay)
+	}
+	if m.currentLayout != "only" {
+		t.Fatalf("layout %q", m.currentLayout)
+	}
+	if m.p().typeName != "project" {
+		t.Fatalf("type %s", m.p().typeName)
+	}
+	if cmd == nil {
+		t.Fatal("expected query")
+	}
+}
+
+func TestEmptyNavEscStaysOpen(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{}})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	m, _ = m.update(key("esc"))
+	if m.overlay != overlayPicker || m.pickerKind != pickerNav {
+		t.Fatalf("esc on empty nav should stay, overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+	m, _ = m.update(key("enter"))
+	if m.pickerKind != pickerTypes {
+		t.Fatalf("enter types, got %v", m.pickerKind)
+	}
+	m, _ = m.update(key("esc"))
+	if m.overlay != overlayPicker || m.pickerKind != pickerNav {
+		t.Fatalf("esc from types while empty should return to nav, overlay=%v kind=%v", m.overlay, m.pickerKind)
 	}
 }
 
@@ -223,7 +272,7 @@ func TestBoardFromNamedView(t *testing.T) {
 
 func TestSavedQueryArgsPrompt(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = m.update(key("q"))
+	m, _ = pressLeader(m, "q")
 	for i, it := range m.pickerHit {
 		if it.Label == "need" {
 			m.pickerCur = i
@@ -276,6 +325,11 @@ func TestQuit(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("quit")
 	}
+}
+
+func pressLeader(m Model, k string) (Model, tea.Cmd) {
+	m, _ = m.update(key(" "))
+	return m.update(key(k))
 }
 
 func key(s string) tea.KeyMsg {

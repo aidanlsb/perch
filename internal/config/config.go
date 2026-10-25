@@ -29,9 +29,14 @@ layout = { kind = "list" }
 
 [layouts.workspace]
 split = "row"
-panels = [ { view = "projects" }, { view = "tasks", bind = "projects" } ]
+panels = [
+  { view = "projects" },
+  { type = "task", bind = "projects", layout = { kind = "list" } },
+  { query = "inbox", id = "inbox", layout = { kind = "list" } },
+]
 
-Exactly one of type (a schema type name) or query (a Raven saved query name) is required.
+A view requires exactly one of type (a schema type name) or query (a Raven saved query name).
+A layout panel is a named view, or that same type/query plus layout inline.
 Inline RQL is not allowed in config. kind is list, board, or date. See examples/config.toml.`
 
 const legacyRemoved = `[[types.*.layouts]] and [[queries.*.layouts]] were removed.
@@ -75,18 +80,26 @@ type Present struct {
 	Granularity string   `toml:"granularity" json:"granularity,omitempty"`
 }
 
-// Layout is [layouts.<name>]: a nested split of panels that reference views.
+// Layout is [layouts.<name>]: a nested split of panels. Each leaf is a named
+// view, or an inline type or saved query (with optional layout / inputs / id).
 type Layout struct {
 	Split  string  `toml:"split" json:"split"`
 	Panels []Panel `toml:"panels" json:"panels"`
 }
 
-// Panel is a leaf ({ view, bind }) or a nested split ({ split, panels }).
+// Panel is a leaf or a nested split ({ split, panels }). A leaf is exactly one of:
+// view (a [views.<name>]), type (schema type), or query (saved query).
 type Panel struct {
-	View   string  `toml:"view" json:"view,omitempty"`
-	Bind   string  `toml:"bind" json:"bind,omitempty"`
-	Split  string  `toml:"split" json:"split,omitempty"`
-	Panels []Panel `toml:"panels" json:"panels,omitempty"`
+	View   string            `toml:"view" json:"view,omitempty"`
+	Type   string            `toml:"type" json:"type,omitempty"`
+	Query  string            `toml:"query" json:"query,omitempty"`
+	Inputs map[string]string `toml:"inputs" json:"inputs,omitempty"`
+	Layout Present           `toml:"layout" json:"layout,omitempty"`
+	ID     string            `toml:"id" json:"id,omitempty"`
+	Name   string            `toml:"name" json:"name,omitempty"`
+	Bind   string            `toml:"bind" json:"bind,omitempty"`
+	Split  string            `toml:"split" json:"split,omitempty"`
+	Panels []Panel           `toml:"panels" json:"panels,omitempty"`
 }
 
 const (
@@ -307,68 +320,184 @@ func normalizePanels(in []Panel) ([]Panel, error) {
 
 func (p Panel) normalize() (Panel, error) {
 	p.View = strings.TrimSpace(p.View)
+	p.Type = strings.TrimSpace(p.Type)
+	p.Query = strings.TrimSpace(p.Query)
+	p.ID = strings.TrimSpace(p.ID)
+	p.Name = strings.TrimSpace(p.Name)
 	p.Bind = strings.TrimSpace(p.Bind)
 	p.Split = strings.ToLower(strings.TrimSpace(p.Split))
-	leaf := p.View != ""
-	split := p.Split != "" || len(p.Panels) > 0
-	if leaf && split {
-		return p, fmt.Errorf("panel cannot set both view and split")
+	if p.ID != "" && p.Name != "" && p.ID != p.Name {
+		return p, fmt.Errorf("id and name must match (got %q and %q)", p.ID, p.Name)
 	}
-	if !leaf && !split {
-		return p, fmt.Errorf("panel needs view or split")
+	if p.Inputs != nil {
+		clean := make(map[string]string, len(p.Inputs))
+		for k, val := range p.Inputs {
+			k = strings.TrimSpace(k)
+			if k == "" {
+				continue
+			}
+			clean[k] = val
+		}
+		p.Inputs = clean
 	}
-	if leaf {
-		if p.Split != "" || len(p.Panels) > 0 {
-			return p, fmt.Errorf("view panel %q cannot nest panels", p.View)
+
+	hasView := p.View != ""
+	hasType := p.Type != ""
+	hasQuery := p.Query != ""
+	hasSplit := p.Split != "" || len(p.Panels) > 0
+	n := 0
+	if hasView {
+		n++
+	}
+	if hasType {
+		n++
+	}
+	if hasQuery {
+		n++
+	}
+	if hasSplit {
+		n++
+	}
+	if n > 1 {
+		return p, fmt.Errorf("panel cannot mix view, type, query, and split")
+	}
+	if n == 0 {
+		return p, fmt.Errorf("panel needs view, type, query, or split")
+	}
+	if hasSplit {
+		if p.Bind != "" {
+			return p, fmt.Errorf("bind is only valid on a leaf panel")
+		}
+		if p.ID != "" || p.Name != "" {
+			return p, fmt.Errorf("id/name is only valid on a leaf panel")
+		}
+		if len(p.Inputs) > 0 || !p.Layout.isZero() {
+			return p, fmt.Errorf("split panel cannot set inputs or layout")
+		}
+		if p.Split == "" {
+			p.Split = SplitRow
+		}
+		if p.Split != SplitRow && p.Split != SplitCol {
+			return p, fmt.Errorf("split must be row or col, got %q", p.Split)
+		}
+		if len(p.Panels) == 0 {
+			return p, fmt.Errorf("split panel requires panels")
+		}
+		var err error
+		p.Panels, err = normalizePanels(p.Panels)
+		return p, err
+	}
+	if p.Split != "" || len(p.Panels) > 0 {
+		return p, fmt.Errorf("leaf panel cannot nest panels")
+	}
+	if hasView {
+		if !p.Layout.isZero() {
+			return p, fmt.Errorf("view panel cannot set layout (set it on the view)")
+		}
+		if len(p.Inputs) > 0 {
+			return p, fmt.Errorf("view panel cannot set inputs (set them on the view)")
 		}
 		return p, nil
 	}
-	if p.Split == "" {
-		p.Split = SplitRow
+	np, err := p.Layout.normalize()
+	if err != nil {
+		return p, err
 	}
-	if p.Split != SplitRow && p.Split != SplitCol {
-		return p, fmt.Errorf("split must be row or col, got %q", p.Split)
+	p.Layout = np
+	return p, nil
+}
+
+func (p Present) isZero() bool {
+	return p.Kind == "" && p.GroupBy == "" && len(p.Fields) == 0 && p.Sort == "" && p.Filter == "" && p.Granularity == ""
+}
+
+// IsLeaf reports whether the panel is a view, type, or query (not a split).
+func (p Panel) IsLeaf() bool {
+	return p.View != "" || p.Type != "" || p.Query != ""
+}
+
+// LeafID is the panel id used for focus, bind, and uniqueness.
+// Prefer id, then name, then view, then type:<type> or query:<query>.
+func (p Panel) LeafID() string {
+	if p.ID != "" {
+		return p.ID
 	}
-	if p.Bind != "" {
-		return p, fmt.Errorf("bind is only valid on a view panel")
+	if p.Name != "" {
+		return p.Name
 	}
-	if len(p.Panels) == 0 {
-		return p, fmt.Errorf("split panel requires panels")
+	if p.View != "" {
+		return p.View
 	}
-	var err error
-	p.Panels, err = normalizePanels(p.Panels)
-	return p, err
+	if p.Type != "" {
+		return "type:" + p.Type
+	}
+	if p.Query != "" {
+		return "query:" + p.Query
+	}
+	return ""
+}
+
+// AsView is the view this panel loads: a named [views.*] or an inline type/query.
+func (p Panel) AsView(views map[string]View) View {
+	if p.View != "" {
+		if views == nil {
+			return View{}
+		}
+		return views[p.View]
+	}
+	return View{Type: p.Type, Query: p.Query, Inputs: p.Inputs, Layout: p.Layout}
+}
+
+// Summary is a short label for CLI lists (view name, type:x, or query:x).
+func (p Panel) Summary() string {
+	switch {
+	case p.View != "":
+		return p.View
+	case p.Query != "":
+		return "query:" + p.Query
+	case p.Type != "":
+		return "type:" + p.Type
+	default:
+		return p.LeafID()
+	}
 }
 
 func validateLayoutTree(name string, l Layout, views map[string]View) error {
 	leaves := l.Leaves()
 	if len(leaves) == 0 {
-		return fmt.Errorf("layouts.%s: no view panels", name)
+		return fmt.Errorf("layouts.%s: no panels", name)
 	}
 	seen := map[string]struct{}{}
 	ids := map[string]struct{}{}
 	for _, p := range leaves {
-		if _, ok := views[p.View]; !ok {
-			return fmt.Errorf("layouts.%s: unknown view %q", name, p.View)
+		id := p.LeafID()
+		if id == "" {
+			return fmt.Errorf("layouts.%s: panel needs id, name, view, type, or query", name)
 		}
-		if _, ok := seen[p.View]; ok {
-			return fmt.Errorf("layouts.%s: duplicate view %q", name, p.View)
+		if p.View != "" {
+			if _, ok := views[p.View]; !ok {
+				return fmt.Errorf("layouts.%s: unknown view %q", name, p.View)
+			}
 		}
-		seen[p.View] = struct{}{}
-		ids[p.View] = struct{}{}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("layouts.%s: duplicate panel %q", name, id)
+		}
+		seen[id] = struct{}{}
+		ids[id] = struct{}{}
 	}
 	binds := map[string]string{}
 	for _, p := range leaves {
 		if p.Bind == "" {
 			continue
 		}
-		if p.Bind == p.View {
-			return fmt.Errorf("layouts.%s: panel %q cannot bind to itself", name, p.View)
+		id := p.LeafID()
+		if p.Bind == id {
+			return fmt.Errorf("layouts.%s: panel %q cannot bind to itself", name, id)
 		}
 		if _, ok := ids[p.Bind]; !ok {
-			return fmt.Errorf("layouts.%s: panel %q bind %q is not a panel in this layout", name, p.View, p.Bind)
+			return fmt.Errorf("layouts.%s: panel %q bind %q is not a panel in this layout", name, id, p.Bind)
 		}
-		binds[p.View] = p.Bind
+		binds[id] = p.Bind
 	}
 	if err := bindCycles(binds); err != nil {
 		return fmt.Errorf("layouts.%s: %w", name, err)
@@ -409,7 +538,7 @@ func bindCycles(binds map[string]string) error {
 	return nil
 }
 
-// Leaves returns view panels in depth-first order.
+// Leaves returns leaf panels in depth-first order.
 func (l Layout) Leaves() []Panel {
 	return flattenPanels(l.Panels)
 }
@@ -417,7 +546,7 @@ func (l Layout) Leaves() []Panel {
 func flattenPanels(ps []Panel) []Panel {
 	var out []Panel
 	for _, p := range ps {
-		if p.View != "" {
+		if p.IsLeaf() {
 			out = append(out, p)
 			continue
 		}
@@ -523,6 +652,28 @@ func (f *File) LayoutNames() []string {
 	return names
 }
 
+// LayoutsInOrder returns layout names in config file order (table appearance).
+func (f *File) LayoutsInOrder() []string {
+	names := f.LayoutNames()
+	if f == nil || len(names) <= 1 {
+		return names
+	}
+	sort.SliceStable(names, func(i, j int) bool {
+		li, lj := f.layoutLine(names[i]), f.layoutLine(names[j])
+		if li == lj {
+			return names[i] < names[j]
+		}
+		if li == 0 {
+			return false
+		}
+		if lj == 0 {
+			return true
+		}
+		return li < lj
+	})
+	return names
+}
+
 // ReferencingLayouts returns layout names that include view, sorted.
 func (f *File) ReferencingLayouts(view string) []string {
 	if f == nil {
@@ -574,6 +725,17 @@ func (f *File) Validate(schema api.Schema) []string {
 			warns = append(warns, f.formatViewIssue(name, msg))
 		}
 	}
+	for _, name := range f.LayoutNames() {
+		for _, p := range f.Layouts[name].Leaves() {
+			if p.View != "" {
+				continue
+			}
+			prefix := "layouts." + name + "." + p.LeafID()
+			for _, msg := range validateView(prefix, p.AsView(nil), schema) {
+				warns = append(warns, f.formatLayoutIssue(name, msg))
+			}
+		}
+	}
 	return warns
 }
 
@@ -582,6 +744,15 @@ func (f *File) formatViewIssue(name, msg string) string {
 	if f != nil {
 		e.Path = f.Path
 		e.Line = f.viewLine(name)
+	}
+	return e.Error()
+}
+
+func (f *File) formatLayoutIssue(name, msg string) string {
+	e := &Error{Msg: msg}
+	if f != nil {
+		e.Path = f.Path
+		e.Line = f.layoutLine(name)
 	}
 	return e.Error()
 }

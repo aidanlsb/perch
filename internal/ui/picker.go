@@ -22,6 +22,29 @@ type pickItem struct {
 	Index  int
 }
 
+func (m Model) openNavPicker() (Model, tea.Cmd) {
+	m.overlay = overlayPicker
+	m.pickerKind = pickerNav
+	m.pickerQ = ""
+	m.pickerCur = 0
+	var items []pickItem
+	hasViews := m.cfg != nil && (len(m.cfg.Views) > 0 || len(m.cfg.Layouts) > 0)
+	if hasViews {
+		items = append(items, pickItem{Kind: pickerNav, Label: "views & layouts", Sub: "saved views and panel layouts", ID: "nav:views"})
+	}
+	items = append(items,
+		pickItem{Kind: pickerNav, Label: "types", Sub: "schema types as a list", ID: "nav:types"},
+		pickItem{Kind: pickerNav, Label: "saved queries", Sub: "from rvn", ID: "nav:queries"},
+		pickItem{Kind: pickerNav, Label: "daily note", Sub: "today / pick a date", ID: "nav:daily"},
+		pickItem{Kind: pickerNav, Label: "find notes", Sub: "fuzzy notes picker", ID: "nav:notes"},
+		pickItem{Kind: pickerNav, Label: "content search", Sub: "full-text search", ID: "nav:search"},
+		pickItem{Kind: pickerNav, Label: "open config", Sub: "edit perch config", ID: "nav:config"},
+	)
+	m.pickerAll = items
+	m.refilterPicker()
+	return m, nil
+}
+
 func (m Model) openTypePicker() (Model, tea.Cmd) {
 	m.overlay = overlayPicker
 	m.pickerKind = pickerTypes
@@ -228,6 +251,8 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 	it := m.pickerHit[m.pickerCur]
 	m.overlay = overlayNone
 	switch m.pickerKind {
+	case pickerNav:
+		return m.confirmNav(it)
 	case pickerTypes:
 		return m.loadType(it.Type)
 	case pickerQueries:
@@ -256,6 +281,27 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 			id = it.Object.ID
 		}
 		return m.openNote(id)
+	}
+}
+
+func (m Model) confirmNav(it pickItem) (Model, tea.Cmd) {
+	switch it.ID {
+	case "nav:views":
+		return m.openViewsPicker()
+	case "nav:types":
+		return m.openTypePicker()
+	case "nav:queries":
+		return m.openQueryPicker()
+	case "nav:daily":
+		return m.openDatePicker()
+	case "nav:notes":
+		return m.openNotesPicker()
+	case "nav:search":
+		return m.openSearchPicker()
+	case "nav:config":
+		return m.openConfigAtView()
+	default:
+		return m, nil
 	}
 }
 
@@ -289,10 +335,9 @@ func (m Model) keysArgs(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
 	switch key {
 	case "esc":
-		m.overlay = overlayNone
 		m.argsQuery = nil
 		m.argsBuf = ""
-		return m, nil
+		return m.dismissOverlay()
 	case "enter":
 		return m.commitArg()
 	case "backspace":
@@ -344,6 +389,12 @@ func (m Model) keysPicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	switch key {
 	case "esc", "q":
+		if m.pickerKind == pickerNav && m.isEmpty() {
+			return m, nil
+		}
+		if m.pickerKind != pickerNav && m.isEmpty() {
+			return m.openNavPicker()
+		}
 		m.overlay = overlayNone
 		return m, nil
 	case "enter":

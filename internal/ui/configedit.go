@@ -191,5 +191,8 @@ func (m Model) onConfigEditorDone(msg editorDoneMsg) (Model, tea.Cmd) {
 			return m.loadNamedView(m.currentView)
 		}
 	}
+	if m.isEmpty() {
+		return m.openInitial()
+	}
 	return m.refresh()
 }

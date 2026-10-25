@@ -136,7 +136,7 @@ func TestSlashNotSwallowedByPendingOrDigits(t *testing.T) {
 
 func TestSlashInPickerTypesIntoQuery(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = m.update(key("t"))
+	m, _ = pressLeader(m, "t")
 	if m.overlay != overlayPicker {
 		t.Fatal("picker")
 	}

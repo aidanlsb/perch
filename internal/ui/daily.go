@@ -29,8 +29,7 @@ func (m Model) keysDate(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
 	switch key {
 	case "esc", "q":
-		m.overlay = overlayNone
-		return m, nil
+		return m.dismissOverlay()
 	case "enter":
 		return m.openDailyDate(m.dateCur)
 	case "h", "left":

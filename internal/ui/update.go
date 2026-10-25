@@ -105,18 +105,46 @@ func (m Model) openNamed(name string) (Model, tea.Cmd) {
 }
 
 // openInitial loads the first configured view in file order as that view's
-// list, board, or date. With no views configured, the type picker opens.
-// Schema type names are never chosen automatically.
+// list, board, or date. With no views, the first layout. With neither, the
+// navigation menu. Schema type names are never chosen automatically.
 func (m Model) openInitial() (Model, tea.Cmd) {
 	if m.cfg != nil {
 		if names := m.cfg.ViewsInOrder(); len(names) > 0 {
 			return m.loadNamedView(names[0])
 		}
+		if names := m.cfg.LayoutsInOrder(); len(names) > 0 {
+			return m.loadNamedLayout(names[0])
+		}
 	}
+	return m.openEmptyNav()
+}
+
+func (m Model) openEmptyNav() (Model, tea.Cmd) {
 	m.needPrefetch = false
 	m.corpusLoading = true
-	m, _ = m.openTypePicker()
+	m, _ = m.openNavPicker()
 	return m, m.corpusCmd()
+}
+
+func (m Model) isEmpty() bool {
+	if m.currentLayout != "" || m.currentView != "" {
+		return false
+	}
+	if m.screen == kindNote {
+		return false
+	}
+	if len(m.panes) == 0 {
+		return true
+	}
+	for _, p := range m.panes {
+		if p == nil {
+			continue
+		}
+		if p.viewName != "" || p.typeName != "" || p.sourceIsQuery || strings.TrimSpace(p.sourceQuery) != "" || strings.TrimSpace(p.sourceBase) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (m Model) corpusCmd() tea.Cmd {
@@ -458,6 +486,9 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case overlaySave:
 		return m.keysSave(msg)
 	}
+	if m.pending == "space" {
+		return m.keysLeader(msg)
+	}
 	if key == "e" {
 		return m.openEditor()
 	}
@@ -499,31 +530,47 @@ func (m Model) keysHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) navHotkey(key string) (Model, tea.Cmd, bool) {
+func (m Model) startLeader() (Model, tea.Cmd) {
+	m.pending = "space"
+	return m, nil
+}
+
+func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
+	m.pending = ""
+	if isSlash(msg) {
+		return m.startSearch()
+	}
+	if isSpace(msg) {
+		return m.openNavPicker()
+	}
+	key := keyIdent(msg)
 	switch key {
 	case "t":
-		m, cmd := m.openTypePicker()
-		return m, cmd, true
+		return m.openTypePicker()
 	case "d":
-		m, cmd := m.openDatePicker()
-		return m, cmd, true
+		return m.openDatePicker()
 	case "q":
-		m, cmd := m.openQueryPicker()
-		return m, cmd, true
+		return m.openQueryPicker()
 	case "v":
-		m, cmd := m.openViewsPicker()
-		return m, cmd, true
+		return m.openViewsPicker()
 	case "f":
-		m, cmd := m.openNotesPicker()
-		return m, cmd, true
+		return m.openNotesPicker()
 	case "s":
-		m, cmd := m.openSearchPicker()
-		return m, cmd, true
+		return m.openSearchPicker()
 	case ",":
-		m, cmd := m.openConfigAtView()
-		return m, cmd, true
+		return m.openConfigAtView()
+	case "esc":
+		return m, nil
 	}
-	return m, nil, false
+	return m, nil
+}
+
+func (m Model) dismissOverlay() (Model, tea.Cmd) {
+	m.overlay = overlayNone
+	if m.isEmpty() {
+		return m.openNavPicker()
+	}
+	return m, nil
 }
 
 func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -592,8 +639,8 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if isSlash(msg) {
 		return m.startSearch()
 	}
-	if next, cmd, ok := m.navHotkey(key); ok {
-		return next, cmd
+	if isSpace(msg) {
+		return m.startLeader()
 	}
 	switch key {
 	case "esc":
@@ -602,9 +649,14 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.searchHits = nil
 			m.applyFilterAndGroup()
 		}
+		if m.isEmpty() {
+			return m.openNavPicker()
+		}
 		return m, nil
 	case "ctrl+p":
 		return m.openNotesPicker()
+	case ",":
+		return m.openConfigAtView()
 	case "S":
 		return m.startSaveView()
 	case "n":
@@ -764,10 +816,12 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if isSlash(msg) {
 		return m.startSearch()
 	}
-	if next, cmd, ok := m.navHotkey(key); ok {
-		return next, cmd
+	if isSpace(msg) {
+		return m.startLeader()
 	}
 	switch key {
+	case ",":
+		return m.openConfigAtView()
 	case "esc", "backspace":
 		m.screen = "browse"
 		m.note = nil

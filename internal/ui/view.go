@@ -455,6 +455,8 @@ func (m Model) viewHelp() string {
 func (m Model) viewPicker() string {
 	title := "types"
 	switch m.pickerKind {
+	case pickerNav:
+		title = "navigate"
 	case pickerQueries:
 		title = "saved queries"
 	case pickerNotes:
