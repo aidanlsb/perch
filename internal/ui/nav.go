@@ -72,8 +72,7 @@ func (m Model) loadNamedLayout(name string) (Model, tea.Cmd) {
 	m.panes = nil
 	var cmds []tea.Cmd
 	for _, leaf := range l.Leaves() {
-		v := m.cfg.Views[leaf.View]
-		p := m.paneFromView(leaf.View, v, leaf.Bind)
+		p := m.paneFromPanel(leaf)
 		m.panes = append(m.panes, p)
 		if p.bind == "" {
 			var cmd tea.Cmd
@@ -96,6 +95,35 @@ func (m *Model) paneFromView(name string, v config.View, bind string) *viewState
 		bind:        bind,
 		spec:        spec,
 		sourceLabel: name,
+	}
+	applyViewSource(p, m.schema, v)
+	p.applySpec(spec, m.typeSchemaFor(p))
+	return p
+}
+
+func (m *Model) paneFromPanel(leaf config.Panel) *viewState {
+	id := leaf.LeafID()
+	v := leaf.AsView(nil)
+	viewName := ""
+	if m.cfg != nil && leaf.View != "" {
+		v = leaf.AsView(m.cfg.Views)
+		viewName = leaf.View
+	}
+	spec := v.Spec(id)
+	label := id
+	if viewName != "" {
+		label = viewName
+	} else if v.Query != "" {
+		label = v.Query
+	} else if v.Type != "" {
+		label = v.Type
+	}
+	p := &viewState{
+		id:          id,
+		viewName:    viewName,
+		bind:        leaf.Bind,
+		spec:        spec,
+		sourceLabel: label,
 	}
 	applyViewSource(p, m.schema, v)
 	p.applySpec(spec, m.typeSchemaFor(p))

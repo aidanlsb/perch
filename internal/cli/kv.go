@@ -10,7 +10,7 @@ import (
 	"github.com/aidanlsb/perch/internal/config"
 )
 
-var layoutKey = regexp.MustCompile(`(?:^|,)(kind|group_by|group-by|granularity|sort|filter|fields|view|name|source)=`)
+var layoutKey = regexp.MustCompile(`(?:^|,)(kind|group_by|group-by|granularity|sort|filter|fields|view|name|source|type|query|id|bind|inputs|split)=`)
 
 func parseKVList(vals []string) (map[string]string, error) {
 	out := map[string]string{}
@@ -152,17 +152,40 @@ func splitFields(s string) []string {
 }
 
 func parsePanelFlag(s string) (config.Panel, error) {
-	kv, err := splitSimpleKV(s)
+	kv, err := splitLayoutKV(s)
 	if err != nil {
 		return config.Panel{}, err
 	}
 	p := config.Panel{
 		View:  kv["view"],
+		Type:  kv["type"],
+		Query: kv["query"],
 		Bind:  kv["bind"],
 		Split: kv["split"],
+		ID:    kv["id"],
+		Name:  kv["name"],
 	}
-	if p.View == "" && p.Split == "" && len(p.Panels) == 0 {
-		return config.Panel{}, fail(CodeInvalidInput, "panel needs view= or split=")
+	if raw := kv["inputs"]; raw != "" {
+		ins, err := splitSimpleKV(raw)
+		if err != nil {
+			return config.Panel{}, err
+		}
+		p.Inputs = ins
+	}
+	if kind := kv["kind"]; kind != "" || kv["group_by"] != "" || kv["fields"] != "" || kv["sort"] != "" || kv["filter"] != "" || kv["granularity"] != "" {
+		p.Layout = config.Present{
+			Kind:        kind,
+			GroupBy:     firstKV(kv, "group_by", "group-by"),
+			Granularity: kv["granularity"],
+			Sort:        kv["sort"],
+			Filter:      kv["filter"],
+		}
+		if f := kv["fields"]; f != "" {
+			p.Layout.Fields = splitFields(f)
+		}
+	}
+	if p.View == "" && p.Type == "" && p.Query == "" && p.Split == "" && len(p.Panels) == 0 {
+		return config.Panel{}, fail(CodeInvalidInput, "panel needs view=, type=, query=, or split=")
 	}
 	return p, nil
 }

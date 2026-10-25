@@ -20,12 +20,12 @@ func TestKeymapHelpRenders(t *testing.T) {
 		t.Fatal("help")
 	}
 	out := m.View()
-	for _, want := range []string{"ctrl+c", "ctrl-h/j/k/l", "type picker", "daily-note date picker", "full-text content search", "fuzzy search"} {
+	for _, want := range []string{"ctrl+c", "ctrl-h/j/k/l", "space t", "type picker", "daily-note date picker", "full-text content search", "fuzzy search", "navigation menu"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help missing %q in %s", want, out)
 		}
 	}
-	for _, old := range []string{"ctrl-b", "ctrl-e", "space st", "space sd", "space sg", "space t", "space q", "space f", "space l", "space c", "leader"} {
+	for _, old := range []string{"ctrl-b", "ctrl-e", "space st", "space sd", "space sg", "space l", "space c"} {
 		if strings.Contains(out, old) {
 			t.Fatalf("help still lists removed key %q", old)
 		}
@@ -34,7 +34,7 @@ func TestKeymapHelpRenders(t *testing.T) {
 
 func TestTypeAndQueryPickers(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = m.update(key("t"))
+	m, _ = pressLeader(m, "t")
 	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
 		t.Fatalf("types overlay %+v", m.overlay)
 	}
@@ -58,7 +58,7 @@ func TestTypeAndQueryPickers(t *testing.T) {
 		t.Fatalf("source=%s kind=%s group=%s", p.sourceQuery, p.spec.Kind, p.groupBy)
 	}
 
-	m, _ = m.update(key("q"))
+	m, _ = pressLeader(m, "q")
 	if m.overlay != overlayPicker || m.pickerKind != pickerQueries {
 		t.Fatal("query picker")
 	}
@@ -97,7 +97,7 @@ func TestDateGranularityOnNamedView(t *testing.T) {
 
 func TestViewsPicker(t *testing.T) {
 	m := loadNamedView(t, namedViewCfg(), "projects")
-	m, _ = m.update(key("v"))
+	m, _ = pressLeader(m, "v")
 	if m.overlay != overlayPicker || m.pickerKind != pickerViews {
 		t.Fatalf("sv picker overlay=%v kind=%v", m.overlay, m.pickerKind)
 	}
@@ -118,7 +118,7 @@ func TestNamedViewFilter(t *testing.T) {
 func TestDailyPickerOpensOnToday(t *testing.T) {
 	m := loadBrowse(t)
 	m.daily = &api.DailyInfo{TodayID: "2026-10-15", TodayExists: true}
-	m, cmd := m.update(key("d"))
+	m, cmd := pressLeader(m, "d")
 	if cmd != nil {
 		t.Fatal("picker is local")
 	}
@@ -262,7 +262,7 @@ func TestNotesPickerFuzzy(t *testing.T) {
 	}
 }
 
-func TestSingleLetterPickers(t *testing.T) {
+func TestLeaderPickers(t *testing.T) {
 	m := loadBrowse(t)
 	cases := []struct {
 		key  string
@@ -278,34 +278,82 @@ func TestSingleLetterPickers(t *testing.T) {
 	}
 	for _, tc := range cases {
 		m, _ = m.update(key("esc"))
-		m, _ = m.update(key(tc.key))
+		m, _ = pressLeader(m, tc.key)
 		if tc.date {
 			if m.overlay != overlayDate {
-				t.Fatalf("%s overlay %v, want daily", tc.key, m.overlay)
+				t.Fatalf("space %s overlay %v, want daily", tc.key, m.overlay)
 			}
 			continue
 		}
 		if m.overlay != overlayPicker || m.pickerKind != tc.kind {
-			t.Fatalf("%s overlay=%v kind=%v", tc.key, m.overlay, m.pickerKind)
+			t.Fatalf("space %s overlay=%v kind=%v", tc.key, m.overlay, m.pickerKind)
 		}
 	}
 }
 
-func TestSpaceIsNotALeader(t *testing.T) {
+func TestBareNavKeysDoNothing(t *testing.T) {
 	m := loadBrowse(t)
+	src := m.p().sourceQuery
+	for _, k := range []string{"t", "d", "q", "v", "f", "s"} {
+		m, cmd := m.update(key(k))
+		if cmd != nil {
+			t.Fatalf("bare %s ran a command", k)
+		}
+		if m.overlay != overlayNone {
+			t.Fatalf("bare %s overlay %v", k, m.overlay)
+		}
+		if m.p().sourceQuery != src {
+			t.Fatalf("bare %s changed source to %s", k, m.p().sourceQuery)
+		}
+	}
+}
+
+func TestSpaceLeader(t *testing.T) {
+	m := loadBrowse(t)
+	m.width, m.height = 120, 24
 	m, _ = m.update(key(" "))
+	if m.pending != "space" {
+		t.Fatalf("pending %q", m.pending)
+	}
 	if m.overlay != overlayNone {
 		t.Fatalf("space overlay %v", m.overlay)
 	}
-	m, _ = m.update(key("c"))
-	if m.overlay != overlayNone {
-		t.Fatalf("space c overlay %v", m.overlay)
+	out := m.View()
+	for _, want := range []string{"space", "views", "types", "queries", "daily", "notes", "search", "config"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("leader footer missing %q in %s", want, out)
+		}
 	}
-	src := m.p().sourceQuery
-	m, _ = m.update(key("g"))
-	m, _ = m.update(key("l"))
-	if m.overlay != overlayNone || m.p().sourceQuery != src {
-		t.Fatalf("gl overlay=%v source=%s", m.overlay, m.p().sourceQuery)
+	m, _ = m.update(key("esc"))
+	if m.pending != "" || m.overlay != overlayNone {
+		t.Fatalf("esc should cancel leader, pending=%q overlay=%v", m.pending, m.overlay)
+	}
+	m, _ = m.update(key(" "))
+	m, _ = m.update(key("c"))
+	if m.pending != "" || m.overlay != overlayNone {
+		t.Fatalf("unknown leader key should cancel, pending=%q overlay=%v", m.pending, m.overlay)
+	}
+	m, _ = pressLeader(m, " ")
+	if m.overlay != overlayPicker || m.pickerKind != pickerNav {
+		t.Fatalf("space space overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+	m, _ = m.update(key("esc"))
+	if m.overlay != overlayNone {
+		t.Fatalf("esc from nav with a view loaded should close, overlay=%v", m.overlay)
+	}
+}
+
+func TestNavIncludesViewsWhenConfigured(t *testing.T) {
+	m := loadNamedView(t, namedViewCfg(), "projects")
+	m, _ = pressLeader(m, " ")
+	found := false
+	for _, it := range m.pickerHit {
+		if it.ID == "nav:views" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("nav missing views item: %v", labelsOf(m.pickerHit))
 	}
 }
 
@@ -315,11 +363,15 @@ func TestCommaOpensConfigAtView(t *testing.T) {
 	if m.overlay != overlayNone {
 		t.Fatalf("overlay %v", m.overlay)
 	}
+	m, _ = pressLeader(m, ",")
+	if m.overlay != overlayNone {
+		t.Fatalf("space , overlay %v", m.overlay)
+	}
 }
 
 func TestContentSearchPicker(t *testing.T) {
 	m := loadBrowse(t)
-	m, _ = m.update(key("s"))
+	m, _ = pressLeader(m, "s")
 	if m.overlay != overlayPicker || m.pickerKind != pickerSearch {
 		t.Fatalf("s overlay=%v kind=%v", m.overlay, m.pickerKind)
 	}
@@ -341,9 +393,9 @@ func TestContentSearchPicker(t *testing.T) {
 func TestNotesPickerFromF(t *testing.T) {
 	m := loadBrowse(t)
 	m.mergeNotes([]api.Object{{ID: "people/freya", Title: "Freya"}})
-	m, _ = m.update(key("f"))
+	m, _ = pressLeader(m, "f")
 	if m.overlay != overlayPicker || m.pickerKind != pickerNotes {
-		t.Fatal("f notes picker")
+		t.Fatal("space f notes picker")
 	}
 }
 
@@ -351,10 +403,17 @@ func TestQOpensQueriesNotQuit(t *testing.T) {
 	m := loadBrowse(t)
 	m, cmd := m.update(key("q"))
 	if cmd != nil {
-		t.Fatal("q must not quit")
+		t.Fatal("bare q must not quit")
+	}
+	if m.overlay != overlayNone {
+		t.Fatalf("bare q overlay=%v", m.overlay)
+	}
+	m, cmd = pressLeader(m, "q")
+	if cmd != nil {
+		t.Fatal("space q must not quit")
 	}
 	if m.overlay != overlayPicker || m.pickerKind != pickerQueries {
-		t.Fatalf("q overlay=%v kind=%v", m.overlay, m.pickerKind)
+		t.Fatalf("space q overlay=%v kind=%v", m.overlay, m.pickerKind)
 	}
 }
 
@@ -365,12 +424,12 @@ func TestNoteQOpensQueriesEscGoesBack(t *testing.T) {
 	if m.screen != kindNote {
 		t.Fatal("note")
 	}
-	m, cmd := m.update(key("q"))
+	m, cmd := pressLeader(m, "q")
 	if cmd != nil {
-		t.Fatal("q must not quit")
+		t.Fatal("space q must not quit")
 	}
 	if m.overlay != overlayPicker || m.pickerKind != pickerQueries {
-		t.Fatalf("note q overlay=%v kind=%v", m.overlay, m.pickerKind)
+		t.Fatalf("note space q overlay=%v kind=%v", m.overlay, m.pickerKind)
 	}
 	m, _ = m.update(key("esc"))
 	if m.overlay != overlayNone || m.screen != kindNote {

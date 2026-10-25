@@ -10,7 +10,7 @@ type Binding struct {
 }
 
 // Keymap is the single source of truth for Perch's shortcuts.
-// Pickers are single keys in normal mode. There is no leader.
+// Navigation pickers live under the Space leader. ctrl-p and "," still work bare.
 var Keymap = []Binding{
 	{"global", "ctrl+c", "quit"},
 	{"global", "?", "toggle this help"},
@@ -31,19 +31,32 @@ var Keymap = []Binding{
 	{"browse", "gg / G", "top / bottom"},
 	{"browse", "ctrl-d / ctrl-u", "half-page down / up"},
 	{"browse", "enter", "open note, or move to the bound panel"},
-	{"browse", "t", "type picker (schema types)"},
-	{"browse", "d", "daily-note date picker"},
-	{"browse", "q", "saved query picker"},
-	{"browse", "v", "views and layouts picker"},
-	{"browse", "ctrl-p / f", "fuzzy notes picker"},
-	{"browse", "s", "full-text content search"},
+	{"browse", "space t", "type picker (schema types)"},
+	{"browse", "space d", "daily-note date picker"},
+	{"browse", "space q", "saved query picker"},
+	{"browse", "space v", "views and layouts picker"},
+	{"browse", "ctrl-p / space f", "fuzzy notes picker"},
+	{"browse", "space s", "full-text content search"},
+	{"browse", "space ,", "open config at the current view"},
+	{"browse", "space space", "navigation menu"},
 	{"browse", "/", "fuzzy search in current view"},
 	{"browse", "n / N", "next / previous search hit"},
 	{"browse", ".", "cycle date granularity (day/week/month)"},
 	{"browse", "p", "toggle preview pane"},
 	{"browse", ":", "run an ad-hoc RQL query"},
 	{"browse", "r", "refresh (and reload config)"},
-	{"browse", "esc", "clear search / close overlay"},
+	{"browse", "space", "leader (t/d/q/v/f/s/, / space)"},
+	{"browse", "esc", "clear search / close overlay / cancel leader"},
+
+	{"leader", "space t", "type picker"},
+	{"leader", "space d", "daily-note date picker"},
+	{"leader", "space q", "saved query picker"},
+	{"leader", "space v", "views and layouts"},
+	{"leader", "space f", "notes picker"},
+	{"leader", "space s", "full-text content search"},
+	{"leader", "space ,", "open config at this view"},
+	{"leader", "space space", "navigation menu"},
+	{"leader", "esc", "cancel"},
 
 	{"note", "esc / backspace", "back to browse"},
 	{"note", "/", "fuzzy search in browse"},
@@ -56,12 +69,13 @@ var Keymap = []Binding{
 	{"note", "[d / ]d", "previous / next daily note"},
 	{"note", "e", "open in editor"},
 	{"note", "r", "refresh"},
-	{"note", "t", "type picker"},
-	{"note", "d", "daily-note date picker"},
-	{"note", "q", "saved query picker"},
-	{"note", "v", "views and layouts picker"},
-	{"note", "ctrl-p / f", "notes picker"},
-	{"note", "s", "full-text content search"},
+	{"note", "space t", "type picker"},
+	{"note", "space d", "daily-note date picker"},
+	{"note", "space q", "saved query picker"},
+	{"note", "space v", "views and layouts picker"},
+	{"note", "ctrl-p / space f", "notes picker"},
+	{"note", "space s", "full-text content search"},
+	{"note", "space space", "navigation menu"},
 	{"note", ",", "open config at this view"},
 
 	{"search", "enter", "keep search; n/N still jump"},
@@ -83,13 +97,21 @@ var Keymap = []Binding{
 	{"args", "esc", "cancel"},
 }
 
+const leaderFooter = "space  space menu  v views  t types  q queries  d daily  f notes  s search  , config  esc cancel"
+
 func footerKeys(m Model) string {
+	if m.pending == "space" {
+		return leaderFooter
+	}
 	switch m.overlay {
 	case overlayHelp:
 		return "help  j/k  q / esc close"
 	case overlaySearch:
 		return "search  enter keep  n/N next  esc clear"
 	case overlayPicker:
+		if m.pickerKind == pickerNav {
+			return "navigate  j/k  enter  q / esc"
+		}
 		return "picker  j/k  enter  e edit  esc"
 	case overlayDate:
 		return "daily  h/l day  j/k week  t today  enter open  esc"
@@ -102,9 +124,9 @@ func footerKeys(m Model) string {
 	}
 	if m.screen == kindNote {
 		if isDailyNoteID(m.noteID()) {
-			return "hjkl  tab link  [d ]d day  enter follow  / search  e edit  esc back  ? help"
+			return "hjkl  tab link  [d ]d day  enter follow  / search  e edit  space …  esc back  ? help"
 		}
-		return "hjkl  tab link  enter follow  / search  e edit  esc back  ? help"
+		return "hjkl  tab link  enter follow  / search  e edit  space …  esc back  ? help"
 	}
 	return focusFooter(m) + "  " + panelFooter(m)
 }
@@ -124,11 +146,11 @@ func panelFooter(m Model) string {
 		p := m.p()
 		switch p.spec.Kind {
 		case kindBoard:
-			return "hjkl board  enter  t/d/q/v/f/s  / search  S save  ? help"
+			return "hjkl board  enter  space …  / search  S save  ? help"
 		case kindDate:
-			return "jk dates  . gran  enter  t/d/q/v/f/s  / search  S save  ? help"
+			return "jk dates  . gran  enter  space …  / search  S save  ? help"
 		default:
-			return "jk list  enter  t/d/q/v/f/s  / search  S save  , config  ? help"
+			return "jk list  enter  space …  / search  S save  , config  ? help"
 		}
 	}
 }
@@ -152,6 +174,17 @@ func keyIdent(msg tea.KeyMsg) string {
 		return string(r)
 	}
 	return ""
+}
+
+func isSpace(msg tea.KeyMsg) bool {
+	switch keyIdent(msg) {
+	case " ", "space":
+		return true
+	}
+	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == ' ' {
+		return true
+	}
+	return false
 }
 
 func isSlash(msg tea.KeyMsg) bool {

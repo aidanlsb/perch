@@ -66,20 +66,26 @@ columns then show `trait_type`, `value`, and `file_path:line` as
 secondary context; the raw trait id (`path.md:trait:N`) is not a
 column. Preview of a nested row leads with that same label.
 
-A **layout** is a nested split of panels. Each leaf names a view. `split`
-is `row` (side by side) or `col` (stacked). `bind` names the panel whose
-selection fills `{{selected}}` in that panel. Bound panels update as the
-driving selection moves. Enter in the driving panel moves focus to the
-bound panel.
+A **layout** is a nested split of panels. Each leaf is a named `view`, or
+a `type` / `query` inline (with optional `inputs`, `layout = { … }`, and
+`id` / `name` so other panels can `bind` to it). `split` is `row` (side
+by side) or `col` (stacked). `bind` names the panel whose selection fills
+`{{selected}}` in that panel. Bound panels update as the driving
+selection moves. Enter in the driving panel moves focus to the bound
+panel.
 
-The type picker (`t`) lists every schema type as a plain list.
+List, board, and date presentations work the same whether the source is
+a schema type or a saved query.
+
+`Space t` lists every schema type as a plain list.
 Perch does not invent board or date views from the schema. `.` still
 cycles date granularity (day → week → month) inside a date view.
 `section` is omitted because Raven cannot query `type:section`. There is
-no sidebar: navigation is pickers and hotkeys only.
+no sidebar: navigation is the Space leader, pickers, and hotkeys.
 
 Bare `perch` opens the first view in config file order as that view's
-list, board, or date. If no views are configured, the type picker opens.
+list, board, or date. If no views are configured, the first layout.
+If neither views nor layouts are configured, the navigation menu opens.
 It does not pick a schema type on its own.
 
 ## Config
@@ -101,9 +107,18 @@ layout = { kind = "list" }
 [layouts.workspace]
 split = "row"
 panels = [ { view = "projects" }, { view = "tasks", bind = "projects" } ]
+
+[layouts.direct]
+split = "row"
+panels = [
+  { type = "item", id = "projects", layout = { kind = "board", group_by = "state" } },
+  { query = "inbox", bind = "projects", layout = { kind = "list" } },
+]
 ```
 
-Exactly one of `type` or `query` is required. A `source` key is a startup
+Exactly one of `type` or `query` is required on a view. A layout panel is
+a named `view`, or that same `type` / `query` plus `layout` inline.
+A `source` key is a startup
 error. `kind` is `list`, `board`, or `date`. Board `group_by` is an enum
 or ref field. Date `group_by` is a date/datetime field; `granularity` is
 `day`, `week`, or `month`. Optional `filter` is an RQL predicate appended
@@ -145,6 +160,7 @@ perch views rm projects --force    # drops those panels (and empty layouts)
 perch layouts list
 perch layouts show workspace
 perch layouts add workspace --split row --panel view=projects --panel view=tasks,bind=projects
+perch layouts add direct --split row --panel type=item,id=projects,kind=board,group_by=state --panel query=inbox,bind=projects
 perch layouts add nested --from 'split = "row"
 panels = [ { view = "projects" }, { split = "col", panels = [ { view = "tasks", bind = "projects" } ] } ]'
 perch layouts rm workspace
@@ -219,19 +235,27 @@ Perch-managed files. A skill directory without that receipt is left alone.
 
 ## Pickers and search
 
-Pickers are single keys in normal mode. There is no Space leader.
+Navigation keys use `Space` as a leader in browse and note mode. Press
+`Space` once to enter a pending leader state (the footer lists the
+keys). `esc` or an unknown key cancels. Bare `t` `d` `q` `v` `f` `s`
+do nothing in normal mode so they cannot fire by accident. `ctrl-p` and
+`,` still work without the leader.
+
+With no view or layout loaded, Perch opens the same navigation menu
+(`Space Space`).
 
 | Key | Opens |
 | --- | --- |
-| `t` | Types from `GET /v1/schema` (fuzzy). Selecting fills the main pane with that type's objects as a plain list. |
-| `d` | Daily-note date picker, starting on today (`GET /v1/session` `daily.today_id` when present). `h`/`l` move a day, `j`/`k` a week, `t` today. Enter invokes Raven's read-only `date` hub and opens that day's daily note when `daily_exists`. |
-| `q` | Saved queries (fuzzy). `q` does not quit; `ctrl+c` quits. |
-| `v` | Saved views and layouts |
-| `ctrl-p` / `f` | Notes: fuzzy over the `objects` corpus (paginated, cached, background), plus Raven `search` after two characters |
-| `s` | Full-text content search (`POST /v1/invoke` command `search`) |
+| `Space Space` | Navigation menu: views, types, queries, daily, notes, search, config |
+| `Space t` | Types from `GET /v1/schema` (fuzzy). Selecting fills the main pane with that type's objects as a plain list. |
+| `Space d` | Daily-note date picker, starting on today (`GET /v1/session` `daily.today_id` when present). `h`/`l` move a day, `j`/`k` a week, `t` today. Enter invokes Raven's read-only `date` hub and opens that day's daily note when `daily_exists`. |
+| `Space q` | Saved queries (fuzzy). `q` does not quit; `ctrl+c` quits. |
+| `Space v` | Saved views and layouts |
+| `ctrl-p` / `Space f` | Notes: fuzzy over the `objects` corpus (paginated, cached, background), plus Raven `search` after two characters |
+| `Space s` | Full-text content search (`POST /v1/invoke` command `search`) |
 | `/` | Fuzzy search in the current view; `n` / `N` next/previous hit |
 | `:` | Ad-hoc RQL |
-| `,` | Config at the current view's entry |
+| `,` / `Space ,` | Config at the current view's entry |
 | `S` | Save the on-screen view as `[views.name]` |
 
 Saved queries that declare `args` open an argument prompt. Values are sent as
@@ -270,18 +294,20 @@ Overlays still close with `q` / `esc`. `ctrl+c` quits.
 | `gg` / `G` | Top / bottom |
 | `ctrl-d` / `ctrl-u` | Half-page down / up |
 | `enter` | Open note / follow link / move to the bound panel |
-| `t` | Type picker |
-| `d` | Daily-note date picker |
-| `q` | Saved query picker (does not quit) |
-| `v` | Views and layouts |
-| `ctrl-p` / `f` | Notes picker |
-| `s` | Full-text content search |
+| `Space` | Leader for navigation keys |
+| `Space Space` | Navigation menu |
+| `Space t` | Type picker |
+| `Space d` | Daily-note date picker |
+| `Space q` | Saved query picker (does not quit) |
+| `Space v` | Views and layouts |
+| `ctrl-p` / `Space f` | Notes picker |
+| `Space s` | Full-text content search |
 | `/` | Fuzzy search in view |
 | `n` / `N` | Next / previous search hit |
 | `.` | Cycle date granularity |
 | `p` | Toggle preview |
 | `:` | Ad-hoc RQL |
-| `,` | Open config at this view |
+| `,` / `Space ,` | Open config at this view |
 | `S` | Save on-screen view |
 | `e` | Open in editor |
 | `r` | Refresh (and reload config) |

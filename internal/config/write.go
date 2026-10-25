@@ -328,12 +328,8 @@ func encodePanels(ps []Panel, indent string) string {
 }
 
 func encodePanel(p Panel, indent string) string {
-	if p.View != "" {
-		s := "{ view = " + tomlString(p.View)
-		if p.Bind != "" {
-			s += ", bind = " + tomlString(p.Bind)
-		}
-		return s + " }"
+	if p.IsLeaf() {
+		return encodeLeafPanel(p)
 	}
 	var b strings.Builder
 	b.WriteString("{ split = " + tomlString(p.Split) + ", panels = [\n")
@@ -344,24 +340,116 @@ func encodePanel(p Panel, indent string) string {
 	return b.String()
 }
 
+func encodeLeafPanel(p Panel) string {
+	var parts []string
+	if p.View != "" {
+		parts = append(parts, "view = "+tomlString(p.View))
+	}
+	if p.Type != "" {
+		parts = append(parts, "type = "+tomlString(p.Type))
+	}
+	if p.Query != "" {
+		parts = append(parts, "query = "+tomlString(p.Query))
+	}
+	if p.ID != "" {
+		parts = append(parts, "id = "+tomlString(p.ID))
+	} else if p.Name != "" {
+		parts = append(parts, "name = "+tomlString(p.Name))
+	}
+	if p.Bind != "" {
+		parts = append(parts, "bind = "+tomlString(p.Bind))
+	}
+	if len(p.Inputs) > 0 {
+		parts = append(parts, "inputs = "+encodeInlineMap(p.Inputs))
+	}
+	if p.View == "" {
+		parts = append(parts, "layout = "+encodeInlinePresent(p.Layout))
+	}
+	return "{ " + strings.Join(parts, ", ") + " }"
+}
+
+func encodeInlineMap(m map[string]string) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("{ ")
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "%s = %s", tomlKey(k), tomlString(m[k]))
+	}
+	b.WriteString(" }")
+	return b.String()
+}
+
+func encodeInlinePresent(p Present) string {
+	var b strings.Builder
+	b.WriteString("{ kind = ")
+	b.WriteString(tomlString(p.Kind))
+	if p.GroupBy != "" {
+		b.WriteString(", group_by = ")
+		b.WriteString(tomlString(p.GroupBy))
+	}
+	if len(p.Fields) > 0 {
+		b.WriteString(", fields = [")
+		for i, f := range p.Fields {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(tomlString(f))
+		}
+		b.WriteString("]")
+	}
+	if p.Sort != "" {
+		b.WriteString(", sort = ")
+		b.WriteString(tomlString(p.Sort))
+	}
+	if p.Filter != "" {
+		b.WriteString(", filter = ")
+		b.WriteString(tomlString(p.Filter))
+	}
+	if p.Granularity != "" && p.Kind == KindDate {
+		b.WriteString(", granularity = ")
+		b.WriteString(tomlString(p.Granularity))
+	}
+	b.WriteString(" }")
+	return b.String()
+}
+
 func stripViewFromLayout(l Layout, view string) Layout {
-	l.Panels = stripViewFromPanels(l.Panels, view)
+	removed := map[string]struct{}{}
+	collectRemovedPanelIDs(l.Panels, view, removed)
+	l.Panels = stripViewFromPanels(l.Panels, view, removed)
 	return l
 }
 
-func stripViewFromPanels(ps []Panel, view string) []Panel {
+func collectRemovedPanelIDs(ps []Panel, view string, removed map[string]struct{}) {
+	for _, p := range ps {
+		if p.View == view {
+			removed[p.LeafID()] = struct{}{}
+			continue
+		}
+		collectRemovedPanelIDs(p.Panels, view, removed)
+	}
+}
+
+func stripViewFromPanels(ps []Panel, view string, removed map[string]struct{}) []Panel {
 	var out []Panel
 	for _, p := range ps {
 		if p.View == view {
 			continue
 		}
-		if p.View == "" && len(p.Panels) > 0 {
-			p.Panels = stripViewFromPanels(p.Panels, view)
+		if !p.IsLeaf() && len(p.Panels) > 0 {
+			p.Panels = stripViewFromPanels(p.Panels, view, removed)
 			if len(p.Panels) == 0 {
 				continue
 			}
 		}
-		if p.Bind == view {
+		if _, ok := removed[p.Bind]; ok {
 			p.Bind = ""
 		}
 		out = append(out, p)

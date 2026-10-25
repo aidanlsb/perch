@@ -26,19 +26,22 @@ changed, validated, or opened. Drive Perch through its CLI. Do not edit
 - Do not assume a vault schema. Type, query, and field names in examples
   (`item`, `task`, `state`, `when`) are not reserved. Discover names with
   `rvn schema --json` or `rvn query` if the user has not given them.
-- The TUI type picker (`t`) lists every schema type as a plain list.
+- The TUI type picker (`Space t`) lists every schema type as a plain list.
   Do not invent board or date views from the schema. Only views the user
-  (or you, via the CLI) declare exist.
+  (or you, via the CLI) declare exist. List, board, and date work over
+  both a type and a saved query.
 - Writes are temp-file + rename. The existing validator runs before replace.
   Invalid config is not written.
 
 ## TUI navigation
 
 Prefer the CLI. There is no sidebar. If the user is already in the TUI,
-navigation is single-key pickers in normal mode: `t` types, `d` daily,
-`q` saved queries, `v` views/layouts, `f` notes (`ctrl-p` stays), `s`
-full-text search. `,` opens config at the current view. `q` does not quit
-(`ctrl+c` quits; `esc` / `backspace` leave a note). Panel motions
+navigation keys use `Space` as a leader: `Space t` types, `Space d`
+daily, `Space q` saved queries, `Space v` views/layouts, `Space f` notes
+(`ctrl-p` stays), `Space s` full-text search, `Space Space` the
+navigation menu. `,` / `Space ,` opens config at the current view.
+Bare `t` `d` `q` `v` `f` `s` do nothing in normal mode. `q` does not
+quit (`ctrl+c` quits; `esc` / `backspace` leave a note). Panel motions
 (`ctrl-h/j/k/l`, `ctrl-w` plus a direction, tab) move among main panels.
 In-panel scrolling is `ctrl-d` / `ctrl-u` only.
 
@@ -69,14 +72,17 @@ perch views rm projects --force --json
 
 ## Layouts
 
-A layout is a nested split of panels. Each leaf names a view. `split` is `row`
-(side by side) or `col` (stacked). `bind` names the panel whose selection fills
-`{{selected}}` in that panel.
+A layout is a nested split of panels. Each leaf is a named `view`, or a
+`type` / `query` inline (optional `inputs`, `layout`, and `id`/`name` for
+`bind`). `split` is `row` (side by side) or `col` (stacked). `bind` names
+the panel whose selection fills `{{selected}}` in that panel. List, board,
+and date work over both a type and a saved query.
 
 ```bash
 perch layouts list --json
 perch layouts show workspace --json
 perch layouts add workspace --split row --panel view=projects --panel view=tasks,bind=projects --json
+perch layouts add direct --split row --panel type=item,id=projects,kind=board,group_by=state --panel query=inbox,bind=projects --json
 perch layouts add nested --from 'split = "row"
 panels = [ { view = "projects" }, { split = "col", panels = [ { view = "tasks", bind = "projects" } ] } ]' --json
 perch layouts rm workspace --json
@@ -118,9 +124,9 @@ CLI; do not patch the TOML.
 ## Open
 
 Bare `perch` launches the TUI on the first view in config file order
-(as that view's list/board/date). With no views configured, the type
-picker opens. `perch open <name>` opens a named view or layout (views
-win if both exist).
+(as that view's list/board/date). With no views, the first layout. With
+neither, the navigation menu. `perch open <name>` opens a named view or
+layout (views win if both exist).
 
 ```bash
 perch open projects --json

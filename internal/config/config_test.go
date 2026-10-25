@@ -10,6 +10,20 @@ import (
 	"github.com/aidanlsb/perch/internal/api"
 )
 
+func TestExampleConfigLoads(t *testing.T) {
+	f, err := Load(filepath.Join("..", "..", "examples", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.Layouts["direct"]; !ok {
+		t.Fatalf("missing layouts.direct: %v", f.LayoutNames())
+	}
+	leaves := f.Layouts["direct"].Leaves()
+	if len(leaves) != 3 || leaves[0].Type != "item" || leaves[2].Query != "inbox" {
+		t.Fatalf("%+v", leaves)
+	}
+}
+
 func TestLoadMissingIsEmpty(t *testing.T) {
 	f, err := Load(filepath.Join(t.TempDir(), "nope.toml"))
 	if err != nil || len(f.Views) != 0 || len(f.Layouts) != 0 {
@@ -236,6 +250,125 @@ layout = { kind = "board" }
 `)
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestLoadInlineTypeAndQueryPanels(t *testing.T) {
+	path := writeTOML(t, `
+[layouts.workspace]
+split = "row"
+panels = [
+  { type = "item", id = "projects", layout = { kind = "board", group_by = "state" } },
+  { query = "inbox", bind = "projects", layout = { kind = "list" } },
+]
+`)
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaves := f.Layouts["workspace"].Leaves()
+	if len(leaves) != 2 {
+		t.Fatalf("%+v", leaves)
+	}
+	if leaves[0].Type != "item" || leaves[0].LeafID() != "projects" || leaves[0].Layout.Kind != KindBoard {
+		t.Fatalf("type panel %+v", leaves[0])
+	}
+	if leaves[1].Query != "inbox" || leaves[1].Bind != "projects" || leaves[1].Layout.Kind != KindList {
+		t.Fatalf("query panel %+v", leaves[1])
+	}
+	if leaves[1].LeafID() != "query:inbox" {
+		t.Fatalf("query id %q", leaves[1].LeafID())
+	}
+}
+
+func TestLoadViewOverQueryWithBoard(t *testing.T) {
+	path := writeTOML(t, `
+[views.board]
+query = "inbox"
+layout = { kind = "board", group_by = "state" }
+
+[views.when]
+query = "inbox"
+layout = { kind = "date", group_by = "when", granularity = "week" }
+`)
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Views["board"].Query != "inbox" || f.Views["board"].Layout.Kind != KindBoard {
+		t.Fatalf("%+v", f.Views["board"])
+	}
+	if f.Views["when"].Layout.Kind != KindDate || f.Views["when"].Layout.Granularity != GranWeek {
+		t.Fatalf("%+v", f.Views["when"])
+	}
+}
+
+func TestLoadRejectsPanelTypeAndView(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+type = "item"
+layout = { kind = "list" }
+[layouts.x]
+split = "row"
+panels = [ { view = "a", type = "item" } ]
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "cannot mix") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestLoadRejectsDuplicatePanelID(t *testing.T) {
+	path := writeTOML(t, `
+[layouts.x]
+split = "row"
+panels = [
+  { type = "item", id = "same", layout = { kind = "list" } },
+  { query = "inbox", id = "same", layout = { kind = "list" } },
+]
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "duplicate panel") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestLoadInlineBindByID(t *testing.T) {
+	path := writeTOML(t, `
+[layouts.x]
+split = "row"
+panels = [
+  { type = "item", name = "left", layout = { kind = "list" } },
+  { type = "task", inputs = { item = "{{selected}}" }, bind = "left", layout = { kind = "list" } },
+]
+`)
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaves := f.Layouts["x"].Leaves()
+	if leaves[0].LeafID() != "left" || leaves[1].Bind != "left" {
+		t.Fatalf("%+v", leaves)
+	}
+	if leaves[1].Inputs["item"] != SelectedToken {
+		t.Fatalf("inputs %+v", leaves[1].Inputs)
+	}
+}
+
+func TestCheckAcceptsInlineLayoutPanels(t *testing.T) {
+	path := writeTOML(t, `
+[layouts.ws]
+split = "row"
+panels = [ { type = "item", layout = { kind = "list" } } ]
+`)
+	if issues := Check(path); len(issues) != 0 {
+		t.Fatalf("%+v", issues)
 	}
 }
 

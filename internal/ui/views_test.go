@@ -8,6 +8,7 @@ import (
 
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/config"
+	"github.com/aidanlsb/perch/internal/layout"
 )
 
 func nestedLayoutCfg() *config.File {
@@ -246,13 +247,59 @@ func TestSaveAdHocRQLRefuses(t *testing.T) {
 	}
 }
 
+func TestNamedQueryBoardAndDateViews(t *testing.T) {
+	cfg := &config.File{
+		Views: map[string]config.View{
+			"board": {Query: "open", Layout: config.Present{Kind: kindBoard, GroupBy: "status"}},
+			"when":  {Query: "open", Layout: config.Present{Kind: kindDate, GroupBy: "due", Granularity: layout.GranWeek}},
+		},
+	}
+	m := loadNamedView(t, cfg, "board")
+	if !m.p().sourceIsQuery || m.p().spec.Kind != kindBoard || m.p().groupBy != "status" {
+		t.Fatalf("query board pane %+v spec %+v", m.p(), m.p().spec)
+	}
+	m, _ = m.loadNamedView("when")
+	if !m.p().sourceIsQuery || m.p().spec.Kind != kindDate || m.p().granularity != layout.GranWeek {
+		t.Fatalf("query date pane %+v spec %+v", m.p(), m.p().spec)
+	}
+}
+
+func TestInlineLayoutPanels(t *testing.T) {
+	cfg := &config.File{
+		Layouts: map[string]config.Layout{
+			"ws": {
+				Split: "row",
+				Panels: []config.Panel{
+					{Type: "project", ID: "projects", Layout: config.Present{Kind: kindBoard, GroupBy: "status"}},
+					{Query: "open", Bind: "projects", Layout: config.Present{Kind: kindList}},
+				},
+			},
+		},
+	}
+	m := NewModel(Options{Config: cfg})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	m, _ = m.loadNamedLayout("ws")
+	if len(m.panes) != 2 {
+		t.Fatalf("panes %d", len(m.panes))
+	}
+	if m.panes[0].id != "projects" || m.panes[0].spec.Kind != kindBoard || m.panes[0].typeName != "project" {
+		t.Fatalf("left id=%s kind=%s type=%s", m.panes[0].id, m.panes[0].spec.Kind, m.panes[0].typeName)
+	}
+	if m.panes[1].bind != "projects" || !m.panes[1].sourceIsQuery {
+		t.Fatalf("right bind=%s query=%v", m.panes[1].bind, m.panes[1].sourceIsQuery)
+	}
+	if m.tree.split != "row" || m.tree.kids[0].id != "projects" {
+		t.Fatalf("tree %+v", m.tree)
+	}
+}
+
 func TestTypePickerListsSchemaTypes(t *testing.T) {
 	m := loadBrowse(t)
 	out := m.View()
 	if strings.Contains(out, "Browse") {
 		t.Fatalf("sidebar chrome: %s", out)
 	}
-	m, _ = m.update(key("t"))
+	m, _ = pressLeader(m, "t")
 	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
 		t.Fatal("type picker")
 	}

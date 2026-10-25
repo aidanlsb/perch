@@ -94,8 +94,12 @@ func TestModelInitAgainstFakeAPI(t *testing.T) {
 	if m.vaultPath != "/vault" || m.editor != "code" || editor.NormalizeMode(m.editorMode) != editor.ModeGUI {
 		t.Fatalf("session apply vault=%q editor=%q mode=%q", m.vaultPath, m.editor, m.editorMode)
 	}
+	if m.overlay != overlayPicker || m.pickerKind != pickerNav {
+		t.Fatalf("no views: want navigation menu, overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+	m, _ = m.update(key("enter"))
 	if m.overlay != overlayPicker || m.pickerKind != pickerTypes {
-		t.Fatalf("no views: want type picker, overlay=%v kind=%v", m.overlay, m.pickerKind)
+		t.Fatalf("nav types, overlay=%v kind=%v", m.overlay, m.pickerKind)
 	}
 	m, cmd := m.update(key("enter"))
 	if cmd == nil {

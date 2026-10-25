@@ -60,7 +60,7 @@ func TestDatePickerRendersMonth(t *testing.T) {
 	m := loadBrowse(t)
 	m.width, m.height = 80, 24
 	m.daily = &api.DailyInfo{TodayID: "2026-10-15"}
-	m, _ = m.update(key("d"))
+	m, _ = pressLeader(m, "d")
 	out := m.View()
 	if !strings.Contains(out, "2026-10-15") {
 		t.Fatalf("missing selected date: %s", out)

@@ -50,6 +50,7 @@ const (
 	pickerNotes
 	pickerViews
 	pickerSearch
+	pickerNav
 )
 
 type noteFrame struct {
@@ -95,7 +96,7 @@ type Model struct {
 	pane    pane
 	overlay overlay
 	screen  string // browse | note
-	pending string // g | ctrlw | [ | ] | (empty)
+	pending string // g | ctrlw | [ | ] | space | (empty)
 
 	schema api.Schema
 

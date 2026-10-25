@@ -378,8 +378,8 @@ func treeFromLayout(l config.Layout) layoutTree {
 }
 
 func nodeFromPanel(p config.Panel) layoutTree {
-	if strings.TrimSpace(p.View) != "" {
-		return layoutTree{id: p.View}
+	if p.IsLeaf() {
+		return layoutTree{id: p.LeafID()}
 	}
 	n := layoutTree{split: p.Split}
 	for _, k := range p.Panels {

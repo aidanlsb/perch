@@ -9,12 +9,14 @@
 # allowed here; use `:` in the TUI for ad-hoc queries.
 # {{selected}} is filled from the panel named in bind.
 #
-# A layout is a nested split of panels. Panels reference views by name.
+# A layout is a nested split of panels. A leaf is a named view, or a type
+# or saved query inline (optional inputs, layout, and id/name for bind).
 # split is row (side by side) or col (stacked).
 #
-# The type picker lists every schema type as a plain list. Board and date
-# views are only those you declare here. Bare `perch` opens the first view
-# in this file as that view's list, board, or date.
+# Space t lists every schema type as a plain list. Board and date
+# presentations are only those you declare here. Bare `perch` opens the
+# first view in this file; with no views, the first layout; with neither,
+# the navigation menu.
 
 [views.projects]
 type = "item"
@@ -49,4 +51,13 @@ panels = [
       { view = "tasks", bind = "projects" },
       { view = "inbox" },
   ] },
+]
+
+# Layout panels can also sit on a type or saved query directly.
+[layouts.direct]
+split = "row"
+panels = [
+  { type = "item", id = "projects", layout = { kind = "board", group_by = "state", fields = ["state", "when"] } },
+  { type = "task", bind = "projects", inputs = { item = "{{selected}}" }, layout = { kind = "list", fields = ["state"] } },
+  { query = "inbox", layout = { kind = "list", sort = "label" } },
 ]
