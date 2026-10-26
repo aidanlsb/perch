@@ -9,6 +9,24 @@ import (
 	"github.com/aidanlsb/perch/internal/layout"
 )
 
+func TestNoteKeymapDocumentsHistory(t *testing.T) {
+	var back, forward bool
+	for _, b := range Keymap {
+		if b.Section != "note" {
+			continue
+		}
+		if strings.Contains(b.Keys, "esc") && strings.Contains(b.Keys, "backspace") && strings.Contains(b.Desc, "previous note") {
+			back = true
+		}
+		if strings.Contains(b.Keys, "]") && strings.Contains(b.Desc, "forward") {
+			forward = true
+		}
+	}
+	if !back || !forward {
+		t.Fatalf("note history keymap back=%v forward=%v", back, forward)
+	}
+}
+
 func TestKeymapHelpRenders(t *testing.T) {
 	if len(Keymap) < 10 {
 		t.Fatalf("keymap too small: %d", len(Keymap))

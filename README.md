@@ -280,7 +280,9 @@ stays ephemeral.
 
 ## Keys
 
-`?` lists this table inside the TUI. `esc` / `backspace` leave a note.
+`?` lists this table inside the TUI. From a note, `esc` / `backspace` /
+`[` / `ctrl-o` go to the previous note, and only leave to the browse view
+when there is no previous note. `]` / `ctrl-i` go forward in that history.
 Overlays still close with `q` / `esc`. `ctrl+c` quits.
 
 | Key | Action |
@@ -311,10 +313,10 @@ Overlays still close with `q` / `esc`. `ctrl+c` quits.
 | `S` | Save on-screen view |
 | `e` | Open in editor |
 | `r` | Refresh (and reload config) |
-| `[` `]` | Note history back / forward |
+| `[` `]` `ctrl-o` `ctrl-i` | Note history back / forward |
 | `[d` `]d` | Previous / next daily note (in a daily note) |
 | `?` | Help |
-| `esc` | Close overlay / clear search / back from a note |
+| `esc` / `backspace` | Close overlay / previous note, or browse when at the start of history |
 | `ctrl+c` | Quit |
 
 Focus follows the panel. The focused panel has a highlighted border.

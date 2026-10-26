@@ -374,6 +374,12 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyCtrlE}
 	case "ctrl+b":
 		return tea.KeyMsg{Type: tea.KeyCtrlB}
+	case "ctrl+o":
+		return tea.KeyMsg{Type: tea.KeyCtrlO}
+	case "ctrl+i":
+		return tea.KeyMsg{Type: tea.KeyCtrlI}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
 	case " ":
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
 	default:

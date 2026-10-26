@@ -17,7 +17,7 @@ func (m Model) loadType(name string) (Model, tea.Cmd) {
 	applyViewSource(p, m.schema, config.View{Type: name})
 	p.applySpec(p.spec, ts)
 	m.screen = "browse"
-	m.note = nil
+	m.dropNote()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
@@ -38,7 +38,7 @@ func (m Model) loadNamedView(name string) (Model, tea.Cmd) {
 	}
 	p := m.paneFromView(name, v, "")
 	m.screen = "browse"
-	m.note = nil
+	m.dropNote()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
@@ -61,7 +61,7 @@ func (m Model) loadNamedLayout(name string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.screen = "browse"
-	m.note = nil
+	m.dropNote()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
@@ -155,7 +155,7 @@ func (m Model) loadQueryWithInputs(q *api.SavedQuery, inputs map[string]string) 
 		p.applySpec(p.spec, api.TypeSchema{})
 	}
 	m.screen = "browse"
-	m.note = nil
+	m.dropNote()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
@@ -182,7 +182,7 @@ func (m Model) loadRQL(q string) (Model, tea.Cmd) {
 		p.applySpec(p.spec, api.TypeSchema{})
 	}
 	m.screen = "browse"
-	m.note = nil
+	m.dropNote()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
