@@ -328,6 +328,10 @@ func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
 		m.noteScroll = scroll
 		m.linkIdx = clamp(link, 0, max(0, len(msg.result.Links)-1))
 		m.backIdx = clamp(back, 0, max(0, len(msg.result.Backlinks)-1))
+	} else if m.restoreNoteFrame(msg.result) {
+		if !msg.live {
+			m.screen = kindNote
+		}
 	} else {
 		m.noteScroll = sourceLineScroll(msg.result.Content, m.noteBody, m.currentNoteLine())
 		m.linkIdx = 0
@@ -783,7 +787,7 @@ func (m Model) startSearch() (Model, tea.Cmd) {
 	m.pending = ""
 	if m.screen == kindNote {
 		m.screen = "browse"
-		m.note = nil
+		m.dropNote()
 		m.status = m.p().sourceLabel
 	}
 	m.overlay = overlaySearch
@@ -822,11 +826,10 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch key {
 	case ",":
 		return m.openConfigAtView()
-	case "esc", "backspace":
-		m.screen = "browse"
-		m.note = nil
-		m.status = m.p().sourceLabel
-		return m.previewCmd()
+	case "esc", "backspace", "ctrl+o":
+		return m.historyGo(-1)
+	case "ctrl+i":
+		return m.historyGo(1)
 	case "ctrl+p":
 		return m.openNotesPicker()
 	case "r":
@@ -1045,11 +1048,29 @@ func (m Model) openNoteAt(id string, line int) (Model, tea.Cmd) {
 	if id == "" {
 		return m, nil
 	}
-	if m.notePtr < len(m.noteStack)-1 {
-		m.noteStack = m.noteStack[:m.notePtr+1]
+	if m.screen == kindNote {
+		m.snapshotNoteFrame()
+		if m.notePtr >= 0 && m.notePtr < len(m.noteStack) && m.noteStack[m.notePtr].ID == id {
+			if line > 0 {
+				m.noteStack[m.notePtr].Line = line
+				m.noteStack[m.notePtr].HasView = false
+				return m.fetchNote(id)
+			}
+			return m, nil
+		}
+		if m.notePtr < len(m.noteStack)-1 {
+			m.noteStack = m.noteStack[:m.notePtr+1]
+		}
+	} else {
+		m.noteStack = nil
+		m.notePtr = -1
 	}
 	m.noteStack = append(m.noteStack, noteFrame{ID: id, Line: line})
 	m.notePtr = len(m.noteStack) - 1
+	return m.fetchNote(id)
+}
+
+func (m Model) fetchNote(id string) (Model, tea.Cmd) {
 	gen := m.nextGen()
 	m.loading = true
 	m.status = "reading " + id + "…"
@@ -1057,21 +1078,64 @@ func (m Model) openNoteAt(id string, line int) (Model, tea.Cmd) {
 	return m, fetchRead(m.client, gen, id, "note")
 }
 
+func (m *Model) snapshotNoteFrame() {
+	if m.notePtr < 0 || m.notePtr >= len(m.noteStack) {
+		return
+	}
+	m.noteStack[m.notePtr].Scroll = m.noteScroll
+	m.noteStack[m.notePtr].Pane = m.pane
+	m.noteStack[m.notePtr].LinkIdx = m.linkIdx
+	m.noteStack[m.notePtr].BackIdx = m.backIdx
+	m.noteStack[m.notePtr].HasView = true
+}
+
+func (m *Model) restoreNoteFrame(rd *api.ReadResult) bool {
+	if m.notePtr < 0 || m.notePtr >= len(m.noteStack) {
+		return false
+	}
+	fr := m.noteStack[m.notePtr]
+	if !fr.HasView {
+		return false
+	}
+	nLinks, nBack := 0, 0
+	if rd != nil {
+		nLinks = len(rd.Links)
+		nBack = len(rd.Backlinks)
+	}
+	m.noteScroll = max(0, fr.Scroll)
+	m.pane = fr.Pane
+	if m.pane == paneBacklinks && nBack == 0 {
+		m.pane = paneMain
+	}
+	m.linkIdx = clamp(fr.LinkIdx, 0, max(0, nLinks-1))
+	m.backIdx = clamp(fr.BackIdx, 0, max(0, nBack-1))
+	return true
+}
+
+func (m *Model) dropNote() {
+	m.note = nil
+	m.noteStack = nil
+	m.notePtr = -1
+}
+
+func (m Model) exitNoteToBrowse() (Model, tea.Cmd) {
+	m.screen = "browse"
+	m.dropNote()
+	m.status = m.p().sourceLabel
+	return m.previewCmd()
+}
+
 func (m Model) historyGo(delta int) (Model, tea.Cmd) {
+	m.snapshotNoteFrame()
 	next := m.notePtr + delta
 	if next < 0 {
-		m.screen = "browse"
-		m.note = nil
-		return m, nil
+		return m.exitNoteToBrowse()
 	}
 	if next >= len(m.noteStack) {
 		return m, nil
 	}
 	m.notePtr = next
-	id := m.noteStack[m.notePtr].ID
-	gen := m.nextGen()
-	m.loading = true
-	return m, fetchRead(m.client, gen, id, "note")
+	return m.fetchNote(m.noteStack[m.notePtr].ID)
 }
 
 func (m Model) followOrOpenBacklink() (Model, tea.Cmd) {

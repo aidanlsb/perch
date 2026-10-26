@@ -58,14 +58,14 @@ var Keymap = []Binding{
 	{"leader", "space space", "navigation menu"},
 	{"leader", "esc", "cancel"},
 
-	{"note", "esc / backspace", "back to browse"},
+	{"note", "esc / backspace / [ / ctrl-o", "previous note, or browse if none"},
+	{"note", "] / ctrl-i", "forward in note history"},
 	{"note", "/", "fuzzy search in browse"},
 	{"note", "hjkl / arrows", "scroll / backlinks"},
 	{"note", "gg / G", "top / bottom"},
 	{"note", "ctrl-d / ctrl-u", "half-page"},
 	{"note", "tab / shift-tab", "cycle wiki links"},
 	{"note", "enter", "follow link / open backlink"},
-	{"note", "[ / ]", "history back / forward"},
 	{"note", "[d / ]d", "previous / next daily note"},
 	{"note", "e", "open in editor"},
 	{"note", "r", "refresh"},
@@ -124,9 +124,9 @@ func footerKeys(m Model) string {
 	}
 	if m.screen == kindNote {
 		if isDailyNoteID(m.noteID()) {
-			return "hjkl  tab link  [d ]d day  enter follow  / search  e edit  space …  esc back  ? help"
+			return "hjkl  tab link  [d ]d day  enter follow  [ ] hist  / search  e edit  space …  esc back  ? help"
 		}
-		return "hjkl  tab link  enter follow  / search  e edit  space …  esc back  ? help"
+		return "hjkl  tab link  enter follow  [ ] hist  / search  e edit  space …  esc back  ? help"
 	}
 	return focusFooter(m) + "  " + panelFooter(m)
 }

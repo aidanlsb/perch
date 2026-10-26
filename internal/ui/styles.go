@@ -2,16 +2,21 @@ package ui
 
 import "github.com/charmbracelet/lipgloss"
 
+// Palette uses AdaptiveColor so the same styles stay readable on light and
+// dark terminals. Light values are mid-dark slate/ink (not washed-out gray);
+// dark values keep the previous 256-color look.
 var (
-	colAccent = lipgloss.Color("174")
-	colMuted  = lipgloss.Color("245")
-	colDim    = lipgloss.Color("240")
-	colText   = lipgloss.Color("252")
-	colSelBg  = lipgloss.Color("237")
-	colErr    = lipgloss.Color("167")
-	colOk     = lipgloss.Color("108")
-	colWarn   = lipgloss.Color("180")
-	colBorder = lipgloss.Color("238")
+	colAccent = lipgloss.AdaptiveColor{Light: "#b45353", Dark: "174"}
+	colMuted  = lipgloss.AdaptiveColor{Light: "#4b5563", Dark: "245"}
+	colDim    = lipgloss.AdaptiveColor{Light: "#52525b", Dark: "240"}
+	colText   = lipgloss.AdaptiveColor{Light: "#1f2937", Dark: "252"}
+	colSelFg  = lipgloss.AdaptiveColor{Light: "#111827", Dark: "255"}
+	colSelBg  = lipgloss.AdaptiveColor{Light: "#e5e7eb", Dark: "237"}
+	colErr    = lipgloss.AdaptiveColor{Light: "#b91c1c", Dark: "167"}
+	colOk     = lipgloss.AdaptiveColor{Light: "#166534", Dark: "108"}
+	colWarn   = lipgloss.AdaptiveColor{Light: "#a16207", Dark: "180"}
+	colBorder = lipgloss.AdaptiveColor{Light: "#9ca3af", Dark: "238"}
+	colLinkFg = lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "0"}
 )
 
 var (
@@ -38,7 +43,7 @@ var (
 			Bold(true)
 
 	styleRow    = lipgloss.NewStyle().Foreground(colText)
-	styleRowSel = lipgloss.NewStyle().Foreground(colText).Background(colSelBg).Bold(true)
+	styleRowSel = lipgloss.NewStyle().Foreground(colSelFg).Background(colSelBg).Bold(true)
 
 	styleColHead = lipgloss.NewStyle().Foreground(colMuted).Bold(true).Underline(true)
 
@@ -54,7 +59,7 @@ var (
 	styleFMKey = lipgloss.NewStyle().Foreground(colMuted)
 	styleFMVal = lipgloss.NewStyle().Foreground(colText)
 
-	styleLinkSel = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(colAccent).Bold(true)
+	styleLinkSel = lipgloss.NewStyle().Foreground(colLinkFg).Background(colAccent).Bold(true)
 	styleLinkBad = lipgloss.NewStyle().Foreground(colWarn)
 	styleFooter  = lipgloss.NewStyle().Foreground(colDim)
 	styleStatus  = lipgloss.NewStyle().Foreground(colMuted)

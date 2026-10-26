@@ -54,8 +54,13 @@ const (
 )
 
 type noteFrame struct {
-	ID   string
-	Line int
+	ID      string
+	Line    int
+	Scroll  int
+	Pane    pane
+	LinkIdx int
+	BackIdx int
+	HasView bool
 }
 
 type queryCacheEntry struct {
