@@ -16,7 +16,7 @@ func nestedLayoutCfg() *config.File {
 		Views: map[string]config.View{
 			"projects": {Type: "project", Present: config.Present{Kind: kindList}},
 			"tasks": {
-				Type:   "project",
+				Type:    "project",
 				Present: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
 			"notes": {Type: "person", Present: config.Present{Kind: kindList}},
@@ -179,6 +179,16 @@ func TestBindUpdatesLiveFromSelection(t *testing.T) {
 	tasks = m.viewByID("tasks")
 	if !strings.Contains(tasks.sourceQuery, "projects/b") {
 		t.Fatalf("live bind after move, got %s", tasks.sourceQuery)
+	}
+	m.width, m.height = 100, 24
+	plain := strings.ReplaceAll(m.View(), "\x1b", "")
+	// Sightline should name the driving selection even after ANSI stripping of CSI guts.
+	head := m.paneHeader(tasks, false)
+	if !strings.Contains(head, sightArrow) || !strings.Contains(head, "Beta") {
+		t.Fatalf("binding sightline: %q", head)
+	}
+	if !strings.Contains(plain, "Beta") {
+		t.Fatalf("driver title missing from view")
 	}
 }
 

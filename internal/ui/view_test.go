@@ -7,6 +7,7 @@ import (
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/config"
 	"github.com/aidanlsb/perch/internal/frontmatter"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestViewStripsOSCFromVaultTitles(t *testing.T) {
@@ -94,10 +95,22 @@ func sampleTraitRows() []api.Object {
 	}, api.TypeSchema{})
 }
 
-func TestTypeListStillLeadsWithID(t *testing.T) {
+func TestTypeListLeadsWithDisplayTitle(t *testing.T) {
 	objs := []api.Object{{ID: "projects/a", Title: "Alpha", Kind: "object", Fields: map[string]any{"name": "Alpha"}}}
-	cols, flex := listColumns(objs, []string{"name"}, api.TypeSchema{})
-	if flex != -1 || len(cols) < 2 || cols[0] != "id" || cols[1] != "name" {
+	cols, flex := listColumns(objs, []string{"name"}, api.TypeSchema{NameField: "name"})
+	if flex != 0 || len(cols) < 2 || cols[0] != colLabel || cols[1] != "id" {
+		t.Fatalf("cols=%v flex=%d", cols, flex)
+	}
+	cells := rowCells(objs[0], cols)
+	if cells[0] != "Alpha" || cells[1] != "projects/a" {
+		t.Fatalf("cells=%v", cells)
+	}
+}
+
+func TestTypeListKeepsIDWhenTitleMatches(t *testing.T) {
+	objs := []api.Object{{ID: "a", Title: "a", Kind: "object"}}
+	cols, flex := listColumns(objs, nil, api.TypeSchema{})
+	if flex != -1 || cols[0] != "id" {
 		t.Fatalf("cols=%v flex=%d", cols, flex)
 	}
 }
@@ -276,5 +289,119 @@ func sampleRead() *api.ReadResult {
 			Target: "people/freya", Status: api.LinkResolved, ObjectID: "people/freya",
 		}},
 		Backlinks: []api.BacklinkGroup{{Source: "people/odin"}},
+	}
+}
+
+func TestBrowseUsesRoundedPanelHeader(t *testing.T) {
+	m := loadBrowse(t)
+	m.width, m.height = 80, 24
+	plain := ansi.Strip(m.View())
+	if !strings.Contains(plain, "╭") {
+		t.Fatalf("missing rounded border:\n%s", plain)
+	}
+	if !strings.Contains(plain, brandMark) {
+		t.Fatalf("missing brand:\n%s", plain)
+	}
+	if !strings.Contains(plain, "list") {
+		t.Fatalf("missing kind badge:\n%s", plain)
+	}
+}
+
+func TestUnfocusedListKeepsSelectionMarker(t *testing.T) {
+	m := loadBrowse(t)
+	p := m.p()
+	p.listCur = 1
+	focused := m.viewList(p, 60, 8, true)
+	if !strings.Contains(ansi.Strip(focused), "▸") {
+		t.Fatalf("focused cursor missing:\n%s", focused)
+	}
+	idle := m.viewList(p, 60, 8, false)
+	plain := ansi.Strip(idle)
+	if !strings.Contains(plain, "▸") {
+		t.Fatalf("unfocused driver selection must stay marked:\n%s", idle)
+	}
+	if !strings.Contains(plain, "Beta") {
+		t.Fatalf("selected title missing:\n%s", idle)
+	}
+}
+
+func TestNoteHeaderIsCompactMetadataBar(t *testing.T) {
+	m := loadBrowse(t)
+	m.width, m.height = 100, 30
+	m, _ = m.update(readMsg{gen: m.gen, result: sampleRead()})
+	head := m.viewNoteHeader(80)
+	plain := ansi.Strip(head)
+	if strings.Count(plain, "\n") > 3 {
+		t.Fatalf("header too tall:\n%s", plain)
+	}
+	if !strings.Contains(plain, "status: active") {
+		t.Fatalf("missing pill:\n%s", plain)
+	}
+	if !strings.Contains(plain, "·") && !strings.Contains(plain, "status") {
+		t.Fatalf("expected compact pills:\n%s", plain)
+	}
+	bar := ansi.Strip(m.viewLinkBar(80))
+	if !strings.Contains(bar, "links 1/") || !strings.Contains(bar, "[[people/freya]]") {
+		t.Fatalf("link bar: %q", bar)
+	}
+}
+
+func TestPreviewLineNumbersAroundAnchor(t *testing.T) {
+	m := loadBrowse(t)
+	m.width, m.height = 80, 24
+	m.previewOn = true
+	m.setPreview(&api.ReadResult{
+		ObjectID: "projects/a",
+		Path:     "projects/a.md",
+		Content:  "one\ntwo\nthree\nfour\nfive\nsix\n",
+	})
+	m.previewBody = "one\ntwo\nthree\nfour\nfive\nsix"
+	m.previewLine = 3
+	m.previewScroll = 2
+	out := ansi.Strip(m.viewPreview(40, 16))
+	if !strings.Contains(out, "projects/a.md:3") {
+		t.Fatalf("missing path:line:\n%s", out)
+	}
+	if !strings.Contains(out, "▸") {
+		t.Fatalf("missing target mark:\n%s", out)
+	}
+	if !strings.Contains(out, "3") {
+		t.Fatalf("missing line number:\n%s", out)
+	}
+}
+
+func TestPickerHasPromptAndCounts(t *testing.T) {
+	m := loadBrowse(t)
+	m.width, m.height = 80, 24
+	m, _ = pressLeader(m, " ")
+	out := ansi.Strip(m.View())
+	if !strings.Contains(out, "navigate") {
+		t.Fatalf("missing picker title:\n%s", out)
+	}
+	if !strings.Contains(out, "▸") {
+		t.Fatalf("missing prompt:\n%s", out)
+	}
+	if !strings.Contains(out, "/") {
+		t.Fatalf("missing match count:\n%s", out)
+	}
+}
+
+func TestDateGroupHeaderUsesRule(t *testing.T) {
+	m := loadBrowse(t)
+	p := m.p()
+	p.spec.Kind = kindDate
+	p.spec.GroupBy = "due"
+	p.spec.Granularity = "day"
+	p.objects = []api.Object{{
+		ID: "projects/a", Title: "Alpha", Type: "project",
+		Fields: map[string]any{"due": "2026-10-27"},
+	}}
+	p.applyFilterAndGroup(api.TypeSchema{})
+	out := ansi.Strip(m.viewDate(p, 40, 8, false))
+	if !strings.Contains(out, "──") || (!strings.Contains(out, "2026-10-27") && !strings.Contains(out, "27 Oct")) {
+		t.Fatalf("date header:\n%s", out)
+	}
+	if !strings.Contains(out, "▸") {
+		t.Fatalf("unfocused date selection missing:\n%s", out)
 	}
 }

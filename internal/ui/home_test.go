@@ -239,3 +239,20 @@ func TestHomeRendersTypeCountsAfterCorpus(t *testing.T) {
 		t.Fatalf("types card missing project:\n%s", out)
 	}
 }
+
+func TestHomeUsesRoundedSectionHeaders(t *testing.T) {
+	m := NewModel(Options{Config: namedViewCfg()})
+	m.width, m.height = 120, 30
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	m, _ = m.goHome()
+	out := m.View()
+	if !strings.Contains(out, "╭") {
+		t.Fatalf("missing rounded home boxes:\n%s", out)
+	}
+	if !strings.Contains(out, "views & layouts") || !strings.Contains(out, "[board]") && !strings.Contains(out, "board") {
+		t.Fatalf("section header/badge missing:\n%s", out)
+	}
+	if !strings.Contains(out, brandMark) && !strings.Contains(out, "perch") {
+		t.Fatalf("missing brand:\n%s", out)
+	}
+}

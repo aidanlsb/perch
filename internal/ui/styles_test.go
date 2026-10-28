@@ -61,6 +61,17 @@ func TestLightModeInkIsReadable(t *testing.T) {
 	if hexLuminance(t, colSelFg.Light) >= selLum {
 		t.Fatal("selected row foreground is not darker than its background")
 	}
+	acc := hexLuminance(t, colAccent.Light)
+	if acc > 0.28 {
+		t.Errorf("accent light %s luminance %.3f; too faint on white", colAccent.Light, acc)
+	}
+	if acc < 0.05 {
+		t.Errorf("accent light %s luminance %.3f; too dark to read as copper", colAccent.Light, acc)
+	}
+	border := hexLuminance(t, colBorder.Light)
+	if border > 0.45 {
+		t.Errorf("border light %s luminance %.3f; too faint", colBorder.Light, border)
+	}
 }
 
 func hexLuminance(t *testing.T, hex string) float64 {
