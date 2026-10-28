@@ -45,6 +45,10 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.onPrefetch(msg)
 	case editorDoneMsg:
 		return m.onEditorDone(msg)
+	case mutateMsg:
+		return m.onMutate(msg)
+	case dailyNoteMsg:
+		return m.onDailyNote(msg)
 	case tea.KeyMsg:
 		return m.onKey(msg)
 	}
@@ -489,6 +493,10 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.keysArgs(msg)
 	case overlaySave:
 		return m.keysSave(msg)
+	case overlayPrompt:
+		return m.keysPrompt(msg)
+	case overlayConfirm:
+		return m.keysConfirm(msg)
 	}
 	if m.pending == "space" {
 		return m.keysLeader(msg)
@@ -561,6 +569,8 @@ func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openNotesPicker()
 	case "s":
 		return m.openSearchPicker()
+	case "a":
+		return m.openActionsPicker()
 	case ",":
 		return m.openConfigAtView()
 	case "esc":
@@ -570,11 +580,22 @@ func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) dismissOverlay() (Model, tea.Cmd) {
+	m.clearMut()
 	m.overlay = overlayNone
+	m.datePurpose = ""
 	if m.isEmpty() {
 		return m.openNavPicker()
 	}
 	return m, nil
+}
+
+func (m Model) keysTraitFast() (Model, tea.Cmd) {
+	obj := m.selectedObject()
+	if obj == nil || !obj.IsTrait() {
+		m.status = "not a trait"
+		return m, nil
+	}
+	return m.startTraitFast(*obj)
 }
 
 func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -663,6 +684,16 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openConfigAtView()
 	case "S":
 		return m.startSaveView()
+	case "s":
+		return m.startSet()
+	case "x":
+		return m.keysTraitFast()
+	case "c":
+		return m.startNewObject()
+	case "H":
+		return m.moveBoardCard(-1)
+	case "L":
+		return m.moveBoardCard(1)
 	case "n":
 		m.jumpSearch(1)
 		return m.afterMove()
@@ -826,6 +857,8 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch key {
 	case ",":
 		return m.openConfigAtView()
+	case "s":
+		return m.startSet()
 	case "esc", "backspace", "ctrl+o":
 		return m.historyGo(-1)
 	case "ctrl+i":

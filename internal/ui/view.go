@@ -42,6 +42,10 @@ func (m Model) view() string {
 		return overlayOn(frame, m.width, m.height, m.viewArgs())
 	case overlaySave:
 		return overlayOn(frame, m.width, m.height, m.viewSave())
+	case overlayPrompt:
+		return overlayOn(frame, m.width, m.height, m.viewPrompt())
+	case overlayConfirm:
+		return overlayOn(frame, m.width, m.height, m.viewConfirm())
 	case overlaySearch:
 		return frame
 	}
@@ -465,6 +469,14 @@ func (m Model) viewPicker() string {
 		title = "views"
 	case pickerSearch:
 		title = "search"
+	case pickerActions:
+		title = "actions"
+	case pickerFields:
+		title = "fields"
+	case pickerValues:
+		title = "value"
+	case pickerRefs:
+		title = "ref"
 	}
 	var b strings.Builder
 	b.WriteString(styleMuted.Render(title+"  ") + m.pickerQ + "█\n")
@@ -500,7 +512,11 @@ func (m Model) viewDatePicker() string {
 	}
 	today, todayOK := parseDailyID(m.todayID())
 	var b strings.Builder
-	b.WriteString(styleMuted.Render("daily  ") + cur.Format("Monday 2006-01-02") + "\n")
+	label := "daily  "
+	if m.datePurpose == "value" {
+		label = "date  "
+	}
+	b.WriteString(styleMuted.Render(label) + cur.Format("Monday 2006-01-02") + "\n")
 	b.WriteString(styleDim.Render(cur.Format("January 2006")) + "\n")
 	b.WriteString(styleDim.Render("Su Mo Tu We Th Fr Sa") + "\n")
 	first := time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, time.UTC)
@@ -532,7 +548,11 @@ func (m Model) viewDatePicker() string {
 	if col != 0 {
 		b.WriteByte('\n')
 	}
-	b.WriteString(styleDim.Render("h/l day  j/k week  t today  enter"))
+	hint := "h/l day  j/k week  t today  enter"
+	if m.datePurpose == "value" && m.mut.optional {
+		hint += "  ctrl-d unset"
+	}
+	b.WriteString(styleDim.Render(hint))
 	return styleModal.Width(min(36, m.width-4)).Render(strings.TrimRight(b.String(), "\n"))
 }
 
@@ -550,6 +570,16 @@ func (m Model) viewSave() string {
 	return styleModal.Width(min(48, m.width-4)).Render(
 		styleMuted.Render("save view as  ") + m.saveName + "█",
 	)
+}
+
+func (m Model) viewPrompt() string {
+	return styleModal.Width(min(56, m.width-4)).Render(
+		styleMuted.Render(m.mut.promptLabel+"  ") + m.mut.promptBuf + "█",
+	)
+}
+
+func (m Model) viewConfirm() string {
+	return styleModal.Width(min(64, m.width-4)).Render(m.mut.confirmText)
 }
 
 func (m Model) viewRQL() string {

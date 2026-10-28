@@ -1,8 +1,9 @@
 # Perch
 
-A read-only terminal UI for [Raven](https://github.com/aidanlsb/raven).
-Markdown stays the source of truth. Every read goes through `rvn api`.
-Perch does not import Raven internals and does not write to the vault.
+A terminal UI for [Raven](https://github.com/aidanlsb/raven).
+Markdown stays the source of truth. Every read and mutation goes through
+`rvn api` (`POST /v1/invoke`). Perch does not import Raven internals and
+does not write vault files itself.
 
 ## Install
 
@@ -51,7 +52,9 @@ A **view** is exactly one of **type** (a schema type name) or **query**
 (a Raven saved query name), plus one presentation: **list**, **board**
 (grouped by an enum or ref field), or **date** (grouped by a
 date/datetime field). Inline RQL is not allowed in config; `:` in the
-TUI runs an ad-hoc query that stays ephemeral. Optional `inputs` are
+TUI runs an ad-hoc query. `S` saves that query in Raven
+(`query_saved_set`) and writes `[views.<name>]` with `query = "<name>"`.
+Optional `inputs` are
 sent with saved-query `query` calls. `{{selected}}` in `inputs` or
 `filter` is filled from another panel's current selection.
 For trait, section, and link rows this is the containing file object
@@ -137,9 +140,8 @@ to the current view's table where the editor supports a line argument.
 On return Perch reloads and validates; errors include line numbers and
 the last good config is kept. `S` prompts for a name and writes the
 on-screen view (`type` or `query` plus layout settings) as `[views.x]`.
-Ad-hoc `:` queries cannot be saved that way: save them in Raven first,
-then reference the name with `query = "…"`. Writes go only to Perch's
-config, never the vault.
+Ad-hoc `:` queries are saved with `query_saved_set` then referenced by
+name. Config writes go only to Perch's config, never the vault.
 
 ## CLI (for agents)
 
@@ -237,8 +239,9 @@ Perch-managed files. A skill directory without that receipt is left alone.
 
 Navigation keys use `Space` as a leader in browse and note mode. Press
 `Space` once to enter a pending leader state (the footer lists the
-keys). `esc` or an unknown key cancels. Bare `t` `d` `q` `v` `f` `s`
-do nothing in normal mode so they cannot fire by accident. `ctrl-p` and
+keys). `esc` or an unknown key cancels. Bare `t` `d` `q` `v` `f`
+do nothing in normal mode so they cannot fire by accident. Bare `s`
+edits a field or trait; `Space s` is content search. `ctrl-p` and
 `,` still work without the leader.
 
 With no view or layout loaded, Perch opens the same navigation menu
@@ -246,17 +249,22 @@ With no view or layout loaded, Perch opens the same navigation menu
 
 | Key | Opens |
 | --- | --- |
-| `Space Space` | Navigation menu: views, types, queries, daily, notes, search, config |
+| `Space Space` | Navigation menu: views, types, queries, daily, notes, search, actions, config |
 | `Space t` | Types from `GET /v1/schema` (fuzzy). Selecting fills the main pane with that type's objects as a plain list. |
-| `Space d` | Daily-note date picker, starting on today (`GET /v1/session` `daily.today_id` when present). `h`/`l` move a day, `j`/`k` a week, `t` today. Enter invokes Raven's read-only `date` hub and opens that day's daily note when `daily_exists`. |
+| `Space d` | Daily-note date picker, starting on today (`GET /v1/session` `daily.today_id` when present). `h`/`l` move a day, `j`/`k` a week, `t` today. Enter resolves or creates that day's daily note via `daily`. |
 | `Space q` | Saved queries (fuzzy). `q` does not quit; `ctrl+c` quits. |
 | `Space v` | Saved views and layouts |
 | `ctrl-p` / `Space f` | Notes: fuzzy over the `objects` corpus (paginated, cached, background), plus Raven `search` after two characters |
 | `Space s` | Full-text content search (`POST /v1/invoke` command `search`) |
+| `Space a` | Actions: new object, capture, set field/trait, move, reclassify, delete, schema |
 | `/` | Fuzzy search in the current view; `n` / `N` next/previous hit |
 | `:` | Ad-hoc RQL |
 | `,` / `Space ,` | Config at the current view's entry |
-| `S` | Save the on-screen view as `[views.name]` |
+| `S` | Save the on-screen view as `[views.name]` (ad-hoc RQL is saved in Raven first) |
+| `s` | Set / edit the selected object's field or a trait value (schema-typed widget) |
+| `x` | Fast-toggle a trait row (`bool`, two-value `enum`, or open the value picker) |
+| `c` | Create a new object of the focused pane's type |
+| `H` / `L` | Move the selected board card to the previous / next column (`set` / `unset` the group-by field) |
 
 Saved queries that declare `args` open an argument prompt. Values are sent as
 `query` `inputs` (`{{args.*}}`). Esc cancels.
@@ -275,8 +283,8 @@ wait on `read` when `file_path` is already on the row.
 
 Enter on a nested row opens the containing object's note view, scrolled
 to the row's line. `S` saves the on-screen view's type or query and
-layout; it does not treat the selected row as an object. Ad-hoc RQL
-stays ephemeral.
+layout; it does not treat the selected row as an object. Ad-hoc RQL is
+saved into Raven as a named query, then referenced from config.
 
 ## Keys
 
@@ -304,6 +312,11 @@ Overlays still close with `q` / `esc`. `ctrl+c` quits.
 | `Space v` | Views and layouts |
 | `ctrl-p` / `Space f` | Notes picker |
 | `Space s` | Full-text content search |
+| `Space a` | Actions menu |
+| `s` | Set / edit field or trait |
+| `x` | Toggle / cycle trait |
+| `c` | New object |
+| `H` / `L` | Move board card to previous / next column |
 | `/` | Fuzzy search in view |
 | `n` / `N` | Next / previous search hit |
 | `.` | Cycle date granularity |
@@ -314,7 +327,7 @@ Overlays still close with `q` / `esc`. `ctrl+c` quits.
 | `e` | Open in editor |
 | `r` | Refresh (and reload config) |
 | `[` `]` `ctrl-o` `ctrl-i` | Note history back / forward |
-| `[d` `]d` | Previous / next daily note (in a daily note) |
+| `[d` `]d` | Previous / next daily note (in a daily note; creates if missing) |
 | `?` | Help |
 | `esc` / `backspace` | Close overlay / previous note, or browse when at the start of history |
 | `ctrl+c` | Quit |
@@ -349,17 +362,20 @@ perch  →  HTTP 127.0.0.1  →  rvn api  →  commandexec.Invoker
 
 Endpoints used: `GET /v1/health`, `GET /v1/session` (including `daily` and
 `revision`), `GET /v1/revision`, `GET /v1/schema`, `POST /v1/invoke` with
-`query` (and `inputs` for saved-query args), `query_saved_list`, `objects`,
-`read`, `search`, `date`, and `backlinks`. Write commands (`set`, `unset`,
-`new`, `move`) and `daily` (which may create a file) are rejected in the
-client.
+`query` (and `inputs` for saved-query args), `query_saved_list`,
+`query_saved_set`, `objects`, `read`, `search`, `date`, `daily`, `backlinks`,
+and mutations (`set`, `unset`, `update`, `new`, `add`, `delete`, `move`,
+`reclassify`, `schema_*`). Field and trait widgets are driven only by
+`GET /v1/schema` (`FieldSchema` / `TraitSchema`); Perch does not hardcode
+vault field, type, or trait names.
 
 Query, `read`, and `objects` rows are cached in memory. The notes picker is
 backed by paginated `objects` loaded in the background. Older `rvn` without
 `objects` falls back to per-type query prefetch. Daily notes use Raven's
-read-only `date` hub (`daily_note_id` when `daily_exists`). The picker
-anchors "today" on `session.daily.today_id` when present. Perch never
-guesses a type or directory and never invokes `daily`.
+`date` hub, then `daily` to create a missing note. The picker anchors
+"today" on `session.daily.today_id` when present. Perch never guesses a
+type or directory. After an applied mutation it refetches visible panes
+and any open note, keeping cursor by object id.
 
 Live refresh polls `GET /v1/revision` for `{generation, counter}`. A new
 generation drops the in-memory cache and refetches schema plus every visible
@@ -375,15 +391,14 @@ A backlinks pane lists `data.backlinks`.
 
 ## Raven API gaps
 
-1. **`open` is not allowlisted.** Correct for a read-only UI; Perch
-   launches the editor itself using session `editor` / `editor_mode` and
-   `vault_path` + `data.path`.
+1. **`open` is not allowlisted.** Perch launches the editor itself using
+   session `editor` / `editor_mode` and `vault_path` + `data.path`.
 2. **Query sort.** There is no `sort:` in RQL yet. Perch sorts
    client-side from the view `sort` field.
 
 Closed by Raven PR 308 (consumed here): `GET /v1/session` `daily`, `query`
-`inputs` for saved-query args, and the paginated `objects` corpus. Perch
-still never invokes `daily` because it may create files.
+`inputs` for saved-query args, and the paginated `objects` corpus.
+`Space d` / `[d` / `]d` invoke `daily` when the note is missing.
 
 Closed by Raven PR 312 (consumed here): `GET /v1/revision` and
 `session.revision`. Perch will not start against an `rvn api` that omits them.

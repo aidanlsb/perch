@@ -224,6 +224,20 @@ func (m Model) reloadFromSchema(msg schemaMsg) (Model, tea.Cmd) {
 		m.cfgWarnings = m.cfg.Validate(m.schema)
 	}
 	m.rebindPanesFromSchema()
+	if name := m.pendingOpenType; name != "" {
+		m.pendingOpenType = ""
+		m.restoreLiveChrome(snap)
+		return m.loadType(name)
+	}
+	if name := m.pendingOpenView; name != "" {
+		m.pendingOpenView = ""
+		m.restoreLiveChrome(snap)
+		if m.cfg != nil {
+			if _, ok := m.cfg.Views[name]; ok {
+				return m.loadNamedView(name)
+			}
+		}
+	}
 	m, cmd := m.liveRefetch(false)
 	m.restoreLiveChrome(snap)
 	return m, cmd

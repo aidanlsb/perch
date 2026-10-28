@@ -11,6 +11,7 @@ const dailyLayout = "2006-01-02"
 
 func (m Model) openDatePicker() (Model, tea.Cmd) {
 	m.overlay = overlayDate
+	m.datePurpose = "daily"
 	m.dateCur = m.todayID()
 	m.status = "daily " + m.dateCur
 	return m, nil
@@ -31,7 +32,15 @@ func (m Model) keysDate(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "esc", "q":
 		return m.dismissOverlay()
 	case "enter":
+		if m.datePurpose == "value" {
+			return m.commitValue(m.dateCur)
+		}
 		return m.openDailyDate(m.dateCur)
+	case "ctrl+d":
+		if m.datePurpose == "value" && m.mut.optional {
+			return m.applyUnset()
+		}
+		return m, nil
 	case "h", "left":
 		m.shiftDateCur(-1)
 		return m, nil
@@ -97,16 +106,45 @@ func (m Model) onDate(msg dateMsg) (Model, tea.Cmd) {
 		m.errMsg = msg.err.Error()
 		return m, nil
 	}
-	if msg.result == nil || !msg.result.DailyExists || strings.TrimSpace(msg.result.DailyNoteID) == "" {
-		id := msg.date
-		if msg.result != nil && msg.result.Date != "" {
-			id = msg.result.Date
-		}
-		m.status = "no daily note for " + id
+	if msg.result == nil {
+		m.status = "no daily note for " + msg.date
 		return m, nil
+	}
+	if !msg.result.DailyExists || strings.TrimSpace(msg.result.DailyNoteID) == "" {
+		date := msg.result.Date
+		if date == "" {
+			date = msg.date
+		}
+		m.loading = true
+		m.status = "daily " + date + "…"
+		return m, fetchEnsureDaily(m.client, m.gen, date)
 	}
 	m.status = "daily " + msg.result.Date
 	return m.openNote(msg.result.DailyNoteID)
+}
+
+func (m Model) onDailyNote(msg dailyNoteMsg) (Model, tea.Cmd) {
+	if msg.gen != 0 && msg.gen != m.gen {
+		return m, nil
+	}
+	m.loading = false
+	if msg.err != nil {
+		m.errMsg = msg.err.Error()
+		return m, nil
+	}
+	if msg.result == nil {
+		m.status = "no daily note for " + msg.date
+		return m, nil
+	}
+	id := strings.TrimSpace(msg.result.ID)
+	if id == "" {
+		id = strings.TrimSpace(msg.result.Date)
+	}
+	if id == "" {
+		id = msg.date
+	}
+	m.status = "daily " + id
+	return m.openNote(id)
 }
 
 func isDailyNoteID(id string) bool {

@@ -169,12 +169,14 @@ func (m Model) loadQueryWithInputs(q *api.SavedQuery, inputs map[string]string) 
 
 func (m Model) loadRQL(q string) (Model, tea.Cmd) {
 	p := &viewState{
-		id:          "rql",
-		spec:        layout.Spec{Name: "RQL", Kind: kindList}.Normalize(),
-		sourceBase:  q,
-		sourceQuery: q,
-		sourceLabel: q,
-		typeName:    typeFromRQL(q),
+		id:            "rql",
+		spec:          layout.Spec{Name: "RQL", Kind: kindList}.Normalize(),
+		sourceBase:    q,
+		sourceQuery:   q,
+		sourceRQL:     q,
+		sourceLabel:   q,
+		sourceIsQuery: true,
+		typeName:      typeFromRQL(q),
 	}
 	if p.typeName != "" {
 		p.applySpec(layout.DefaultList(m.schema.Types[p.typeName]), m.schema.Types[p.typeName])
