@@ -57,56 +57,55 @@ func (m Model) view() string {
 }
 
 func (m Model) viewHeader() string {
-	left := styleHeader.Render("perch")
-	p := m.p()
-	label := p.sourceLabel
-	if m.currentLayout != "" {
-		label = m.currentLayout
-		if m.focus != focusPreview && m.focus != "" {
-			label += " · " + m.focus
-		}
-	}
-	mid := styleMuted.Render(" · " + label)
-	if p.spec.Kind != "" && m.screen == kindBrowse {
-		name := m.currentLayoutName()
-		mid += styleMuted.Render("  " + name)
-		if p.spec.Kind == kindDate && p.granularity != "" {
-			mid += styleDim.Render(" / " + p.granularity)
-		}
-	}
-	if m.screen == kindHome {
-		mid = styleMuted.Render(" · home")
-	}
-	if m.screen == kindNote && m.note != nil {
-		mid = styleMuted.Render(" · " + m.note.ObjectID)
-	}
-	right := m.status
-	if m.loading {
-		right = "loading…"
-	}
-	if m.overlay == overlaySearch || m.searchQ != "" {
-		right = "/" + m.searchQ
-		if m.overlay == overlaySearch {
-			right += "█"
-		}
-		if n := len(m.searchHits); n > 0 && m.searchQ != "" {
-			right += fmt.Sprintf("  %d/%d", m.searchAt+1, n)
-		}
-	}
-	live := m.liveErr
+	brand := styleHeader.Render(brandMark)
+	right := m.vantageStatus()
 	rightW := lipgloss.Width(right)
-	if live != "" {
-		rightW += lipgloss.Width("  " + live)
-	}
-	gap := max(0, m.width-lipgloss.Width(left+mid)-rightW-1)
-	line := left + mid + strings.Repeat(" ", gap) + styleStatus.Render(right)
-	if live != "" {
-		line += "  " + styleWarn.Render(live)
-	}
+	trailBudget := max(8, m.width-lipgloss.Width(brand)-rightW-4)
+	trail := styleMuted.Render(formatBreadcrumb(m.breadcrumbs(), trailBudget))
+	left := brand + "  " + trail
+	gap := max(1, m.width-lipgloss.Width(left)-rightW)
+	line := left + strings.Repeat(" ", gap) + right
 	if lipgloss.Width(line) < m.width {
 		line += strings.Repeat(" ", max(0, m.width-lipgloss.Width(line)))
 	}
-	return line
+	return truncate(line, m.width)
+}
+
+func (m Model) vantageStatus() string {
+	var parts []string
+	if m.overlay == overlaySearch || m.searchQ != "" {
+		s := "/" + m.searchQ
+		if m.overlay == overlaySearch {
+			s += "█"
+		}
+		if n := len(m.searchHits); n > 0 && m.searchQ != "" {
+			s += fmt.Sprintf("  %d/%d", m.searchAt+1, n)
+		}
+		parts = append(parts, styleHeader.Render(s))
+	}
+	if m.loading {
+		parts = append(parts, styleMuted.Render("loading…"))
+	}
+	if live := m.liveBadge(); live != "" {
+		parts = append(parts, live)
+	}
+	if m.status != "" && !m.loading && m.overlay != overlaySearch && m.searchQ == "" {
+		parts = append(parts, styleStatus.Render(truncate(m.status, max(8, m.width/4))))
+	}
+	return strings.Join(parts, "  ")
+}
+
+func (m Model) liveBadge() string {
+	if m.pollInterval <= 0 {
+		return ""
+	}
+	if m.liveErr != "" {
+		return styleWarn.Render(liveMark + " " + m.liveErr)
+	}
+	if m.revGeneration != "" {
+		return styleOk.Render(liveMark + " live")
+	}
+	return styleDim.Render(liveMark)
 }
 
 func (m Model) viewFooter() string {
@@ -116,8 +115,7 @@ func (m Model) viewFooter() string {
 	if len(m.cfgWarnings) > 0 {
 		return styleWarn.Render(truncate(strings.Join(m.cfgWarnings, "; "), m.width))
 	}
-	keys := footerKeys(m)
-	return styleFooter.Render(truncate(keys, m.width))
+	return styleHintLine(footerKeys(m), m.width)
 }
 
 func (m Model) viewBrowse(height int) string {
@@ -166,35 +164,158 @@ func (m Model) viewTree(n layoutTree, width, height int) string {
 }
 
 func (m Model) viewPaneBox(v *viewState, width, height int, focused bool) string {
-	fg := colBorder
-	if focused {
-		fg = colAccent
-	}
-	box := lipgloss.NewStyle().
-		Width(max(1, width-2)).
-		Height(max(1, height-2)).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(fg)
 	innerW := max(1, width-2)
 	innerH := max(1, height-2)
-	return box.Render(m.viewPane(v, innerW, innerH, focused))
+	return frameBox(m.viewPane(v, innerW, innerH, focused), width, height, m.paneHeader(v, focused), focused, m.paneScroll(v, innerH))
 }
 
 func (m Model) viewPane(v *viewState, width, height int, focused bool) string {
-	pad := lipgloss.NewStyle().Width(width).Height(height).PaddingLeft(1)
 	if v == nil {
-		return pad.Render(styleMuted.Render("empty"))
+		return styleMuted.Render("empty")
 	}
 	if v.loading && len(v.objects) == 0 {
-		return pad.Render(styleMuted.Render("loading…"))
+		return styleMuted.Render("loading…")
 	}
 	switch v.spec.Kind {
 	case kindBoard:
-		return pad.Render(m.viewBoard(v, width-1, height, focused))
+		return m.viewBoard(v, width, height, focused)
 	case kindDate:
-		return pad.Render(m.viewDate(v, width-1, height, focused))
+		return m.viewDate(v, width, height, focused)
 	default:
-		return pad.Render(m.viewList(v, width-1, height, focused))
+		return m.viewList(v, width, height, focused)
+	}
+}
+
+func (m Model) paneHeader(v *viewState, focused bool) string {
+	if v == nil {
+		return "empty"
+	}
+	name := v.sourceLabel
+	if v.viewName != "" {
+		name = v.viewName
+	}
+	if name == "" {
+		name = v.id
+	}
+	if focused {
+		name = "▸ " + name
+	}
+	var parts []string
+	parts = append(parts, name)
+	if v.bind != "" {
+		parts = append(parts, m.bindingSightline(v))
+	}
+	kind := v.spec.Kind
+	if kind == "" {
+		kind = kindList
+	}
+	badge := kind
+	if kind == kindDate && v.granularity != "" {
+		badge += " / " + v.granularity
+	}
+	if strings.TrimSpace(v.spec.Filter) != "" || (m.searchQ != "" && focused) {
+		badge += " *"
+	}
+	parts = append(parts, badge)
+	parts = append(parts, m.paneCount(v))
+	return strings.Join(parts, " · ")
+}
+
+func (m Model) bindingSightline(v *viewState) string {
+	if v == nil || v.bind == "" {
+		return ""
+	}
+	d := m.viewByID(v.bind)
+	if d == nil {
+		return sightArrow + " " + v.bind
+	}
+	if sel := d.selectedObject(); sel != nil {
+		title := strings.TrimSpace(m.displayTitle(*sel))
+		if title == "" {
+			title = sel.ID
+		}
+		if title != "" {
+			return sightArrow + " " + title
+		}
+	}
+	label := d.sourceLabel
+	if d.viewName != "" {
+		label = d.viewName
+	}
+	if label == "" {
+		label = d.id
+	}
+	return sightArrow + " " + label
+}
+
+func (m Model) paneCount(v *viewState) string {
+	if v == nil {
+		return "0"
+	}
+	switch v.spec.Kind {
+	case kindBoard:
+		n := 0
+		for _, c := range v.board {
+			n += len(c.Items)
+		}
+		return fmt.Sprintf("%d", n)
+	case kindDate:
+		n := 0
+		for _, c := range v.dateCols {
+			n += len(c.Items)
+		}
+		if n == 0 {
+			return "0"
+		}
+		cur := 0
+		for i := 0; i < v.dateSec && i < len(v.dateCols); i++ {
+			cur += len(v.dateCols[i].Items)
+		}
+		cur += v.dateRow + 1
+		return fmt.Sprintf("%d/%d", clamp(cur, 1, n), n)
+	default:
+		n := len(v.filtered)
+		if n == 0 {
+			return "0"
+		}
+		return fmt.Sprintf("%d/%d", v.listCur+1, n)
+	}
+}
+
+func (m Model) paneScroll(v *viewState, innerH int) scrollState {
+	if v == nil || innerH < 1 {
+		return scrollState{}
+	}
+	switch v.spec.Kind {
+	case kindBoard:
+		return scrollState{}
+	case kindDate:
+		total := 0
+		cur := 0
+		for si, sec := range v.dateCols {
+			if si == v.dateSec {
+				cur = total + 1 + v.dateRow
+			}
+			total += 1 + len(sec.Items)
+		}
+		off := 0
+		if cur >= innerH {
+			off = cur - innerH + 1
+		}
+		return scrollState{offset: off, total: total, view: innerH}
+	default:
+		n := len(v.filtered) + 1
+		off := v.listOff
+		if v.listCur < off {
+			off = v.listCur
+		}
+		if v.listCur >= off+innerH-1 {
+			off = v.listCur - (innerH - 2)
+		}
+		if off < 0 {
+			off = 0
+		}
+		return scrollState{offset: off, total: n, view: innerH}
 	}
 }
 
@@ -214,24 +335,27 @@ func (m Model) viewList(v *viewState, width, height int, focused bool) string {
 		off = 0
 	}
 
-	widths := columnWidths(v.filtered, cols, width, flex)
+	innerW := max(1, width-2)
+	widths := columnWidths(v.filtered, cols, innerW, flex)
+	heads := make([]string, len(cols))
+	for i, c := range cols {
+		heads[i] = columnHeading(c)
+	}
 	var b strings.Builder
-	b.WriteString(styleColHead.Render(formatRow(cols, widths)))
+	b.WriteString(styleColHead.Render(formatRow(heads, widths)))
 	b.WriteByte('\n')
 	rows := height - 1
 	end := min(len(v.filtered), off+rows)
 	for i := off; i < end; i++ {
 		obj := m.labeled(v.filtered[i])
 		cells := rowCells(obj, cols)
-		line := formatRowFlex(cells, widths, flex)
-		if i == v.listCur {
-			st := styleRowSel
-			if !focused {
-				st = styleRow
-			}
-			b.WriteString(st.Width(width).Render(line))
+		sel := i == v.listCur
+		line := rowCursor(sel, focused) + formatRowFlex(cells, widths, flex)
+		st := selectStyle(sel, focused)
+		if sel {
+			b.WriteString(st.Width(width).Render(truncate(line, width)))
 		} else {
-			b.WriteString(styleRow.Render(line))
+			b.WriteString(st.Render(truncate(line, width)))
 		}
 		b.WriteByte('\n')
 	}
@@ -243,48 +367,80 @@ func (m Model) viewBoard(v *viewState, width, height int, focused bool) string {
 		return styleMuted.Render("no columns")
 	}
 	n := len(v.board)
-	colW := max(12, (width-n+1)/max(1, n))
-	if colW*n > width {
-		colW = max(12, width/max(1, min(n, 4)))
-	}
-	maxCols := max(1, width/max(colW, 12))
+	gutter := 1
+	maxCols := max(1, (width+gutter)/(12+gutter))
 	start := 0
 	if v.boardCol >= maxCols {
 		start = v.boardCol - maxCols + 1
 	}
 	end := min(n, start+maxCols)
-	colW = max(12, (width-(end-start)+1)/max(1, end-start))
+	shown := end - start
+	gutterW := gutter * max(0, shown-1)
+	colW := max(10, (width-gutterW)/max(1, shown))
 
 	var cols []string
 	for i := start; i < end; i++ {
 		c := v.board[i]
-		head := styleBoardHead.Width(colW).Render(truncate(fmt.Sprintf("%s (%d)", c.Label, len(c.Items)), colW))
+		active := i == v.boardCol
+		headTxt := truncate(fmt.Sprintf("%s  %d", c.Label, len(c.Items)), colW)
+		var head string
+		if active {
+			head = styleBoardHead.Width(colW).Render(headTxt)
+		} else {
+			head = styleBoardHeadIdle.Width(colW).Render(headTxt)
+		}
 		var rows []string
 		rows = append(rows, head)
-		rows = append(rows, styleDim.Render(strings.Repeat("─", min(colW, 8))))
+		ruleN := min(colW, max(4, lipgloss.Width(c.Label)+2))
+		rows = append(rows, styleDim.Render(strings.Repeat("─", ruleN)))
 		visible := height - 2
 		off := 0
-		if i == v.boardCol && v.boardRow >= visible {
+		if active && v.boardRow >= visible {
 			off = v.boardRow - visible + 1
 		}
+		cardW := max(1, colW-1)
+		showMeta := colW >= 16 && len(v.listFields) > 0
 		for j := off; j < len(c.Items) && j-off < visible; j++ {
-			label := truncate(m.displayTitle(c.Items[j]), colW)
-			if i == v.boardCol && j == v.boardRow {
-				st := styleRowSel
-				if !focused {
-					st = styleRow
+			sel := active && j == v.boardRow
+			mark := " "
+			if sel {
+				mark = "▌"
+			}
+			title := truncate(m.displayTitle(c.Items[j]), cardW)
+			line := mark + title
+			st := selectStyle(sel, focused)
+			rows = append(rows, st.Width(colW).Render(truncate(line, colW)))
+			if showMeta && j-off+1 < visible {
+				if meta := cardMeta(c.Items[j], v.listFields, v.groupBy, m.displayTitle(c.Items[j])); meta != "" {
+					rows = append(rows, styleDim.Width(colW).Render(truncate(" "+meta, colW)))
 				}
-				rows = append(rows, st.Width(colW).Render(label))
-			} else {
-				rows = append(rows, styleRow.Width(colW).Render(label))
 			}
 		}
 		if len(c.Items) == 0 {
 			rows = append(rows, styleDim.Render("empty"))
 		}
 		cols = append(cols, lipgloss.JoinVertical(lipgloss.Left, rows...))
+		if i < end-1 {
+			div := styleDim.Render("│")
+			cols = append(cols, lipgloss.NewStyle().Height(height).Render(div))
+		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, cols...)
+}
+
+func cardMeta(obj api.Object, fields []string, skip, title string) string {
+	var parts []string
+	for _, f := range fields {
+		if f == "" || f == skip || f == colLabel {
+			continue
+		}
+		s := api.ScalarString(obj.Fields[f])
+		if s == "" || s == title {
+			continue
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m Model) viewDate(v *viewState, width, height int, focused bool) string {
@@ -293,17 +449,19 @@ func (m Model) viewDate(v *viewState, width, height int, focused bool) string {
 	}
 	var lines []string
 	for si, sec := range v.dateCols {
-		lines = append(lines, styleDateHead.Width(width).Render(fmt.Sprintf("%s  %d", sec.Label, len(sec.Items))))
+		head := fmt.Sprintf("── %s · %d ", sec.Label, len(sec.Items))
+		if w := lipgloss.Width(head); w < width {
+			head += strings.Repeat("─", width-w)
+		}
+		lines = append(lines, styleDateHead.Width(width).Render(truncate(head, width)))
 		for ri, obj := range sec.Items {
-			label := truncate("  "+m.displayTitle(obj), width)
-			if si == v.dateSec && ri == v.dateRow {
-				st := styleRowSel
-				if !focused {
-					st = styleRow
-				}
-				lines = append(lines, st.Width(width).Render(label))
+			sel := si == v.dateSec && ri == v.dateRow
+			label := rowCursor(sel, focused) + m.displayTitle(obj)
+			st := selectStyle(sel, focused)
+			if sel {
+				lines = append(lines, st.Width(width).Render(truncate(label, width)))
 			} else {
-				lines = append(lines, styleRow.Render(label))
+				lines = append(lines, st.Render(truncate(label, width)))
 			}
 		}
 	}
@@ -343,6 +501,8 @@ func (m Model) viewNote(height int) string {
 	used := lipgloss.Height(header) + lipgloss.Height(linkBar)
 	bodyH := max(1, height-used)
 	body := windowLines(m.noteBody, m.noteScroll, bodyH, mainW)
+	nLines := strings.Count(m.noteBody, "\n") + 1
+	body = withRightThumb(body, mainW, bodyH, m.noteScroll, nLines)
 	main := lipgloss.JoinVertical(lipgloss.Left, header, body, linkBar)
 	if backW == 0 {
 		return main
@@ -352,32 +512,50 @@ func (m Model) viewNote(height int) string {
 }
 
 func (m Model) viewNoteHeader(width int) string {
-	var lines []string
 	id := m.note.ObjectID
 	heading := m.headingFromDoc(id, m.noteDoc)
-	title := id
-	if heading != "" && heading != id {
-		title = heading + "  " + styleDim.Render(id)
+	typ := m.objectType(id)
+	path := m.note.Path
+	if path == "" {
+		path = id
 	}
-	skip := m.schemaNameField(m.objectType(id))
-	lines = append(lines, styleHeader.Render(truncate(title, width)))
-	if m.note.Path != "" {
-		lines = append(lines, styleDim.Render(truncate(m.note.Path, width)))
+	title := heading
+	if title == "" {
+		title = id
 	}
+	var topParts []string
+	topParts = append(topParts, styleHeader.Render(title))
+	if typ != "" {
+		topParts = append(topParts, styleDim.Render("["+typ+"]"))
+	}
+	if path != "" && path != title {
+		topParts = append(topParts, styleDim.Render(path))
+	} else if id != "" && id != title {
+		topParts = append(topParts, styleDim.Render(id))
+	}
+	top := wrapJoined(topParts, "  ", width)
+	skip := m.schemaNameField(typ)
+	var pills []string
 	for _, k := range m.noteDoc.Order {
 		if skip != "" && k == skip {
 			continue
 		}
-		line := styleFMKey.Render(k+": ") + styleFMVal.Render(m.noteDoc.Fields[k])
-		lines = append(lines, truncate(line, width))
+		val := m.noteDoc.Fields[k]
+		if strings.TrimSpace(val) == "" {
+			continue
+		}
+		pills = append(pills, styleFMKey.Render(k+": ")+styleFMVal.Render(val))
 	}
-	lines = append(lines, styleDim.Render(strings.Repeat("─", min(width, 40))))
-	return strings.Join(lines, "\n")
+	meta := wrapJoined(pills, styleDim.Render("  ·  "), width)
+	if meta == "" {
+		return top
+	}
+	return top + "\n" + meta
 }
 
 func (m Model) viewLinkBar(width int) string {
 	if m.note == nil || len(m.note.Links) == 0 {
-		return styleDim.Render("no wiki links")
+		return styleDim.Render("links 0")
 	}
 	link := m.note.Links[m.linkIdx]
 	st := styleOk
@@ -394,19 +572,22 @@ func (m Model) viewLinkBar(width int) string {
 	if link.SpanOK(m.note.Content) {
 		text = m.note.Content[link.ByteStart:link.ByteEnd]
 	}
-	label := fmt.Sprintf("%d/%d  %s  %s", m.linkIdx+1, len(m.note.Links), text, link.Status)
+	label := fmt.Sprintf("links %d/%d  %s  ● %s", m.linkIdx+1, len(m.note.Links), text, link.Status)
 	return st.Render(truncate(label, width))
 }
 
 func (m Model) viewBacklinks(width, height int) string {
-	style := lipgloss.NewStyle().
-		Width(width).
-		Height(height).
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(colBorder).
-		PaddingLeft(1)
+	focused := m.pane == paneBacklinks
+	n := 0
+	if m.note != nil {
+		n = len(m.note.Backlinks)
+	}
+	title := "backlinks · " + fmt.Sprintf("%d", n)
+	if focused {
+		title = "▸ " + title
+	}
 	previewH := 0
-	if m.note != nil && len(m.note.Backlinks) > 0 && (m.pane == paneBacklinks || height >= 14) {
+	if m.note != nil && n > 0 && (focused || height >= 14) {
 		previewH = height / 2
 		if previewH < 6 {
 			previewH = min(8, height/3)
@@ -415,41 +596,37 @@ func (m Model) viewBacklinks(width, height int) string {
 			previewH = max(0, height-6)
 		}
 	}
-	listH := height
+	innerW := max(1, width-2)
+	innerH := max(1, height-2)
+	listH := innerH
 	if previewH > 0 {
-		listH = height - previewH
+		listH = max(1, innerH-previewH)
 	}
-	list := m.viewBacklinkList(width-2, max(3, listH))
-	if previewH <= 0 {
-		return style.Height(height).Render(list)
+	list := m.viewBacklinkList(innerW, listH)
+	body := list
+	if previewH > 0 {
+		prev := m.viewBacklinkPreview(innerW, previewH)
+		body = lipgloss.JoinVertical(lipgloss.Left, list, prev)
 	}
-	prev := m.viewBacklinkPreview(width-2, previewH)
-	return style.Height(height).Render(lipgloss.JoinVertical(lipgloss.Left, list, prev))
+	return frameBox(body, width, height, title, focused, scrollState{})
 }
 
 func (m Model) viewBacklinkList(width, height int) string {
-	var b strings.Builder
-	title := "backlinks"
-	if m.pane == paneBacklinks {
-		title = "▸ backlinks"
-	}
-	b.WriteString(styleSectionTitle.Render(title))
-	b.WriteByte('\n')
 	if m.note == nil || len(m.note.Backlinks) == 0 {
-		b.WriteString(styleDim.Render("none"))
-		return b.String()
+		return styleDim.Render("none")
 	}
-	inner := max(8, width-1)
+	var b strings.Builder
+	inner := max(8, width)
+	focused := m.pane == paneBacklinks
 	for i, g := range m.note.Backlinks {
 		label := m.backlinkLabel(g)
-		if i == m.backIdx {
-			st := styleNavSel
-			if m.pane != paneBacklinks {
-				st = styleNav
-			}
-			b.WriteString(st.Width(inner).Render(truncate(label, inner)))
+		sel := i == m.backIdx
+		line := rowCursor(sel, focused) + truncate(label, max(1, inner-2))
+		st := selectStyle(sel, focused)
+		if sel {
+			b.WriteString(st.Width(inner).Render(truncate(line, inner)))
 		} else {
-			b.WriteString(styleNav.Render(truncate(label, inner)))
+			b.WriteString(st.Render(truncate(line, inner)))
 		}
 		b.WriteByte('\n')
 		if snip := g.SnippetText(); snip != "" {
@@ -501,7 +678,11 @@ func (m Model) viewBacklinkPreview(width, height int) string {
 	b.WriteByte('\n')
 	off := sourceLineScroll(rd.Content, body, line)
 	used := 3
-	b.WriteString(windowLinesMark(body, off, max(1, height-used), max(8, width-1), off))
+	mark := -1
+	if line > 0 {
+		mark = off
+	}
+	b.WriteString(windowLinesMark(body, off, max(1, height-used), max(8, width-1), mark, line))
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -531,11 +712,6 @@ func backlinkAnchorLine(g api.BacklinkGroup, content, targetID string) int {
 
 func (m Model) viewHelp() string {
 	var b strings.Builder
-	focus := m.focus
-	if m.screen == kindNote {
-		focus = "note"
-	}
-	b.WriteString(styleHeader.Render("perch") + styleMuted.Render("  keys  focused: "+focus) + "\n")
 	section := ""
 	for _, bind := range Keymap {
 		if bind.Section != section {
@@ -543,10 +719,10 @@ func (m Model) viewHelp() string {
 			b.WriteString("\n" + styleSectionTitle.Render(section) + "\n")
 		}
 		keys := padTrunc(bind.Keys, 26)
-		b.WriteString(styleMuted.Render(keys) + "  " + bind.Desc + "\n")
+		b.WriteString(styleKey.Render(keys) + "  " + styleDim.Render(bind.Desc) + "\n")
 	}
 	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
-	h := max(8, m.height-2)
+	h := max(8, m.height-4)
 	off := m.helpOff
 	if off > len(lines)-h {
 		off = max(0, len(lines)-h)
@@ -556,11 +732,19 @@ func (m Model) viewHelp() string {
 	}
 	end := min(len(lines), off+h)
 	body := strings.Join(lines[off:end], "\n")
-	w := min(84, max(40, m.width-2))
-	return styleHelpBox.Width(w).Height(h).Padding(0, 1).Render(body)
+	w := min(84, max(40, m.width-4))
+	focus := m.focus
+	switch m.screen {
+	case kindNote:
+		focus = "note"
+	case kindHome:
+		focus = "home"
+	}
+	title := "keys · " + focus
+	return modalFrame(title, body, w)
 }
 
-func (m Model) viewPicker() string {
+func (m Model) pickerTitle() string {
 	title := "types"
 	switch m.pickerKind {
 	case pickerNav:
@@ -582,8 +766,20 @@ func (m Model) viewPicker() string {
 	case pickerRefs:
 		title = "ref"
 	}
+	nHit := len(m.pickerHit)
+	nAll := len(m.pickerAll)
+	if nAll > 0 {
+		title += fmt.Sprintf("  %d/%d", nHit, nAll)
+	} else if nHit > 0 {
+		title += fmt.Sprintf("  %d", nHit)
+	}
+	return title
+}
+
+func (m Model) viewPicker() string {
+	rowW := min(64, max(36, m.width-8))
 	var b strings.Builder
-	b.WriteString(styleMuted.Render(title+"  ") + m.pickerQ + "█\n")
+	b.WriteString(styleHeader.Render("▸ ") + m.pickerQ + "█\n")
 	if len(m.pickerHit) == 0 {
 		b.WriteString(styleDim.Render("no matches"))
 	}
@@ -595,18 +791,37 @@ func (m Model) viewPicker() string {
 	end := min(len(m.pickerHit), start+maxRows)
 	for i := start; i < end; i++ {
 		it := m.pickerHit[i]
-		line := it.Label
-		if it.Sub != "" && it.Sub != it.Label {
-			line += "  " + styleDim.Render(truncate(it.Sub, 32))
-		}
-		if i == m.pickerCur {
-			b.WriteString(styleNavSel.Render(truncate(line, 60)))
+		sel := i == m.pickerCur
+		line := pickerRowLine(it, rowW, sel)
+		if sel {
+			b.WriteString(styleNavSel.Width(rowW).Render(line))
 		} else {
-			b.WriteString(styleNav.Render(truncate(line, 60)))
+			b.WriteString(styleNav.Width(rowW).Render(line))
 		}
 		b.WriteByte('\n')
 	}
-	return styleModal.Width(min(68, m.width-4)).Render(strings.TrimRight(b.String(), "\n"))
+	return modalFrame(m.pickerTitle(), strings.TrimRight(b.String(), "\n"), min(68, m.width-4))
+}
+
+func pickerRowLine(it pickItem, width int, selected bool) string {
+	label := it.Label
+	if selected {
+		label = "▸ " + label
+	} else {
+		label = "  " + label
+	}
+	badge := it.Sub
+	if badge == "" || badge == it.Label {
+		return truncate(label, width)
+	}
+	bw := lipgloss.Width(badge)
+	avail := width - bw - 1
+	if avail < 8 {
+		return truncate(label+"  "+badge, width)
+	}
+	label = truncate(label, avail)
+	gap := max(1, avail-lipgloss.Width(label))
+	return label + strings.Repeat(" ", gap) + styleDim.Render(badge)
 }
 
 func (m Model) viewDatePicker() string {
@@ -620,7 +835,7 @@ func (m Model) viewDatePicker() string {
 	if m.datePurpose == "value" {
 		label = "date  "
 	}
-	b.WriteString(styleMuted.Render(label) + cur.Format("Monday 2006-01-02") + "\n")
+	b.WriteString(styleHeader.Render("▸ ") + cur.Format("Monday 2006-01-02") + "\n")
 	b.WriteString(styleDim.Render(cur.Format("January 2006")) + "\n")
 	b.WriteString(styleDim.Render("Su Mo Tu We Th Fr Sa") + "\n")
 	first := time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, time.UTC)
@@ -657,7 +872,11 @@ func (m Model) viewDatePicker() string {
 		hint += "  ctrl-d unset"
 	}
 	b.WriteString(styleDim.Render(hint))
-	return styleModal.Width(min(36, m.width-4)).Render(strings.TrimRight(b.String(), "\n"))
+	title := strings.TrimSpace(label)
+	if title == "" {
+		title = "date"
+	}
+	return modalFrame(title, strings.TrimRight(b.String(), "\n"), min(36, m.width-4))
 }
 
 func daysInMonth(t time.Time) int {
@@ -671,25 +890,26 @@ func sameDay(a, b time.Time) bool {
 }
 
 func (m Model) viewSave() string {
-	return styleModal.Width(min(48, m.width-4)).Render(
-		styleMuted.Render("save view as  ") + m.saveName + "█",
-	)
+	body := styleHeader.Render("▸ ") + m.saveName + "█"
+	return modalFrame("save view as", body, min(48, m.width-4))
 }
 
 func (m Model) viewPrompt() string {
-	return styleModal.Width(min(56, m.width-4)).Render(
-		styleMuted.Render(m.mut.promptLabel+"  ") + m.mut.promptBuf + "█",
-	)
+	label := m.mut.promptLabel
+	if label == "" {
+		label = "value"
+	}
+	body := styleHeader.Render("▸ ") + m.mut.promptBuf + "█"
+	return modalFrame(label, body, min(56, m.width-4))
 }
 
 func (m Model) viewConfirm() string {
-	return styleModal.Width(min(64, m.width-4)).Render(m.mut.confirmText)
+	return modalFrame("confirm", m.mut.confirmText, min(64, m.width-4))
 }
 
 func (m Model) viewRQL() string {
-	return styleModal.Width(min(64, m.width-4)).Render(
-		styleMuted.Render("query  ") + m.rql + "█",
-	)
+	body := styleHeader.Render("▸ ") + m.rql + "█"
+	return modalFrame("query", body, min(64, m.width-4))
 }
 
 func (m Model) viewArgs() string {
@@ -702,34 +922,40 @@ func (m Model) viewArgs() string {
 		arg = m.argsNames[m.argsIdx]
 	}
 	var b strings.Builder
-	b.WriteString(styleMuted.Render("saved query  ") + name + "\n")
 	for i, n := range m.argsNames {
 		val := m.argsVals[n]
-		if i == m.argsIdx {
+		cur := i == m.argsIdx
+		if cur {
 			val = m.argsBuf + "█"
 		}
-		b.WriteString(n + ": " + val + "\n")
+		line := n + ": " + val
+		if cur {
+			line = "▸ " + line
+		} else {
+			line = "  " + line
+		}
+		b.WriteString(line + "\n")
 	}
 	if arg != "" {
 		b.WriteString(styleDim.Render(fmt.Sprintf("%d/%d  %s", m.argsIdx+1, len(m.argsNames), arg)))
 	}
-	return styleModal.Width(min(64, m.width-4)).Render(strings.TrimRight(b.String(), "\n"))
+	title := "args"
+	if name != "" {
+		title = "args · " + name
+	}
+	return modalFrame(title, strings.TrimRight(b.String(), "\n"), min(64, m.width-4))
 }
 
 func (m Model) viewPreview(width, height int) string {
+	focused := m.focus == focusPreview
 	title := "preview"
-	fg := colBorder
-	if m.focus == focusPreview {
+	if focused {
 		title = "▸ preview"
-		fg = colAccent
 	}
-	box := lipgloss.NewStyle().
-		Width(width).
-		Height(height).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(fg).
-		PaddingLeft(1)
+	innerW := max(1, width-2)
+	innerH := max(1, height-2)
 	var body string
+	scroll := scrollState{view: innerH}
 	switch {
 	case !m.previewOn:
 		body = ""
@@ -738,8 +964,7 @@ func (m Model) viewPreview(width, height int) string {
 	case m.preview == nil:
 		body = styleDim.Render("no selection")
 	default:
-		innerW := max(1, width-3)
-		used := 1 // pane title
+		used := 0
 		if sel := m.p().selectedObject(); sel != nil && !sel.IsFileObject() {
 			if caption := strings.TrimSpace(m.displayTitle(*sel)); caption != "" {
 				body = styleHeader.Render(truncate(caption, innerW)) + "\n"
@@ -769,47 +994,14 @@ func (m Model) viewPreview(width, height int) string {
 		}
 		mark := -1
 		if m.previewLine > 0 {
-			mark = m.previewScroll
+			mark = sourceLineScroll(m.preview.Content, m.previewBody, m.previewLine)
 		}
-		body += windowLinesMark(m.previewBody, m.previewScroll, max(1, height-used), innerW, mark)
+		winH := max(1, innerH-used)
+		body += windowLinesMark(m.previewBody, m.previewScroll, winH, innerW, mark, m.previewLine)
+		nLines := strings.Count(m.previewBody, "\n") + 1
+		scroll = scrollState{offset: m.previewScroll, total: nLines, view: winH}
 	}
-	return box.Render(styleSectionTitle.Render(title) + "\n" + body)
-}
-
-func overlayOn(base string, width, height int, modal string) string {
-	mw := lipgloss.Width(modal)
-	mh := lipgloss.Height(modal)
-	x := max(0, (width-mw)/2)
-	y := max(0, (height-mh)/3)
-	if y+mh > height {
-		y = max(0, height-mh)
-	}
-	return placeOverlay(base, modal, x, y)
-}
-
-func placeOverlay(base, modal string, x, y int) string {
-	bases := strings.Split(base, "\n")
-	mods := strings.Split(modal, "\n")
-	for i, line := range mods {
-		row := y + i
-		if row < 0 || row >= len(bases) {
-			continue
-		}
-		bases[row] = overlayLine(bases[row], line, x)
-	}
-	return strings.Join(bases, "\n")
-}
-
-func overlayLine(base, overlay string, x int) string {
-	if x <= 0 {
-		return overlay
-	}
-	// crude: pad then splice by display width isn't perfect with ANSI; good enough
-	pad := x
-	if pad > len(base) {
-		base += strings.Repeat(" ", pad-len(base))
-	}
-	return base[:min(x, len(base))] + overlay
+	return frameBox(body, width, height, title, focused, scroll)
 }
 
 func (m Model) objectType(id string) string {
@@ -865,6 +1057,9 @@ func (m Model) labeled(obj api.Object) api.Object {
 	return obj
 }
 
+// colLabel is a synthetic list column for obj.Title. It is not a vault field.
+const colLabel = "\x00"
+
 func listColumns(objects []api.Object, fields []string, ts api.TypeSchema) ([]string, int) {
 	if traitRows(objects) {
 		var cols []string
@@ -878,7 +1073,37 @@ func listColumns(objects []api.Object, fields []string, ts api.TypeSchema) ([]st
 	if len(fields) == 0 {
 		fields = defaultFields(ts)
 	}
-	return append([]string{"id"}, fields...), -1
+	if !objectRowsNeedLabel(objects) {
+		return append([]string{"id"}, fields...), -1
+	}
+	rest := make([]string, 0, 1+len(fields))
+	rest = append(rest, "id")
+	skip := ts.NameField
+	for _, f := range fields {
+		if skip != "" && f == skip {
+			continue
+		}
+		rest = append(rest, f)
+	}
+	return append([]string{colLabel}, rest...), 0
+}
+
+func objectRowsNeedLabel(objects []api.Object) bool {
+	n := min(len(objects), 24)
+	for i := 0; i < n; i++ {
+		t := strings.TrimSpace(objects[i].Title)
+		if t != "" && t != objects[i].ID {
+			return true
+		}
+	}
+	return false
+}
+
+func columnHeading(c string) string {
+	if c == colLabel {
+		return ""
+	}
+	return c
 }
 
 func traitRows(objects []api.Object) bool {
@@ -888,7 +1113,7 @@ func traitRows(objects []api.Object) bool {
 func flexColumnIndex(cols []string) int {
 	for i, c := range cols {
 		switch c {
-		case "content", "title":
+		case colLabel, "content", "title":
 			return i
 		}
 	}
@@ -903,6 +1128,14 @@ func rowCells(obj api.Object, cols []string) []string {
 	trait := obj.IsTrait()
 	for i, c := range cols {
 		if c == "" {
+			continue
+		}
+		if c == colLabel {
+			if obj.Title != "" {
+				out[i] = obj.Title
+			} else {
+				out[i] = obj.ID
+			}
 			continue
 		}
 		if trait {
@@ -1059,10 +1292,10 @@ func truncate(s string, w int) string {
 }
 
 func windowLines(s string, offset, height, width int) string {
-	return windowLinesMark(s, offset, height, width, -1)
+	return windowLinesMark(s, offset, height, width, -1, 0)
 }
 
-func windowLinesMark(s string, offset, height, width, mark int) string {
+func windowLinesMark(s string, offset, height, width, mark, srcLine int) string {
 	lines := strings.Split(s, "\n")
 	if offset < 0 {
 		offset = 0
@@ -1072,15 +1305,44 @@ func windowLinesMark(s string, offset, height, width, mark int) string {
 	}
 	end := min(len(lines), offset+height)
 	slice := lines[offset:end]
+	gutter := 0
+	if srcLine > 0 && mark >= 0 {
+		maxNum := srcLine + (offset + height - 1 - mark)
+		if maxNum < srcLine {
+			maxNum = srcLine
+		}
+		gutter = len(fmt.Sprintf("%d", max(1, maxNum))) + 1
+		if gutter < 3 {
+			gutter = 3
+		}
+	}
+	innerW := width
+	if gutter > 0 {
+		innerW = max(1, width-gutter-1)
+	}
 	for i := range slice {
-		line := truncate(slice[i], width)
-		if mark >= 0 && offset+i == mark {
-			if !strings.HasPrefix(strings.TrimSpace(line), "▸") {
-				line = truncate("▸ "+strings.TrimLeft(line, " "), width)
+		body := truncate(slice[i], innerW)
+		hit := mark >= 0 && offset+i == mark
+		if gutter > 0 {
+			n := srcLine + (offset + i - mark)
+			if n < 1 {
+				n = 1
 			}
-			slice[i] = styleRowSel.Width(width).Render(line)
+			num := styleDim.Render(fmt.Sprintf("%*d", gutter-1, n))
+			if hit {
+				slice[i] = num + styleHeader.Render("▸") + styleRowSel.Width(innerW).Render(body)
+			} else {
+				slice[i] = num + " " + body
+			}
+			continue
+		}
+		if hit {
+			if !strings.HasPrefix(strings.TrimSpace(body), "▸") {
+				body = truncate("▸ "+strings.TrimLeft(body, " "), width)
+			}
+			slice[i] = styleRowSel.Width(width).Render(body)
 		} else {
-			slice[i] = line
+			slice[i] = body
 		}
 	}
 	for len(slice) < height {

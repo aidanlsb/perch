@@ -289,7 +289,7 @@ func (m Model) viewHome(height int) string {
 func (m Model) viewHomeBanner() string {
 	name := m.vaultDisplayName()
 	p := strings.TrimSpace(m.vaultPath)
-	head := styleHeader.Render(name)
+	head := styleHeader.Render(brandMark+"  ") + styleHeader.Render(name)
 	if p != "" && p != name {
 		head += "  " + styleMuted.Render(p)
 	}
@@ -307,7 +307,6 @@ func (m Model) viewHomeBanner() string {
 	if daily != "" {
 		lines = append(lines, styleDim.Width(w).Render(truncate(daily, w)))
 	}
-	lines = append(lines, styleDim.Render(strings.Repeat("─", min(w, 48))))
 	return strings.Join(lines, "\n")
 }
 
@@ -339,7 +338,7 @@ func (m Model) homeDailyStatus() string {
 }
 
 func (m Model) viewHomeStrip() string {
-	return styleDim.Render(truncate("d today   f find   s search   : rql   c new   a actions   , config   Space h home", m.width))
+	return styleHintLine("d today  f find  s search  : rql  c new  a actions  , config  Space h home", m.width)
 }
 
 func (m Model) viewHomeColumns(width, height int) string {
@@ -358,58 +357,74 @@ func (m Model) viewHomeColumns(width, height int) string {
 }
 
 func (m Model) viewHomeSection(sec homeSection, title string, width, height int, focused bool) string {
-	fg := colBorder
-	if focused {
-		fg = colAccent
-	}
-	box := lipgloss.NewStyle().
-		Width(max(1, width-2)).
-		Height(max(1, height-2)).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(fg)
-	innerW := max(1, width-4)
-	innerH := max(1, height-2)
-	var b strings.Builder
+	items := m.homeItems(sec)
 	head := title
 	if focused {
 		head = "▸ " + title
 	}
-	b.WriteString(styleSectionTitle.Render(head))
-	b.WriteByte('\n')
-	items := m.homeItems(sec)
+	head = fmt.Sprintf("%s · %d", head, len(items))
+	innerW := max(1, width-2)
+	innerH := max(1, height-2)
 	if len(items) == 0 {
-		b.WriteString(styleDim.Render(m.homeEmptyHint(sec)))
-		return box.Render(b.String())
+		return frameBox(styleDim.Render(m.homeEmptyHint(sec)), width, height, head, focused, scrollState{})
 	}
 	cur := clamp(m.homeCur[sec], 0, len(items)-1)
 	off := 0
-	rows := max(1, innerH-1)
+	rows := max(1, innerH)
 	if cur >= rows {
 		off = cur - rows + 1
 	}
 	end := min(len(items), off+rows)
+	var b strings.Builder
 	for i := off; i < end; i++ {
 		it := items[i]
-		line := it.Label
-		if it.Badge != "" {
-			line += "  " + styleDim.Render(it.Badge)
-		}
-		if it.Sub != "" {
-			line += "  " + styleDim.Render(truncate(it.Sub, max(6, innerW/2)))
-		}
-		line = truncate(line, innerW)
-		if i == cur {
-			st := styleNavSel
-			if !focused {
-				st = styleNav
-			}
+		sel := i == cur
+		line := homeItemLine(it, innerW, sel)
+		st := selectStyle(sel, focused)
+		if sel {
 			b.WriteString(st.Width(innerW).Render(line))
 		} else {
-			b.WriteString(styleNav.Render(line))
+			b.WriteString(st.Render(line))
 		}
 		b.WriteByte('\n')
 	}
-	return box.Render(strings.TrimRight(b.String(), "\n"))
+	scroll := scrollState{offset: off, total: len(items), view: innerH}
+	return frameBox(strings.TrimRight(b.String(), "\n"), width, height, head, focused, scroll)
+}
+
+func homeItemLine(it homeItem, width int, selected bool) string {
+	label := it.Label
+	if selected {
+		label = "▸ " + label
+	} else {
+		label = "  " + label
+	}
+	badge := ""
+	if it.Badge != "" {
+		badge = "[" + it.Badge + "]"
+	}
+	sub := it.Sub
+	right := badge
+	bw := lipgloss.Width(right)
+	avail := width - bw - 1
+	if avail < 6 {
+		return truncate(label+" "+right, width)
+	}
+	label = truncate(label, avail)
+	if sub != "" && lipgloss.Width(label)+bw+4 < width {
+		extra := avail - lipgloss.Width(label) - 1
+		if extra > 6 {
+			sub = truncate(sub, extra)
+			label = label + " " + styleDim.Render(sub)
+			avail = width - bw - 1
+			label = truncate(label, avail)
+		}
+	}
+	gap := max(1, avail-lipgloss.Width(label))
+	if right == "" {
+		return truncate(label, width)
+	}
+	return label + strings.Repeat(" ", gap) + styleDim.Render(right)
 }
 
 func (m Model) homeEmptyHint(sec homeSection) string {

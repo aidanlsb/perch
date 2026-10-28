@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aidanlsb/perch/internal/api"
@@ -34,6 +35,22 @@ func TestUnifiedHistoryHomeBrowseNote(t *testing.T) {
 	}
 	if m.screen != kindBrowse {
 		t.Fatalf("want browse after forward, %s", m.screen)
+	}
+}
+
+func TestBreadcrumbsFollowHistory(t *testing.T) {
+	m := loadBrowse(t)
+	crumbs := m.breadcrumbs()
+	if len(crumbs) < 2 || crumbs[0] != "home" {
+		t.Fatalf("browse crumbs %v", crumbs)
+	}
+	m, _ = m.goHome()
+	if got := m.currentCrumb(); got != "home" {
+		t.Fatalf("home crumb %q", got)
+	}
+	trail := formatBreadcrumb(m.breadcrumbs(), 80)
+	if trail != "home" && !strings.Contains(trail, "home") {
+		t.Fatalf("trail %q", trail)
 	}
 }
 

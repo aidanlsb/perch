@@ -347,6 +347,76 @@ func (m *Model) setCurrentNoteLine(line int) {
 	}
 }
 
+func (m Model) breadcrumbs() []string {
+	var out []string
+	for i := 0; i <= m.histPtr && i < len(m.hist); i++ {
+		lab := m.crumbLabel(m.hist[i])
+		if lab == "" {
+			continue
+		}
+		if len(out) > 0 && out[len(out)-1] == lab {
+			continue
+		}
+		out = append(out, lab)
+	}
+	cur := m.currentCrumb()
+	if cur != "" && (len(out) == 0 || out[len(out)-1] != cur) {
+		out = append(out, cur)
+	}
+	if len(out) == 0 {
+		return []string{"home"}
+	}
+	return out
+}
+
+func (m Model) crumbLabel(fr histFrame) string {
+	switch fr.Screen {
+	case kindHome:
+		return "home"
+	case kindNote:
+		if fr.NoteID != "" {
+			return fr.NoteID
+		}
+		return "note"
+	default:
+		if fr.Browse != nil {
+			if fr.Browse.currentLayout != "" {
+				return fr.Browse.currentLayout
+			}
+			if fr.Browse.currentView != "" {
+				return fr.Browse.currentView
+			}
+			if fr.Browse.focus != "" && fr.Browse.focus != focusPreview {
+				return fr.Browse.focus
+			}
+		}
+		return "browse"
+	}
+}
+
+func (m Model) currentCrumb() string {
+	switch m.screen {
+	case kindHome:
+		return "home"
+	case kindNote:
+		if id := m.noteID(); id != "" {
+			return id
+		}
+		return "note"
+	default:
+		if m.currentLayout != "" {
+			return m.currentLayout
+		}
+		if m.currentView != "" {
+			return m.currentView
+		}
+		if p := m.p(); p != nil && p.sourceLabel != "" {
+			return p.sourceLabel
+		}
+		return "browse"
+	}
+}
+
 func (m *Model) ensureNoteFrame(id string, line int) {
 	if id == "" {
 		return
