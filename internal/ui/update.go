@@ -96,6 +96,7 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) openNamed(name string) (Model, tea.Cmd) {
+	m.seedHomeUnder()
 	if m.cfg != nil {
 		if _, ok := m.cfg.Views[name]; ok {
 			return m.loadNamedView(name)
@@ -105,13 +106,15 @@ func (m Model) openNamed(name string) (Model, tea.Cmd) {
 		}
 	}
 	m.errMsg = "unknown view or layout " + name
-	return m.openInitial()
+	return m.goHome()
 }
 
 // openInitial loads the first configured view in file order as that view's
-// list, board, or date. With no views, the first layout. With neither, the
-// navigation menu. Schema type names are never chosen automatically.
+// list, board, or date. With no views, the first layout. With neither, Home.
+// Schema type names are never chosen automatically. Home is always seeded at
+// the bottom of the navigation stack so backing out lands there.
 func (m Model) openInitial() (Model, tea.Cmd) {
+	m.seedHomeUnder()
 	if m.cfg != nil {
 		if names := m.cfg.ViewsInOrder(); len(names) > 0 {
 			return m.loadNamedView(names[0])
@@ -120,21 +123,14 @@ func (m Model) openInitial() (Model, tea.Cmd) {
 			return m.loadNamedLayout(names[0])
 		}
 	}
-	return m.openEmptyNav()
-}
-
-func (m Model) openEmptyNav() (Model, tea.Cmd) {
-	m.needPrefetch = false
-	m.corpusLoading = true
-	m, _ = m.openNavPicker()
-	return m, m.corpusCmd()
+	return m, m.ensureCorpus()
 }
 
 func (m Model) isEmpty() bool {
-	if m.currentLayout != "" || m.currentView != "" {
+	if m.screen == kindHome || m.screen == kindNote {
 		return false
 	}
-	if m.screen == kindNote {
+	if m.currentLayout != "" || m.currentView != "" {
 		return false
 	}
 	if len(m.panes) == 0 {
@@ -227,6 +223,9 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 	}
 	p.hasMore = msg.hasMore
 	p.total = msg.total
+	if msg.queryKind != "" {
+		p.queryKind = msg.queryKind
+	}
 	if msg.vault != "" {
 		m.vaultPath = msg.vault
 	}
@@ -259,7 +258,7 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 	}
 	var cmds []tea.Cmd
 	var preview tea.Cmd
-	m, preview = m.previewCmd()
+	m, preview = m.maybeTraitPreview(p)
 	if preview != nil {
 		cmds = append(cmds, preview)
 	}
@@ -298,7 +297,7 @@ func (m *Model) paneForQuery(msg queryMsg) *viewState {
 }
 
 func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
-	if msg.purpose == "preview" {
+	if msg.purpose == "preview" || msg.purpose == "backlink" {
 		return m.onPreviewRead(msg)
 	}
 	if msg.gen != m.gen {
@@ -341,6 +340,7 @@ func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
 		m.linkIdx = 0
 		m.backIdx = 0
 		if !msg.live {
+			m.ensureNoteFrame(msg.result.ObjectID, m.currentNoteLine())
 			m.screen = kindNote
 			m.pane = paneMain
 			if len(msg.result.Links) == 0 && len(msg.result.Backlinks) > 0 {
@@ -349,10 +349,16 @@ func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
 		}
 	}
 	m.status = msg.result.ObjectID
-	return m, nil
+	return m, m.backlinkPreviewCmd()
 }
 
 func (m Model) onPreviewRead(msg readMsg) (Model, tea.Cmd) {
+	if msg.purpose == "backlink" {
+		if msg.result != nil && m.readCache != nil {
+			m.readCache[msg.result.ObjectID] = msg.result
+		}
+		return m, nil
+	}
 	if msg.id != "" && msg.id != m.previewID {
 		return m, nil
 	}
@@ -402,13 +408,6 @@ func (m *Model) applyPreviewScroll() {
 		return
 	}
 	m.previewScroll = sourceLineScroll(m.preview.Content, m.previewBody, m.previewLine)
-}
-
-func (m Model) currentNoteLine() int {
-	if m.notePtr >= 0 && m.notePtr < len(m.noteStack) {
-		return m.noteStack[m.notePtr].Line
-	}
-	return 0
 }
 
 func (m Model) onSearch(msg searchMsg) (Model, tea.Cmd) {
@@ -467,7 +466,7 @@ func (m Model) onEditorDone(msg editorDoneMsg) (Model, tea.Cmd) {
 		m.status = "refreshing…"
 		return m, fetchRead(m.client, gen, msg.objectID, "note")
 	}
-	if m.screen == "browse" {
+	if m.screen == kindBrowse {
 		return m.refresh()
 	}
 	return m, nil
@@ -510,7 +509,13 @@ func (m Model) onKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if isSlash(msg) {
+		if m.screen == kindHome {
+			return m.openSearchPicker()
+		}
 		return m.startSearch()
+	}
+	if m.screen == kindHome {
+		return m.keysHome(msg)
 	}
 	if m.screen == kindNote {
 		return m.keysNote(msg)
@@ -557,6 +562,8 @@ func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	key := keyIdent(msg)
 	switch key {
+	case "h":
+		return m.goHome()
 	case "t":
 		return m.openTypePicker()
 	case "d":
@@ -583,8 +590,10 @@ func (m Model) dismissOverlay() (Model, tea.Cmd) {
 	m.clearMut()
 	m.overlay = overlayNone
 	m.datePurpose = ""
-	if m.isEmpty() {
-		return m.openNavPicker()
+	m.fromNav = false
+	m.fromQueries = false
+	if m.isEmpty() && m.screen != kindHome {
+		return m.goHome()
 	}
 	return m, nil
 }
@@ -602,9 +611,8 @@ func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
 	switch key {
 	case "esc":
-		m.overlay = overlayNone
 		m.rql = ""
-		return m, nil
+		return m.dismissOverlay()
 	case "enter":
 		q := strings.TrimSpace(m.rql)
 		m.overlay = overlayNone
@@ -660,6 +668,9 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.moveToStart()
 			return m.afterMove()
 		}
+		if key == "h" {
+			return m.goHome()
+		}
 	}
 	if isSlash(msg) {
 		return m.startSearch()
@@ -669,15 +680,13 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	switch key {
 	case "esc":
-		if m.searchQ != "" {
-			m.searchQ = ""
-			m.searchHits = nil
-			m.applyFilterAndGroup()
-		}
-		if m.isEmpty() {
-			return m.openNavPicker()
-		}
-		return m, nil
+		return m.browseUnwind("esc")
+	case "backspace":
+		return m.browseUnwind("backspace")
+	case "[", "ctrl+o":
+		return m.historyGo(-1)
+	case "]", "ctrl+i":
+		return m.historyGo(1)
 	case "ctrl+p":
 		return m.openNotesPicker()
 	case ",":
@@ -767,6 +776,30 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) browseUnwind(key string) (Model, tea.Cmd) {
+	if key == "esc" && m.searchQ != "" {
+		m.searchQ = ""
+		m.searchHits = nil
+		m.applyFilterAndGroup()
+		return m, nil
+	}
+	if m.focus == focusPreview {
+		m.focusMainArea()
+		return m, nil
+	}
+	if m.zoomed {
+		m.zoomed = false
+		return m, nil
+	}
+	if p := m.focusedView(); p != nil && p.bind != "" {
+		if d := m.viewByID(p.bind); d != nil {
+			m.setFocus(d.id)
+			return m, nil
+		}
+	}
+	return m.historyGo(-1)
+}
+
 func (m Model) enterBrowse() (Model, tea.Cmd) {
 	if tgt := m.boundTarget(m.focus); tgt != "" {
 		m.setFocus(tgt)
@@ -817,9 +850,10 @@ func (m Model) afterMove() (Model, tea.Cmd) {
 func (m Model) startSearch() (Model, tea.Cmd) {
 	m.pending = ""
 	if m.screen == kindNote {
-		m.screen = "browse"
-		m.dropNote()
-		m.status = m.p().sourceLabel
+		var cmd tea.Cmd
+		m, cmd = m.historyGo(-1)
+		m.overlay = overlaySearch
+		return m, cmd
 	}
 	m.overlay = overlaySearch
 	return m, nil
@@ -832,6 +866,9 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if key == "g" {
 			m.noteScroll = 0
 			return m, nil
+		}
+		if key == "h" {
+			return m.goHome()
 		}
 	}
 	if m.pending == "[" {
@@ -859,7 +896,13 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openConfigAtView()
 	case "s":
 		return m.startSet()
-	case "esc", "backspace", "ctrl+o":
+	case "esc":
+		if m.pane == paneBacklinks {
+			m.pane = paneMain
+			return m, nil
+		}
+		return m.historyGo(-1)
+	case "backspace", "ctrl+o":
 		return m.historyGo(-1)
 	case "ctrl+i":
 		return m.historyGo(1)
@@ -900,15 +943,15 @@ func (m Model) keysNote(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.followOrOpenBacklink()
 	case "j", "down":
 		if m.pane == paneBacklinks {
-			m.moveBack(1)
-		} else {
-			m.noteScroll++
+			return m.keysNoteMoveBack(1)
 		}
+		m.noteScroll++
 		return m, nil
 	case "k", "up":
 		if m.pane == paneBacklinks {
-			m.moveBack(-1)
-		} else if m.noteScroll > 0 {
+			return m.keysNoteMoveBack(-1)
+		}
+		if m.noteScroll > 0 {
 			m.noteScroll--
 		}
 		return m, nil
@@ -942,6 +985,9 @@ func (m Model) cycleGroup() (Model, tea.Cmd) {
 
 func (m Model) togglePreview() (Model, tea.Cmd) {
 	m.previewOn = !m.previewOn
+	if p := m.focusedView(); p != nil {
+		p.previewOff = !m.previewOn
+	}
 	if !m.previewOn {
 		if m.focus == focusPreview {
 			m.focusMainArea()
@@ -951,8 +997,19 @@ func (m Model) togglePreview() (Model, tea.Cmd) {
 	return m.previewCmd()
 }
 
+func (m Model) maybeTraitPreview(p *viewState) (Model, tea.Cmd) {
+	if p == nil {
+		return m.previewCmd()
+	}
+	trait := p.queryKind == "trait" || traitRows(p.objects)
+	if trait && !p.previewOff {
+		m.previewOn = true
+	}
+	return m.previewCmd()
+}
+
 func (m Model) previewCmd() (Model, tea.Cmd) {
-	if !m.previewOn || m.screen == kindNote {
+	if !m.previewOn || m.screen == kindNote || m.screen == kindHome {
 		return m, nil
 	}
 	obj := m.selectedObject()
@@ -1013,6 +1070,25 @@ func (m *Model) moveBack(delta int) {
 		return
 	}
 	m.backIdx = clamp(m.backIdx+delta, 0, max(0, len(m.note.Backlinks)-1))
+}
+
+func (m Model) keysNoteMoveBack(delta int) (Model, tea.Cmd) {
+	m.moveBack(delta)
+	return m, m.backlinkPreviewCmd()
+}
+
+func (m Model) backlinkPreviewCmd() tea.Cmd {
+	if m.note == nil || m.backIdx < 0 || m.backIdx >= len(m.note.Backlinks) {
+		return nil
+	}
+	src := strings.TrimSpace(m.note.Backlinks[m.backIdx].Source)
+	if src == "" {
+		return nil
+	}
+	if _, ok := m.readCache[src]; ok {
+		return nil
+	}
+	return fetchRead(m.client, m.gen, src, "backlink")
 }
 
 func (m *Model) cycleLink(delta int) {
@@ -1081,25 +1157,23 @@ func (m Model) openNoteAt(id string, line int) (Model, tea.Cmd) {
 	if id == "" {
 		return m, nil
 	}
-	if m.screen == kindNote {
-		m.snapshotNoteFrame()
-		if m.notePtr >= 0 && m.notePtr < len(m.noteStack) && m.noteStack[m.notePtr].ID == id {
-			if line > 0 {
-				m.noteStack[m.notePtr].Line = line
-				m.noteStack[m.notePtr].HasView = false
-				return m.fetchNote(id)
-			}
-			return m, nil
+	if m.screen == kindNote && m.histPtr >= 0 && m.histPtr < len(m.hist) && m.hist[m.histPtr].NoteID == id {
+		if line > 0 {
+			m.setCurrentNoteLine(line)
+			return m.fetchNote(id)
 		}
-		if m.notePtr < len(m.noteStack)-1 {
-			m.noteStack = m.noteStack[:m.notePtr+1]
-		}
-	} else {
-		m.noteStack = nil
-		m.notePtr = -1
+		return m, nil
 	}
-	m.noteStack = append(m.noteStack, noteFrame{ID: id, Line: line})
-	m.notePtr = len(m.noteStack) - 1
+	m.beginNav()
+	m.overlay = overlayNone
+	fr := histFrame{Screen: kindNote, NoteID: id, Line: line}
+	if m.histPtr < 0 || len(m.hist) == 0 {
+		m.hist = []histFrame{fr}
+		m.histPtr = 0
+	} else {
+		m.hist = append(m.hist, fr)
+		m.histPtr = len(m.hist) - 1
+	}
 	return m.fetchNote(id)
 }
 
@@ -1111,23 +1185,12 @@ func (m Model) fetchNote(id string) (Model, tea.Cmd) {
 	return m, fetchRead(m.client, gen, id, "note")
 }
 
-func (m *Model) snapshotNoteFrame() {
-	if m.notePtr < 0 || m.notePtr >= len(m.noteStack) {
-		return
-	}
-	m.noteStack[m.notePtr].Scroll = m.noteScroll
-	m.noteStack[m.notePtr].Pane = m.pane
-	m.noteStack[m.notePtr].LinkIdx = m.linkIdx
-	m.noteStack[m.notePtr].BackIdx = m.backIdx
-	m.noteStack[m.notePtr].HasView = true
-}
-
 func (m *Model) restoreNoteFrame(rd *api.ReadResult) bool {
-	if m.notePtr < 0 || m.notePtr >= len(m.noteStack) {
+	if m.histPtr < 0 || m.histPtr >= len(m.hist) {
 		return false
 	}
-	fr := m.noteStack[m.notePtr]
-	if !fr.HasView {
+	fr := m.hist[m.histPtr]
+	if fr.Screen != kindNote || !fr.HasView {
 		return false
 	}
 	nLinks, nBack := 0, 0
@@ -1145,39 +1208,18 @@ func (m *Model) restoreNoteFrame(rd *api.ReadResult) bool {
 	return true
 }
 
-func (m *Model) dropNote() {
-	m.note = nil
-	m.noteStack = nil
-	m.notePtr = -1
-}
-
-func (m Model) exitNoteToBrowse() (Model, tea.Cmd) {
-	m.screen = "browse"
-	m.dropNote()
-	m.status = m.p().sourceLabel
-	return m.previewCmd()
-}
-
-func (m Model) historyGo(delta int) (Model, tea.Cmd) {
-	m.snapshotNoteFrame()
-	next := m.notePtr + delta
-	if next < 0 {
-		return m.exitNoteToBrowse()
-	}
-	if next >= len(m.noteStack) {
-		return m, nil
-	}
-	m.notePtr = next
-	return m.fetchNote(m.noteStack[m.notePtr].ID)
-}
-
 func (m Model) followOrOpenBacklink() (Model, tea.Cmd) {
 	if m.note == nil {
 		return m, nil
 	}
 	if m.pane == paneBacklinks {
 		if m.backIdx >= 0 && m.backIdx < len(m.note.Backlinks) {
-			return m.openNote(m.note.Backlinks[m.backIdx].Source)
+			g := m.note.Backlinks[m.backIdx]
+			content := ""
+			if rd, ok := m.readCache[g.Source]; ok && rd != nil {
+				content = rd.Content
+			}
+			return m.openNoteAt(g.Source, backlinkAnchorLine(g, content, m.note.ObjectID))
 		}
 		return m, nil
 	}
@@ -1198,8 +1240,12 @@ func (m Model) followOrOpenBacklink() (Model, tea.Cmd) {
 
 func (m *Model) applySession(sess *api.Session) {
 	if sess != nil {
+		m.session = sess
 		if strings.TrimSpace(sess.VaultPath) != "" {
 			m.vaultPath = sess.VaultPath
+		}
+		if n := sess.DisplayName(); n != "" {
+			m.vaultName = n
 		}
 		if strings.TrimSpace(sess.Editor) != "" {
 			m.editor = sess.Editor
@@ -1207,7 +1253,7 @@ func (m *Model) applySession(sess *api.Session) {
 		if strings.TrimSpace(sess.EditorMode) != "" {
 			m.editorMode = sess.EditorMode
 		}
-		if sess.Daily != nil && strings.TrimSpace(sess.Daily.TodayID) != "" {
+		if sess.Daily != nil {
 			m.daily = sess.Daily
 		}
 	}

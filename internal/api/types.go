@@ -1,6 +1,9 @@
 package api
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Envelope is the Raven command/HTTP result shape:
 // { ok, data, error?, warnings?, meta? }.
@@ -64,10 +67,27 @@ type Health struct {
 type Session struct {
 	APIVersion string     `json:"api_version"`
 	VaultPath  string     `json:"vault_path"`
+	VaultName  string     `json:"vault_name,omitempty"`
+	Name       string     `json:"name,omitempty"`
 	Editor     string     `json:"editor"`
 	EditorMode string     `json:"editor_mode"`
 	Daily      *DailyInfo `json:"daily,omitempty"`
 	Revision   *Revision  `json:"revision,omitempty"`
+}
+
+// DisplayName is the vault's human name from session, else the path's last segment.
+func (s Session) DisplayName() string {
+	if n := strings.TrimSpace(s.VaultName); n != "" {
+		return n
+	}
+	if n := strings.TrimSpace(s.Name); n != "" {
+		return n
+	}
+	p := strings.TrimRight(strings.TrimSpace(s.VaultPath), "/")
+	if i := strings.LastIndex(p, "/"); i >= 0 && i+1 < len(p) {
+		return p[i+1:]
+	}
+	return p
 }
 
 // Revision is GET /v1/revision (and session.revision): a disposable index identity.
@@ -224,9 +244,178 @@ type ReadReference struct {
 }
 
 // BacklinkGroup is incoming references from one source object.
+// Raven's `read` payload varies: a source id plus optional line numbers,
+// snippet/context text, and `lines` as strings or richer objects.
 type BacklinkGroup struct {
-	Source string   `json:"source"`
-	Lines  []string `json:"lines"`
+	Source  string   `json:"source"`
+	Lines   []string `json:"lines"`
+	Line    int      `json:"line,omitempty"`
+	Snippet string   `json:"snippet,omitempty"`
+	Context string   `json:"context,omitempty"`
+	Text    string   `json:"text,omitempty"`
+	Title   string   `json:"title,omitempty"`
+}
+
+// UnmarshalJSON accepts the documented {source, lines} shape plus extra
+// context fields (`line`, `snippet`, `title`, object-valued `lines`).
+func (g *BacklinkGroup) UnmarshalJSON(data []byte) error {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	g.Source = firstString(raw, "source", "object_id", "id")
+	g.Title = firstString(raw, "title", "name", "display")
+	g.Snippet = firstString(raw, "snippet", "context", "text", "display")
+	g.Context = firstString(raw, "context")
+	g.Text = firstString(raw, "text")
+	g.Line = intFromAny(raw["line"])
+	if g.Line == 0 {
+		g.Line = intFromAny(raw["line_start"])
+	}
+	g.Lines = backlinkLines(raw["lines"])
+	if raw["hits"] != nil {
+		parseBacklinkHits(g, raw["hits"])
+	} else if raw["references"] != nil {
+		parseBacklinkHits(g, raw["references"])
+	}
+	return nil
+}
+
+func backlinkLines(v any) []string {
+	switch t := v.(type) {
+	case nil:
+		return nil
+	case []string:
+		return append([]string(nil), t...)
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			switch row := item.(type) {
+			case string:
+				if s := strings.TrimSpace(row); s != "" {
+					out = append(out, s)
+				}
+			case float64, int, int32, int64:
+				if n := intFromAny(row); n > 0 {
+					out = append(out, strings.TrimSpace(ScalarString(row)))
+				}
+			case map[string]any:
+				s := firstString(row, "text", "snippet", "context", "line")
+				if s == "" {
+					if n := intFromAny(row["line"]); n > 0 {
+						s = ScalarString(n)
+					}
+				}
+				if s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+		return out
+	default:
+		if s := strings.TrimSpace(ScalarString(v)); s != "" {
+			return []string{s}
+		}
+		return nil
+	}
+}
+
+func parseBacklinkHits(g *BacklinkGroup, v any) {
+	arr, ok := v.([]any)
+	if !ok {
+		return
+	}
+	for _, item := range arr {
+		row, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if g.Line == 0 {
+			g.Line = intFromAny(row["line"])
+			if g.Line == 0 {
+				g.Line = intFromAny(row["line_start"])
+			}
+		}
+		if g.Snippet == "" {
+			g.Snippet = firstString(row, "snippet", "context", "text")
+		}
+		if s := firstString(row, "text", "snippet", "context"); s != "" {
+			g.Lines = append(g.Lines, s)
+		}
+	}
+}
+
+// DisplayTitle is a human label for the backlink source (title, else id).
+func (g BacklinkGroup) DisplayTitle() string {
+	if t := strings.TrimSpace(g.Title); t != "" {
+		return t
+	}
+	return strings.TrimSpace(g.Source)
+}
+
+// SnippetText is the best available context line for the backlink list.
+func (g BacklinkGroup) SnippetText() string {
+	for _, s := range []string{g.Snippet, g.Context, g.Text} {
+		if t := firstLine(strings.TrimSpace(s)); t != "" {
+			return t
+		}
+	}
+	for _, line := range g.Lines {
+		if t := firstLine(stripLineNumberPrefix(line)); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// SourceLine is a 1-based source line when the payload includes one.
+func (g BacklinkGroup) SourceLine() int {
+	if g.Line > 0 {
+		return g.Line
+	}
+	for _, line := range g.Lines {
+		if n, _ := parseLineNumberPrefix(line); n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+func stripLineNumberPrefix(s string) string {
+	_, rest := parseLineNumberPrefix(s)
+	if rest != "" {
+		return rest
+	}
+	return strings.TrimSpace(s)
+}
+
+func parseLineNumberPrefix(s string) (int, string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, ""
+	}
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 || i == len(s) {
+		if i == len(s) {
+			n := intFromAny(s)
+			if n > 0 {
+				return n, ""
+			}
+		}
+		return 0, s
+	}
+	switch s[i] {
+	case ':', '|', ' ':
+		n := intFromAny(s[:i])
+		rest := strings.TrimSpace(s[i+1:])
+		if n > 0 {
+			return n, rest
+		}
+	}
+	return 0, s
 }
 
 // ReadLink is a wikilink span in data.content. Offsets are 0-based, end-exclusive.

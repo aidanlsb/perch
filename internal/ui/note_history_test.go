@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/aidanlsb/perch/internal/api"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestNoteHistoryBackFromBacklinkThenBrowse(t *testing.T) {
@@ -21,8 +22,8 @@ func TestNoteHistoryBackFromBacklinkThenBrowse(t *testing.T) {
 		Backlinks: []api.BacklinkGroup{{Source: "people/odin", Lines: []string{"see"}}},
 	}
 	m = applyNote(t, m, noteA)
-	if m.notePtr != 0 || len(m.noteStack) != 1 {
-		t.Fatalf("stack after A: ptr=%d n=%d", m.notePtr, len(m.noteStack))
+	if got := noteIDs(m); len(got) < 1 || got[len(got)-1] != "projects/a" {
+		t.Fatalf("stack after A: %v", got)
 	}
 	m.pane = paneBacklinks
 	m.backIdx = 0
@@ -41,21 +42,20 @@ func TestNoteHistoryBackFromBacklinkThenBrowse(t *testing.T) {
 	if m.note.ObjectID != "people/odin" {
 		t.Fatalf("B %s", m.note.ObjectID)
 	}
-	if m.notePtr != 1 || len(m.noteStack) != 2 {
-		t.Fatalf("stack after B: ptr=%d n=%d ids=%v", m.notePtr, len(m.noteStack), stackIDs(m))
+	ids := noteIDs(m)
+	if len(ids) < 2 || ids[len(ids)-1] != "people/odin" || ids[len(ids)-2] != "projects/a" {
+		t.Fatalf("stack after B: %v", ids)
 	}
-	if m.noteStack[0].ID != "projects/a" || !m.noteStack[0].HasView {
-		t.Fatalf("A not recorded: %+v", m.noteStack[0])
+	a := noteFrameByID(m, "projects/a")
+	if a == nil || !a.HasView {
+		t.Fatalf("A not recorded: %+v", a)
 	}
-	if m.noteStack[0].Scroll != 3 || m.noteStack[0].Pane != paneBacklinks {
-		t.Fatalf("A view not snapshotted: %+v", m.noteStack[0])
+	if a.Scroll != 3 || a.Pane != paneBacklinks {
+		t.Fatalf("A view not snapshotted: %+v", a)
 	}
 
 	m, cmd = m.update(key("esc"))
-	if cmd == nil {
-		t.Fatal("esc should load previous note")
-	}
-	m = applyNote(t, m, noteA)
+	m = applyNoteOrCached(t, m, cmd, noteA)
 	if m.screen != kindNote || m.note.ObjectID != "projects/a" {
 		t.Fatalf("esc from B should return to A, screen=%s id=%v", m.screen, noteIDOf(m))
 	}
@@ -67,14 +67,19 @@ func TestNoteHistoryBackFromBacklinkThenBrowse(t *testing.T) {
 	}
 
 	m, _ = m.update(key("esc"))
-	if m.screen != "browse" {
+	if m.pane != paneMain {
+		t.Fatalf("esc from backlinks should focus main first, pane=%v", m.pane)
+	}
+	if m.screen != kindNote {
+		t.Fatalf("still on note, screen=%s", m.screen)
+	}
+
+	m, _ = m.update(key("esc"))
+	if m.screen != kindBrowse {
 		t.Fatalf("esc from A should browse, screen=%s", m.screen)
 	}
 	if m.note != nil {
 		t.Fatal("note still set after leaving stack")
-	}
-	if len(m.noteStack) != 0 || m.notePtr != -1 {
-		t.Fatalf("stack leftover ptr=%d n=%d", m.notePtr, len(m.noteStack))
 	}
 }
 
@@ -89,10 +94,7 @@ func TestNoteHistoryBackspaceAndCtrlO(t *testing.T) {
 	m = applyNote(t, m, noteB)
 
 	m, cmd := m.update(key("backspace"))
-	if cmd == nil {
-		t.Fatal("backspace should load previous note")
-	}
-	m = applyNote(t, m, noteA)
+	m = applyNoteOrCached(t, m, cmd, noteA)
 	if m.note.ObjectID != "projects/a" {
 		t.Fatalf("backspace got %s", m.note.ObjectID)
 	}
@@ -100,10 +102,7 @@ func TestNoteHistoryBackspaceAndCtrlO(t *testing.T) {
 	m, _ = m.openNote("projects/b")
 	m = applyNote(t, m, noteB)
 	m, cmd = m.update(key("ctrl+o"))
-	if cmd == nil {
-		t.Fatal("ctrl-o should load previous note")
-	}
-	m = applyNote(t, m, noteA)
+	m = applyNoteOrCached(t, m, cmd, noteA)
 	if m.note.ObjectID != "projects/a" {
 		t.Fatalf("ctrl-o got %s", m.note.ObjectID)
 	}
@@ -119,17 +118,14 @@ func TestNoteHistoryForwardAfterBack(t *testing.T) {
 	noteB := &api.ReadResult{ObjectID: "people/freya", Path: "people/freya.md", Content: "Freya\n"}
 	m = applyNote(t, m, noteB)
 
-	m, _ = m.update(key("["))
-	m = applyNote(t, m, noteA)
+	m, cmd := m.update(key("["))
+	m = applyNoteOrCached(t, m, cmd, noteA)
 	if m.note.ObjectID != "projects/a" {
 		t.Fatal("back")
 	}
 
-	m, cmd := m.update(key("]"))
-	if cmd == nil {
-		t.Fatal("] should go forward")
-	}
-	m = applyNote(t, m, noteB)
+	m, cmd = m.update(key("]"))
+	m = applyNoteOrCached(t, m, cmd, noteB)
 	if m.note.ObjectID != "people/freya" {
 		t.Fatalf("forward got %s", m.note.ObjectID)
 	}
@@ -157,15 +153,12 @@ func TestNoteWikiLinkPushesHistory(t *testing.T) {
 	m = applyNote(t, m, noteB)
 
 	m, cmd = m.update(key("esc"))
-	if cmd == nil {
-		t.Fatal("esc to A")
-	}
-	m = applyNote(t, m, noteA)
+	m = applyNoteOrCached(t, m, cmd, noteA)
 	if m.note.ObjectID != "projects/a" {
 		t.Fatalf("want A, got %s", m.note.ObjectID)
 	}
 	m, _ = m.update(key("esc"))
-	if m.screen != "browse" {
+	if m.screen != kindBrowse {
 		t.Fatalf("browse, screen=%s", m.screen)
 	}
 }
@@ -181,6 +174,17 @@ func TestNoteFooterMentionsHistory(t *testing.T) {
 			t.Fatalf("footer missing %q in %s", want, out)
 		}
 	}
+}
+
+func applyNoteOrCached(t *testing.T, m Model, cmd tea.Cmd, rd *api.ReadResult) Model {
+	t.Helper()
+	if m.screen == kindNote && m.note != nil && m.note.ObjectID == rd.ObjectID {
+		return m
+	}
+	if cmd == nil {
+		t.Fatalf("expected note fetch for %s, screen=%s id=%s", rd.ObjectID, m.screen, noteIDOf(m))
+	}
+	return applyNote(t, m, rd)
 }
 
 func applyNote(t *testing.T, m Model, rd *api.ReadResult) Model {
@@ -202,10 +206,22 @@ func noteIDOf(m Model) string {
 	return m.note.ObjectID
 }
 
-func stackIDs(m Model) []string {
-	ids := make([]string, len(m.noteStack))
-	for i, fr := range m.noteStack {
-		ids[i] = fr.ID
+func noteIDs(m Model) []string {
+	var ids []string
+	for _, fr := range m.hist {
+		if fr.Screen == kindNote && fr.NoteID != "" {
+			ids = append(ids, fr.NoteID)
+		}
 	}
 	return ids
+}
+
+func noteFrameByID(m Model, id string) *histFrame {
+	for i := range m.hist {
+		if m.hist[i].Screen == kindNote && m.hist[i].NoteID == id {
+			fr := m.hist[i]
+			return &fr
+		}
+	}
+	return nil
 }

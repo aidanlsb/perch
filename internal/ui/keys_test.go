@@ -15,7 +15,7 @@ func TestNoteKeymapDocumentsHistory(t *testing.T) {
 		if b.Section != "note" {
 			continue
 		}
-		if strings.Contains(b.Keys, "esc") && strings.Contains(b.Keys, "backspace") && strings.Contains(b.Desc, "previous note") {
+		if strings.Contains(b.Keys, "esc") && strings.Contains(b.Keys, "backspace") && strings.Contains(b.Desc, "back") {
 			back = true
 		}
 		if strings.Contains(b.Keys, "]") && strings.Contains(b.Desc, "forward") {

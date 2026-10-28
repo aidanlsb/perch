@@ -187,16 +187,18 @@ func (m Model) onConfigEditorDone(msg editorDoneMsg) (Model, tea.Cmd) {
 	}
 	if m.currentLayout != "" {
 		if _, ok := m.cfg.Layouts[m.currentLayout]; ok {
+			m.navReplace = true
 			return m.loadNamedLayout(m.currentLayout)
 		}
 	}
 	if m.currentView != "" {
 		if _, ok := m.cfg.Views[m.currentView]; ok {
+			m.navReplace = true
 			return m.loadNamedView(m.currentView)
 		}
 	}
 	if m.isEmpty() {
-		return m.openInitial()
+		return m.goHome()
 	}
 	return m.refresh()
 }

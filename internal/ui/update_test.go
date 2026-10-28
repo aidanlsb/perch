@@ -88,33 +88,14 @@ layout = { kind = "board", group_by = "status" }
 func TestStartupOpensNavWhenNoViews(t *testing.T) {
 	m := NewModel(Options{Config: &config.File{}})
 	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
-	if m.overlay != overlayPicker || m.pickerKind != pickerNav {
-		t.Fatalf("overlay=%v kind=%v, want navigation menu", m.overlay, m.pickerKind)
+	if m.overlay != overlayNone || m.screen != kindHome {
+		t.Fatalf("overlay=%v screen=%s, want home", m.overlay, m.screen)
 	}
-	if m.currentView != "" || m.p().typeName != "" {
-		t.Fatalf("must not auto-load a schema type, view=%q type=%q", m.currentView, m.p().typeName)
+	if m.currentView != "" {
+		t.Fatalf("must not auto-load a schema type, view=%q", m.currentView)
 	}
 	if m.screen == kindNote {
 		t.Fatal("must not open a note")
-	}
-	want := []string{"types", "saved queries", "daily note", "find notes", "content search", "actions", "open config"}
-	got := labelsOf(m.pickerHit)
-	for _, label := range want {
-		found := false
-		for _, g := range got {
-			if g == label {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("nav missing %q in %v", label, got)
-		}
-	}
-	for _, g := range got {
-		if g == "views & layouts" {
-			t.Fatalf("no views configured, should hide views item: %v", got)
-		}
 	}
 }
 
@@ -147,8 +128,19 @@ func TestEmptyNavEscStaysOpen(t *testing.T) {
 	m := NewModel(Options{Config: &config.File{}})
 	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
 	m, _ = m.update(key("esc"))
+	if m.screen != kindHome || m.overlay != overlayNone {
+		t.Fatalf("esc on home stays, screen=%s overlay=%v", m.screen, m.overlay)
+	}
+	m, _ = pressLeader(m, " ")
 	if m.overlay != overlayPicker || m.pickerKind != pickerNav {
-		t.Fatalf("esc on empty nav should stay, overlay=%v kind=%v", m.overlay, m.pickerKind)
+		t.Fatalf("space space, overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+	// skip home, enter types
+	for i, it := range m.pickerHit {
+		if it.ID == "nav:types" {
+			m.pickerCur = i
+			break
+		}
 	}
 	m, _ = m.update(key("enter"))
 	if m.pickerKind != pickerTypes {
@@ -156,7 +148,7 @@ func TestEmptyNavEscStaysOpen(t *testing.T) {
 	}
 	m, _ = m.update(key("esc"))
 	if m.overlay != overlayPicker || m.pickerKind != pickerNav {
-		t.Fatalf("esc from types while empty should return to nav, overlay=%v kind=%v", m.overlay, m.pickerKind)
+		t.Fatalf("esc from types should return to nav, overlay=%v kind=%v", m.overlay, m.pickerKind)
 	}
 }
 

@@ -88,8 +88,10 @@ no sidebar: navigation is the Space leader, pickers, and hotkeys.
 
 Bare `perch` opens the first view in config file order as that view's
 list, board, or date. If no views are configured, the first layout.
-If neither views nor layouts are configured, the navigation menu opens.
-It does not pick a schema type on its own.
+Home is seeded under that first screen, so backing out lands on Home.
+If neither views nor layouts are configured, Perch starts on **Home**,
+a dashboard of views, types, and saved queries. It does not pick a
+schema type on its own. `Space h` / `gh` jump to Home from anywhere.
 
 ## Config
 
@@ -244,12 +246,13 @@ do nothing in normal mode so they cannot fire by accident. Bare `s`
 edits a field or trait; `Space s` is content search. `ctrl-p` and
 `,` still work without the leader.
 
-With no view or layout loaded, Perch opens the same navigation menu
-(`Space Space`).
+With no view or layout loaded, Perch starts on Home. `Space Space` is
+the navigation menu (Home is the first item).
 
 | Key | Opens |
 | --- | --- |
-| `Space Space` | Navigation menu: views, types, queries, daily, notes, search, actions, config |
+| `Space Space` | Navigation menu: home, views, types, queries, daily, notes, search, actions, config |
+| `Space h` / `gh` | Home dashboard |
 | `Space t` | Types from `GET /v1/schema` (fuzzy). Selecting fills the main pane with that type's objects as a plain list. |
 | `Space d` | Daily-note date picker, starting on today (`GET /v1/session` `daily.today_id` when present). `h`/`l` move a day, `j`/`k` a week, `t` today. Enter resolves or creates that day's daily note via `daily`. |
 | `Space q` | Saved queries (fuzzy). `q` does not quit; `ctrl+c` quits. |
@@ -267,14 +270,16 @@ With no view or layout loaded, Perch opens the same navigation menu
 | `H` / `L` | Move the selected board card to the previous / next column (`set` / `unset` the group-by field) |
 
 Saved queries that declare `args` open an argument prompt. Values are sent as
-`query` `inputs` (`{{args.*}}`). Esc cancels.
+`query` `inputs` (`{{args.*}}`). Esc steps back one argument, then returns to
+the query picker if that is how you got here.
 
 ## Preview and editor
 
 `p` toggles a preview pane of the selected row's rendered Markdown.
 Trait, section, and link rows preview the containing object, scrolled to
-the row's source line. Reads are cached; moving the cursor does not block
-the UI.
+the row's source line, with the target line marked. Opening a trait view
+(`query_kind: "trait"`) turns preview on unless you have toggled it off
+with `p`. Reads are cached; moving the cursor does not block the UI.
 
 `e` opens the selected row's file in the editor from browse, preview, note
 view, or the notes picker. When the row carries `file_path` and `line`
@@ -288,10 +293,12 @@ saved into Raven as a named query, then referenced from config.
 
 ## Keys
 
-`?` lists this table inside the TUI. From a note, `esc` / `backspace` /
-`[` / `ctrl-o` go to the previous note, and only leave to the browse view
-when there is no previous note. `]` / `ctrl-i` go forward in that history.
-Overlays still close with `q` / `esc`. `ctrl+c` quits.
+`?` lists this table inside the TUI. History is one stack across Home,
+browse views, and notes. `[` / `ctrl-o` go back, `]` / `ctrl-i` forward.
+`esc` / `backspace` unwind local state first (search, preview focus,
+zoom, bound panel, backlinks pane), then pop that stack, and land on
+Home rather than an empty pane. Overlays step back with `esc` (`q` types
+into a fuzzy picker; it does not close it). `ctrl+c` quits.
 
 | Key | Action |
 | --- | --- |
@@ -306,6 +313,7 @@ Overlays still close with `q` / `esc`. `ctrl+c` quits.
 | `enter` | Open note / follow link / move to the bound panel |
 | `Space` | Leader for navigation keys |
 | `Space Space` | Navigation menu |
+| `Space h` / `gh` | Home |
 | `Space t` | Type picker |
 | `Space d` | Daily-note date picker |
 | `Space q` | Saved query picker (does not quit) |
@@ -326,10 +334,10 @@ Overlays still close with `q` / `esc`. `ctrl+c` quits.
 | `S` | Save on-screen view |
 | `e` | Open in editor |
 | `r` | Refresh (and reload config) |
-| `[` `]` `ctrl-o` `ctrl-i` | Note history back / forward |
+| `[` `]` `ctrl-o` `ctrl-i` | History back / forward (Home, browse, notes) |
 | `[d` `]d` | Previous / next daily note (in a daily note; creates if missing) |
 | `?` | Help |
-| `esc` / `backspace` | Close overlay / previous note, or browse when at the start of history |
+| `esc` / `backspace` | Close overlay / unwind focus / previous screen, or Home at the start of history |
 | `ctrl+c` | Quit |
 
 Focus follows the panel. The focused panel has a highlighted border.
@@ -387,7 +395,9 @@ status-line mark and back off; they do not take over the footer.
 The note view renders Markdown, shows frontmatter as a header, and cycles
 wiki links from `read --json` `data.links` using UTF-8 byte offsets. Perch
 does not parse `[[links]]` itself. Enter follows a resolved `object_id`.
-A backlinks pane lists `data.backlinks`.
+A backlinks pane lists `data.backlinks` with source labels, context
+snippets, and a live preview of the selected source around the
+referencing line.
 
 ## Raven API gaps
 

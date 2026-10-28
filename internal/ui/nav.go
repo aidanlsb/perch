@@ -16,13 +16,15 @@ func (m Model) loadType(name string) (Model, tea.Cmd) {
 	}
 	applyViewSource(p, m.schema, config.View{Type: name})
 	p.applySpec(p.spec, ts)
-	m.screen = "browse"
-	m.dropNote()
+	m.beginNav()
+	m.screen = kindBrowse
+	m.clearNoteDisplay()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
 	m.errMsg = ""
 	m.setSinglePane(p)
+	m.commitNav()
 	m.status = "loading " + name + "…"
 	return m.startPaneQuery(p, "")
 }
@@ -37,13 +39,15 @@ func (m Model) loadNamedView(name string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	p := m.paneFromView(name, v, "")
-	m.screen = "browse"
-	m.dropNote()
+	m.beginNav()
+	m.screen = kindBrowse
+	m.clearNoteDisplay()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
 	m.errMsg = ""
 	m.setSinglePane(p)
+	m.commitNav()
 	if p.savedQuery != nil && len(p.savedQuery.Args) > 0 && !inputsComplete(p.savedQuery.Args, p.rawInputs) && !v.NeedsSelected() {
 		return m.startArgsPrompt(p.savedQuery)
 	}
@@ -60,8 +64,9 @@ func (m Model) loadNamedLayout(name string) (Model, tea.Cmd) {
 		m.status = "no layout " + name
 		return m, nil
 	}
-	m.screen = "browse"
-	m.dropNote()
+	m.beginNav()
+	m.screen = kindBrowse
+	m.clearNoteDisplay()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
@@ -83,6 +88,7 @@ func (m Model) loadNamedLayout(name string) (Model, tea.Cmd) {
 	if m.focus != focusPreview && len(m.panes) > 0 {
 		m.setFocus(m.panes[0].id)
 	}
+	m.commitNav()
 	m.status = "layout " + name
 	return m, batchCmds(cmds)
 }
@@ -154,12 +160,14 @@ func (m Model) loadQueryWithInputs(q *api.SavedQuery, inputs map[string]string) 
 	} else {
 		p.applySpec(p.spec, api.TypeSchema{})
 	}
-	m.screen = "browse"
-	m.dropNote()
+	m.beginNav()
+	m.screen = kindBrowse
+	m.clearNoteDisplay()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
 	m.setSinglePane(p)
+	m.commitNav()
 	if len(q.Args) > 0 && !inputsComplete(q.Args, p.rawInputs) {
 		return m.startArgsPrompt(q)
 	}
@@ -183,12 +191,14 @@ func (m Model) loadRQL(q string) (Model, tea.Cmd) {
 	} else {
 		p.applySpec(p.spec, api.TypeSchema{})
 	}
-	m.screen = "browse"
-	m.dropNote()
+	m.beginNav()
+	m.screen = kindBrowse
+	m.clearNoteDisplay()
 	m.searchQ = ""
 	m.searchHits = nil
 	m.overlay = overlayNone
 	m.setSinglePane(p)
+	m.commitNav()
 	m.status = "loading…"
 	return m.startPaneQuery(p, "")
 }

@@ -32,14 +32,15 @@ type debounceMsg struct {
 }
 
 type queryMsg struct {
-	gen      int
-	pane     string
-	objects  []api.Object
-	typeName string
-	hasMore  bool
-	total    int
-	vault    string
-	err      error
+	gen       int
+	pane      string
+	objects   []api.Object
+	typeName  string
+	queryKind string
+	hasMore   bool
+	total     int
+	vault     string
+	err       error
 }
 
 type objectsMsg struct {
@@ -158,13 +159,14 @@ func fetchQuery(c *api.Client, pane string, gen int, query, typeName string, lim
 			vault = meta.VaultContext.Path
 		}
 		return queryMsg{
-			gen:      gen,
-			pane:     pane,
-			objects:  api.ObjectsFromQuery(qr, ts),
-			typeName: typeName,
-			hasMore:  qr.HasMore,
-			total:    qr.Total,
-			vault:    vault,
+			gen:       gen,
+			pane:      pane,
+			objects:   api.ObjectsFromQuery(qr, ts),
+			typeName:  typeName,
+			queryKind: qr.QueryKind,
+			hasMore:   qr.HasMore,
+			total:     qr.Total,
+			vault:     vault,
 		}
 	}
 }

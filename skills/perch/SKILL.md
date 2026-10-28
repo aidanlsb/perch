@@ -38,14 +38,15 @@ changed, validated, or opened. Drive Perch through its CLI. Do not edit
 ## TUI navigation
 
 Prefer the CLI. There is no sidebar. If the user is already in the TUI,
-navigation keys use `Space` as a leader: `Space t` types, `Space d`
+navigation keys use `Space` as a leader: `Space h` Home, `Space t` types, `Space d`
 daily, `Space q` saved queries, `Space v` views/layouts, `Space f` notes
 (`ctrl-p` stays), `Space s` full-text search, `Space a` actions,
 `Space Space` the navigation menu. `,` / `Space ,` opens config at the
-current view. Bare `t` `d` `q` `v` `f` do nothing in normal mode. Bare
+current view. Bare `t` `d` `q` `v` `f` do nothing in normal mode (on Home,
+`d`/`f`/`s`/`c`/`a` are shortcuts). Bare
 `s` sets a field or trait, `x` toggles a trait, `c` creates an object,
-`H`/`L` move a board card. `q` does not quit (`ctrl+c` quits; `esc` /
-`backspace` leave a note). Panel motions (`ctrl-h/j/k/l`, `ctrl-w` plus a
+`H`/`L` move a board card. `q` does not quit (`ctrl+c` quits). `esc` /
+`backspace` unwind local focus then pop Home/browse/note history. Panel motions (`ctrl-h/j/k/l`, `ctrl-w` plus a
 direction, tab) move among main panels. In-panel scrolling is `ctrl-d` /
 `ctrl-u` only. Field widgets follow `GET /v1/schema` only; do not assume
 vault field, type, or trait names.
@@ -129,9 +130,9 @@ CLI; do not patch the TOML.
 ## Open
 
 Bare `perch` launches the TUI on the first view in config file order
-(as that view's list/board/date). With no views, the first layout. With
-neither, the navigation menu. `perch open <name>` opens a named view or
-layout (views win if both exist).
+(as that view's list/board/date), with Home underneath in history. With
+no views, the first layout. With neither, Home. `perch open <name>` opens
+a named view or layout (views win if both exist).
 
 ```bash
 perch open projects --json

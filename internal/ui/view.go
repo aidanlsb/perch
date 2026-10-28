@@ -7,6 +7,7 @@ import (
 
 	"github.com/aidanlsb/perch/internal/api"
 	"github.com/aidanlsb/perch/internal/frontmatter"
+	"github.com/aidanlsb/perch/internal/md"
 	"github.com/aidanlsb/perch/internal/termesc"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -23,9 +24,12 @@ func (m Model) view() string {
 	footer := m.viewFooter()
 	bodyH := max(1, m.height-lipgloss.Height(header)-lipgloss.Height(footer))
 	var body string
-	if m.screen == kindNote && m.note != nil {
+	switch {
+	case m.screen == kindNote && m.note != nil:
 		body = m.viewNote(bodyH)
-	} else {
+	case m.screen == kindHome:
+		body = m.viewHome(bodyH)
+	default:
 		body = m.viewBrowse(bodyH)
 	}
 	frame := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
@@ -63,12 +67,15 @@ func (m Model) viewHeader() string {
 		}
 	}
 	mid := styleMuted.Render(" · " + label)
-	if p.spec.Kind != "" && m.screen != kindNote {
+	if p.spec.Kind != "" && m.screen == kindBrowse {
 		name := m.currentLayoutName()
 		mid += styleMuted.Render("  " + name)
 		if p.spec.Kind == kindDate && p.granularity != "" {
 			mid += styleDim.Render(" / " + p.granularity)
 		}
+	}
+	if m.screen == kindHome {
+		mid = styleMuted.Render(" · home")
 	}
 	if m.screen == kindNote && m.note != nil {
 		mid = styleMuted.Render(" · " + m.note.ObjectID)
@@ -398,6 +405,29 @@ func (m Model) viewBacklinks(width, height int) string {
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(colBorder).
 		PaddingLeft(1)
+	previewH := 0
+	if m.note != nil && len(m.note.Backlinks) > 0 && (m.pane == paneBacklinks || height >= 14) {
+		previewH = height / 2
+		if previewH < 6 {
+			previewH = min(8, height/3)
+		}
+		if previewH > height-6 {
+			previewH = max(0, height-6)
+		}
+	}
+	listH := height
+	if previewH > 0 {
+		listH = height - previewH
+	}
+	list := m.viewBacklinkList(width-2, max(3, listH))
+	if previewH <= 0 {
+		return style.Height(height).Render(list)
+	}
+	prev := m.viewBacklinkPreview(width-2, previewH)
+	return style.Height(height).Render(lipgloss.JoinVertical(lipgloss.Left, list, prev))
+}
+
+func (m Model) viewBacklinkList(width, height int) string {
 	var b strings.Builder
 	title := "backlinks"
 	if m.pane == paneBacklinks {
@@ -407,22 +437,96 @@ func (m Model) viewBacklinks(width, height int) string {
 	b.WriteByte('\n')
 	if m.note == nil || len(m.note.Backlinks) == 0 {
 		b.WriteString(styleDim.Render("none"))
-		return style.Render(b.String())
+		return b.String()
 	}
+	inner := max(8, width-1)
 	for i, g := range m.note.Backlinks {
-		label := truncate(g.Source, width-3)
+		label := m.backlinkLabel(g)
 		if i == m.backIdx {
 			st := styleNavSel
 			if m.pane != paneBacklinks {
 				st = styleNav
 			}
-			b.WriteString(st.Width(width - 2).Render(label))
+			b.WriteString(st.Width(inner).Render(truncate(label, inner)))
 		} else {
-			b.WriteString(styleNav.Render(label))
+			b.WriteString(styleNav.Render(truncate(label, inner)))
 		}
 		b.WriteByte('\n')
+		if snip := g.SnippetText(); snip != "" {
+			b.WriteString(styleDim.Render(truncate("  "+snip, inner)))
+			b.WriteByte('\n')
+		}
 	}
-	return style.Render(strings.TrimRight(b.String(), "\n"))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func (m Model) backlinkLabel(g api.BacklinkGroup) string {
+	label := g.DisplayTitle()
+	if obj, ok := m.noteIndex[g.Source]; ok && obj.Title != "" && obj.Title != obj.ID {
+		label = obj.Title
+	}
+	if n := g.SourceLine(); n > 0 {
+		label += fmt.Sprintf(":%d", n)
+	}
+	return label
+}
+
+func (m Model) viewBacklinkPreview(width, height int) string {
+	sep := styleDim.Render(strings.Repeat("─", min(width, 24)))
+	if m.note == nil || m.backIdx < 0 || m.backIdx >= len(m.note.Backlinks) {
+		return sep
+	}
+	g := m.note.Backlinks[m.backIdx]
+	rd, ok := m.readCache[g.Source]
+	var b strings.Builder
+	b.WriteString(sep)
+	b.WriteByte('\n')
+	if !ok || rd == nil {
+		b.WriteString(styleMuted.Render("preview…"))
+		return b.String()
+	}
+	doc := frontmatter.Split(rd.Content)
+	body := md.Render(doc.Body, max(12, width-1))
+	line := backlinkAnchorLine(g, rd.Content, m.note.ObjectID)
+	head := m.headingFromDoc(rd.ObjectID, doc)
+	if head == "" {
+		head = rd.ObjectID
+	}
+	if line > 0 && rd.Path != "" {
+		head = fmt.Sprintf("%s:%d", rd.Path, line)
+	} else if rd.Path != "" {
+		head = rd.Path
+	}
+	b.WriteString(styleHeader.Render(truncate(head, width)))
+	b.WriteByte('\n')
+	off := sourceLineScroll(rd.Content, body, line)
+	used := 3
+	b.WriteString(windowLinesMark(body, off, max(1, height-used), max(8, width-1), off))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func backlinkAnchorLine(g api.BacklinkGroup, content, targetID string) int {
+	if n := g.SourceLine(); n > 0 {
+		return n
+	}
+	needles := make([]string, 0, 2+len(g.Lines))
+	if t := strings.TrimSpace(targetID); t != "" {
+		needles = append(needles, t)
+	}
+	needles = append(needles, g.Lines...)
+	if content == "" {
+		return 0
+	}
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		for _, n := range needles {
+			n = strings.TrimSpace(n)
+			if n != "" && strings.Contains(line, n) {
+				return i + 1
+			}
+		}
+	}
+	return 0
 }
 
 func (m Model) viewHelp() string {
@@ -648,11 +752,26 @@ func (m Model) viewPreview(width, height int) string {
 		}
 		body += styleHeader.Render(truncate(head, innerW)) + "\n"
 		used++
-		if m.preview.Path != "" {
-			body += styleDim.Render(truncate(m.preview.Path, innerW)) + "\n"
+		loc := m.preview.Path
+		if m.previewLine > 0 {
+			if loc == "" {
+				loc = m.preview.ObjectID
+			}
+			loc = fmt.Sprintf("%s:%d", loc, m.previewLine)
+		}
+		if loc != "" {
+			st := styleDim
+			if m.previewLine > 0 {
+				st = styleHeader
+			}
+			body += st.Render(truncate(loc, innerW)) + "\n"
 			used++
 		}
-		body += windowLines(m.previewBody, m.previewScroll, max(1, height-used), innerW)
+		mark := -1
+		if m.previewLine > 0 {
+			mark = m.previewScroll
+		}
+		body += windowLinesMark(m.previewBody, m.previewScroll, max(1, height-used), innerW, mark)
 	}
 	return box.Render(styleSectionTitle.Render(title) + "\n" + body)
 }
@@ -940,6 +1059,10 @@ func truncate(s string, w int) string {
 }
 
 func windowLines(s string, offset, height, width int) string {
+	return windowLinesMark(s, offset, height, width, -1)
+}
+
+func windowLinesMark(s string, offset, height, width, mark int) string {
 	lines := strings.Split(s, "\n")
 	if offset < 0 {
 		offset = 0
@@ -950,7 +1073,15 @@ func windowLines(s string, offset, height, width int) string {
 	end := min(len(lines), offset+height)
 	slice := lines[offset:end]
 	for i := range slice {
-		slice[i] = truncate(slice[i], width)
+		line := truncate(slice[i], width)
+		if mark >= 0 && offset+i == mark {
+			if !strings.HasPrefix(strings.TrimSpace(line), "▸") {
+				line = truncate("▸ "+strings.TrimLeft(line, " "), width)
+			}
+			slice[i] = styleRowSel.Width(width).Render(line)
+		} else {
+			slice[i] = line
+		}
 	}
 	for len(slice) < height {
 		slice = append(slice, "")

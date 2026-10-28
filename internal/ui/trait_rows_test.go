@@ -227,14 +227,17 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 		t.Fatalf("editor path %q", path)
 	}
 
-	m, cmd = m.update(key("p"))
 	if !m.previewOn {
-		t.Fatal("preview on")
+		t.Fatal("trait view should auto-enable preview")
 	}
-	if cmd == nil {
-		t.Fatal("preview read")
+	if m.preview == nil {
+		m2, c := m.previewCmd()
+		m = m2
+		if c == nil {
+			t.Fatal("preview read")
+		}
+		m, _ = m.update(c())
 	}
-	m, _ = m.update(cmd())
 	if m.errMsg != "" {
 		t.Fatalf("preview err %s", m.errMsg)
 	}

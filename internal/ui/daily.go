@@ -30,7 +30,7 @@ func (m Model) keysDate(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
 	switch key {
 	case "esc", "q":
-		return m.dismissOverlay()
+		return m.dateEscape()
 	case "enter":
 		if m.datePurpose == "value" {
 			return m.commitValue(m.dateCur)
