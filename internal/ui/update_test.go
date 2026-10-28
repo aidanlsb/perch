@@ -97,7 +97,7 @@ func TestStartupOpensNavWhenNoViews(t *testing.T) {
 	if m.screen == kindNote {
 		t.Fatal("must not open a note")
 	}
-	want := []string{"types", "saved queries", "daily note", "find notes", "content search", "open config"}
+	want := []string{"types", "saved queries", "daily note", "find notes", "content search", "actions", "open config"}
 	got := labelsOf(m.pickerHit)
 	for _, label := range want {
 		found := false
@@ -293,12 +293,6 @@ func TestSavedQueryArgsPrompt(t *testing.T) {
 	}
 	if m.p().sourceInputs["x"] != "p" || m.p().sourceQuery != "need" {
 		t.Fatalf("inputs=%v source=%s", m.p().sourceInputs, m.p().sourceQuery)
-	}
-}
-
-func TestRefusesNilClientWritesStillReadonly(t *testing.T) {
-	if !api.IsForbidden("set") || !api.IsWrite("move") {
-		t.Fatal("readonly helpers")
 	}
 }
 

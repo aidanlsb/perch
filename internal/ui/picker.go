@@ -20,6 +20,7 @@ type pickItem struct {
 	Object *api.Object
 	Needs  []string
 	Index  int
+	Unset  bool
 }
 
 func (m Model) openNavPicker() (Model, tea.Cmd) {
@@ -38,6 +39,7 @@ func (m Model) openNavPicker() (Model, tea.Cmd) {
 		pickItem{Kind: pickerNav, Label: "daily note", Sub: "today / pick a date", ID: "nav:daily"},
 		pickItem{Kind: pickerNav, Label: "find notes", Sub: "fuzzy notes picker", ID: "nav:notes"},
 		pickItem{Kind: pickerNav, Label: "content search", Sub: "full-text search", ID: "nav:search"},
+		pickItem{Kind: pickerNav, Label: "actions", Sub: "create, edit, schema", ID: "nav:actions"},
 		pickItem{Kind: pickerNav, Label: "open config", Sub: "edit perch config", ID: "nav:config"},
 	)
 	m.pickerAll = items
@@ -249,10 +251,15 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 		return m, nil
 	}
 	it := m.pickerHit[m.pickerCur]
+	if m.mut.kind != mutNone && m.pickerKind != pickerNav {
+		return m.confirmMutPicker(it)
+	}
 	m.overlay = overlayNone
 	switch m.pickerKind {
 	case pickerNav:
 		return m.confirmNav(it)
+	case pickerActions:
+		return m.runAction(it.ID)
 	case pickerTypes:
 		return m.loadType(it.Type)
 	case pickerQueries:
@@ -298,6 +305,8 @@ func (m Model) confirmNav(it pickItem) (Model, tea.Cmd) {
 		return m.openNotesPicker()
 	case "nav:search":
 		return m.openSearchPicker()
+	case "nav:actions":
+		return m.openActionsPicker()
 	case "nav:config":
 		return m.openConfigAtView()
 	default:
@@ -389,6 +398,14 @@ func (m Model) keysPicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	switch key {
 	case "esc", "q":
+		if m.mut.kind != mutNone && m.pickerKind != pickerNav {
+			m.clearMut()
+			m.overlay = overlayNone
+			if m.isEmpty() {
+				return m.openNavPicker()
+			}
+			return m, nil
+		}
 		if m.pickerKind == pickerNav && m.isEmpty() {
 			return m, nil
 		}
@@ -421,6 +438,9 @@ func (m Model) keysPicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.pickerCur = max(0, len(m.pickerHit)-1)
 		return m, nil
 	case "ctrl+d":
+		if m.mut.kind != mutNone && m.mut.optional && (m.pickerKind == pickerValues || m.pickerKind == pickerRefs) {
+			return m.applyUnset()
+		}
 		m.pickerCur = clamp(m.pickerCur+m.pageSize(), 0, max(0, len(m.pickerHit)-1))
 		return m, nil
 	case "ctrl+u":

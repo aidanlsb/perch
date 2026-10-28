@@ -6,8 +6,10 @@ version: 1
 
 # Perch
 
-Perch is a read-only TUI for Raven. Markdown stays the source of truth. Every
-read goes through `rvn api`. Perch never writes to the vault.
+Perch is a TUI for Raven. Markdown stays the source of truth. Every read
+and mutation goes through `rvn api`. Perch never writes vault files
+itself; `set` / `unset` / `new` / `daily` / `schema_*` and the rest go
+through `POST /v1/invoke`.
 
 Use this skill whenever the user wants Perch views or layouts created, listed,
 changed, validated, or opened. Drive Perch through its CLI. Do not edit
@@ -38,12 +40,15 @@ changed, validated, or opened. Drive Perch through its CLI. Do not edit
 Prefer the CLI. There is no sidebar. If the user is already in the TUI,
 navigation keys use `Space` as a leader: `Space t` types, `Space d`
 daily, `Space q` saved queries, `Space v` views/layouts, `Space f` notes
-(`ctrl-p` stays), `Space s` full-text search, `Space Space` the
-navigation menu. `,` / `Space ,` opens config at the current view.
-Bare `t` `d` `q` `v` `f` `s` do nothing in normal mode. `q` does not
-quit (`ctrl+c` quits; `esc` / `backspace` leave a note). Panel motions
-(`ctrl-h/j/k/l`, `ctrl-w` plus a direction, tab) move among main panels.
-In-panel scrolling is `ctrl-d` / `ctrl-u` only.
+(`ctrl-p` stays), `Space s` full-text search, `Space a` actions,
+`Space Space` the navigation menu. `,` / `Space ,` opens config at the
+current view. Bare `t` `d` `q` `v` `f` do nothing in normal mode. Bare
+`s` sets a field or trait, `x` toggles a trait, `c` creates an object,
+`H`/`L` move a board card. `q` does not quit (`ctrl+c` quits; `esc` /
+`backspace` leave a note). Panel motions (`ctrl-h/j/k/l`, `ctrl-w` plus a
+direction, tab) move among main panels. In-panel scrolling is `ctrl-d` /
+`ctrl-u` only. Field widgets follow `GET /v1/schema` only; do not assume
+vault field, type, or trait names.
 
 ## Views
 

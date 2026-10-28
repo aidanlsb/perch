@@ -173,15 +173,18 @@ func TestDailyPickerOpensOnToday(t *testing.T) {
 	}
 }
 
-func TestDailyMissingDoesNotOpenType(t *testing.T) {
+func TestDailyMissingCreatesNote(t *testing.T) {
 	m := loadBrowse(t)
 	src := m.p().sourceQuery
 	m.gen = 4
-	m, _ = m.update(dateMsg{
+	m, cmd := m.update(dateMsg{
 		gen:    4,
 		date:   "2026-10-15",
 		result: &api.DateResult{Date: "2026-10-15", DailyExists: false},
 	})
+	if cmd == nil {
+		t.Fatal("expected daily create")
+	}
 	if m.p().sourceQuery != src {
 		t.Fatalf("source changed to %s", m.p().sourceQuery)
 	}
@@ -292,6 +295,7 @@ func TestLeaderPickers(t *testing.T) {
 		{"v", pickerViews, false},
 		{"f", pickerNotes, false},
 		{"s", pickerSearch, false},
+		{"a", pickerActions, false},
 		{"d", 0, true},
 	}
 	for _, tc := range cases {
@@ -312,7 +316,7 @@ func TestLeaderPickers(t *testing.T) {
 func TestBareNavKeysDoNothing(t *testing.T) {
 	m := loadBrowse(t)
 	src := m.p().sourceQuery
-	for _, k := range []string{"t", "d", "q", "v", "f", "s"} {
+	for _, k := range []string{"t", "d", "q", "v", "f"} {
 		m, cmd := m.update(key(k))
 		if cmd != nil {
 			t.Fatalf("bare %s ran a command", k)
@@ -337,7 +341,7 @@ func TestSpaceLeader(t *testing.T) {
 		t.Fatalf("space overlay %v", m.overlay)
 	}
 	out := m.View()
-	for _, want := range []string{"space", "views", "types", "queries", "daily", "notes", "search", "config"} {
+	for _, want := range []string{"space", "actions", "views", "types", "queries", "daily", "notes", "search", "config"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("leader footer missing %q in %s", want, out)
 		}

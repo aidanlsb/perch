@@ -226,27 +226,6 @@ func TestSaveViewWritesConfig(t *testing.T) {
 	}
 }
 
-func TestSaveAdHocRQLRefuses(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	m := loadBrowse(t)
-	m.cfgPath = path
-	m, _ = m.loadRQL("type:project .status==active")
-	focusMain(&m)
-	m, _ = m.update(key("S"))
-	for _, r := range "from-rql" {
-		m, _ = m.update(runeKey(r))
-	}
-	m, _ = m.update(key("enter"))
-	if !strings.Contains(m.status, "Save this query in Raven first") {
-		t.Fatalf("status %q", m.status)
-	}
-	if _, err := os.Stat(path); err == nil {
-		body, _ := os.ReadFile(path)
-		t.Fatalf("ad-hoc save must not write config:\n%s", body)
-	}
-}
-
 func TestNamedQueryBoardAndDateViews(t *testing.T) {
 	cfg := &config.File{
 		Views: map[string]config.View{

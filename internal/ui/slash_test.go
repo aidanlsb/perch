@@ -174,10 +174,16 @@ func TestHelpOverlayListsSlashSearch(t *testing.T) {
 	if !strings.Contains(out, "fuzzy search in current view") {
 		t.Fatalf("browse / missing in help: %s", out)
 	}
-	m, _ = m.update(key("G"))
-	out = m.View()
-	if !strings.Contains(out, "fuzzy search in browse") {
-		t.Fatalf("note / missing in help: %s", out)
+	found := false
+	for i := 0; i < 80; i++ {
+		m.helpOff = i
+		if strings.Contains(m.View(), "fuzzy search in browse") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("note / missing in help")
 	}
 	m, _ = m.update(tea.KeyMsg{Type: tea.KeyType('/')})
 	if m.overlay != overlayHelp {

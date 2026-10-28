@@ -41,6 +41,39 @@ func (f FieldSchema) IsArray() bool {
 	return array
 }
 
+// IsBool reports whether the field is bool or boolean (scalar or array).
+func (f FieldSchema) IsBool() bool {
+	base, _ := ParseFieldType(f.Type)
+	return base == "bool" || base == "boolean"
+}
+
+// BaseType is the schema type with a trailing [] stripped.
+func (t TraitSchema) BaseType() string {
+	base, _ := ParseFieldType(t.Type)
+	return base
+}
+
+// IsBool reports whether the trait is bool or boolean.
+func (t TraitSchema) IsBool() bool {
+	base := strings.ToLower(t.BaseType())
+	return base == "bool" || base == "boolean"
+}
+
+// IsEnum reports whether the trait is an enum.
+func (t TraitSchema) IsEnum() bool {
+	return strings.EqualFold(t.BaseType(), "enum")
+}
+
+// AsField is the trait's type/values/default as a FieldSchema for value widgets.
+func (t TraitSchema) AsField() FieldSchema {
+	return FieldSchema{
+		Type:     t.Type,
+		Values:   t.Values,
+		Default:  t.Default,
+		Required: true,
+	}
+}
+
 // SortedTypeNames returns type names for the type picker. "section" is omitted
 // because Raven rejects type:section queries.
 func (s Schema) SortedTypeNames() []string {

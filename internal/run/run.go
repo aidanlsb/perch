@@ -18,7 +18,7 @@ import (
 
 const Version = "0.5.1"
 
-const usage = `perch %s — read-only terminal UI for Raven
+const usage = `perch %s — terminal UI for Raven
 
 Usage:
   perch [flags]                      Launch the TUI
@@ -31,7 +31,8 @@ Usage:
                                      (perch skills is an alias)
 
   perch talks to rvn api over HTTP. If no server is running it starts one
-  as a child process and stops it on exit. It never writes to the vault.
+  as a child process and stops it on exit. Vault mutations go through
+  POST /v1/invoke; Perch does not write vault files itself.
 
 Every command accepts --json. Failures use Raven's envelope
 {ok, data, error:{code,message}} and a nonzero exit.

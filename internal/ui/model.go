@@ -40,6 +40,8 @@ const (
 	overlayRQL
 	overlayArgs
 	overlaySave
+	overlayPrompt
+	overlayConfirm
 )
 
 type pickerKind int
@@ -51,6 +53,10 @@ const (
 	pickerViews
 	pickerSearch
 	pickerNav
+	pickerActions
+	pickerFields
+	pickerValues
+	pickerRefs
 )
 
 type noteFrame struct {
@@ -116,6 +122,7 @@ type Model struct {
 	emptyPane     *viewState
 	cfgWarnings   []string
 	dateCur       string // YYYY-MM-DD in the daily picker
+	datePurpose   string // daily | value
 	helpOff       int
 
 	searchQ    string
@@ -178,6 +185,10 @@ type Model struct {
 	revCounter    int64
 	pollFails     int
 	refreshSeq    int
+
+	mut             mutState
+	pendingOpenType string
+	pendingOpenView string
 }
 
 // NewModel constructs an empty UI. Call Init to fetch the schema.

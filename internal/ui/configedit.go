@@ -124,6 +124,10 @@ func (m Model) commitSaveView() (Model, tea.Cmd) {
 		}
 	case p.sourceIsQuery && p.savedQuery != nil && strings.TrimSpace(p.savedQuery.Name) != "":
 		v.Query = p.savedQuery.Name
+	case p.sourceIsQuery && p.savedQuery == nil && strings.TrimSpace(p.sourceRQL) != "":
+		v.Query = name
+		m.mut = mutState{kind: mutSaveQuery, viewName: name, view: v}
+		return m.invokeSaveQuery(name, p.sourceRQL)
 	case p.typeName != "" && (p.sourceBase == "type:"+p.typeName || strings.HasPrefix(p.id, "type:")):
 		v.Type = p.typeName
 	default:

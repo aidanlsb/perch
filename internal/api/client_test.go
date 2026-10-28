@@ -317,18 +317,6 @@ func TestSessionMissingEndpoint(t *testing.T) {
 	}
 }
 
-func TestClientRefusesWrites(t *testing.T) {
-	c := NewClient("http://127.0.0.1:9", "t")
-	ctx := context.Background()
-	for _, cmd := range []string{"set", "unset", "new", "move", "daily"} {
-		if _, err := c.Invoke(ctx, cmd, map[string]any{"x": 1}); err == nil {
-			t.Fatalf("expected refuse %s", cmd)
-		} else if !strings.Contains(err.Error(), "read-only") {
-			t.Fatalf("%s: %v", cmd, err)
-		}
-	}
-}
-
 func TestObjectsCommandNotAllowed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeEnv(w, 200, map[string]any{

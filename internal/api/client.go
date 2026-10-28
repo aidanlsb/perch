@@ -149,9 +149,6 @@ func (c *Client) Revision(ctx context.Context) (*Revision, error) {
 // Invoke POST /v1/invoke. Command failures are HTTP 200 with ok:false.
 func (c *Client) Invoke(ctx context.Context, command string, args map[string]any) (*Envelope, error) {
 	command = strings.TrimSpace(command)
-	if err := rejectForbidden(command); err != nil {
-		return nil, err
-	}
 	if args == nil {
 		args = map[string]any{}
 	}
