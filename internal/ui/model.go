@@ -15,10 +15,12 @@ const (
 	queryLimit  = 500
 	previewMinW = 28
 
-	kindList  = config.KindList
-	kindBoard = config.KindBoard
-	kindDate  = config.KindDate
-	kindNote  = "note"
+	kindList   = config.KindList
+	kindBoard  = config.KindBoard
+	kindDate   = config.KindDate
+	kindNote   = "note"
+	kindBrowse = "browse"
+	kindHome   = "home"
 )
 
 type pane int
@@ -59,14 +61,38 @@ const (
 	pickerRefs
 )
 
-type noteFrame struct {
-	ID      string
+type histFrame struct {
+	Screen string
+
+	NoteID  string
 	Line    int
 	Scroll  int
 	Pane    pane
 	LinkIdx int
 	BackIdx int
 	HasView bool
+
+	Browse *browseSnap
+
+	HomeSec int
+	HomeCur [homeSectionCount]int
+}
+
+type browseSnap struct {
+	currentView   string
+	currentLayout string
+	tree          layoutTree
+	panes         []*viewState
+	focus         string
+	lastMainFocus string
+	zoomed        bool
+	previewOn     bool
+	previewID     string
+	previewLine   int
+	previewScroll int
+	searchQ       string
+	searchHits    []int
+	searchAt      int
 }
 
 type queryCacheEntry struct {
@@ -85,6 +111,7 @@ type Options struct {
 	Editor     string
 	EditorMode string
 	Open       string
+	OpenInputs map[string]string
 	// PollInterval is how often to GET /v1/revision. Zero means 1s.
 	// Negative disables polling (tests).
 	PollInterval time.Duration
@@ -106,7 +133,7 @@ type Model struct {
 
 	pane    pane
 	overlay overlay
-	screen  string // browse | note
+	screen  string // home | browse | note
 	pending string // g | ctrlw | [ | ] | space | (empty)
 
 	schema api.Schema
@@ -135,8 +162,15 @@ type Model struct {
 	noteScroll int
 	linkIdx    int
 	backIdx    int
-	noteStack  []noteFrame
-	notePtr    int
+	hist       []histFrame
+	histPtr    int
+
+	homeSec int
+	homeCur [homeSectionCount]int
+
+	fromNav     bool
+	fromQueries bool
+	navReplace  bool
 
 	previewOn      bool
 	previewID      string
@@ -162,7 +196,9 @@ type Model struct {
 	argsVals  map[string]string
 	argsBuf   string
 
-	daily *api.DailyInfo
+	daily     *api.DailyInfo
+	vaultName string
+	session   *api.Session
 
 	queryCache map[string]queryCacheEntry
 	readCache  map[string]*api.ReadResult
@@ -172,13 +208,14 @@ type Model struct {
 	corpusDone    bool
 	corpusLoading bool
 
-	status  string
-	errMsg  string
-	liveErr string
-	loading bool
-	gen     int
-	ready   bool
-	open    string
+	status     string
+	errMsg     string
+	liveErr    string
+	loading    bool
+	gen        int
+	ready      bool
+	open       string
+	openInputs map[string]string
 
 	pollInterval  time.Duration
 	revGeneration string
@@ -212,13 +249,14 @@ func NewModel(opts Options) Model {
 		editor:       opts.Editor,
 		editorMode:   opts.EditorMode,
 		queryLimit:   queryLimit,
-		screen:       "browse",
+		screen:       kindBrowse,
 		pane:         paneMain,
-		notePtr:      -1,
+		histPtr:      -1,
 		queryCache:   map[string]queryCacheEntry{},
 		readCache:    map[string]*api.ReadResult{},
 		noteIndex:    map[string]api.Object{},
 		open:         strings.TrimSpace(opts.Open),
+		openInputs:   copyStringMap(opts.OpenInputs),
 		pollInterval: poll,
 	}
 }

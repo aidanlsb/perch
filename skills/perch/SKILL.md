@@ -1,6 +1,6 @@
 ---
 name: perch
-description: "Manage Perch views and panel layouts through the perch CLI. Use when listing, adding, showing, or removing views/layouts, validating config.toml, opening a named view, or wiring {{selected}} bindings. Do not edit Perch config by hand or assume a vault schema."
+description: "Manage Perch views and panel layouts through the perch CLI. Use when listing, adding, showing, or removing views/layouts, validating config.toml, opening a named view, layout, saved query, type, or Home (`perch <target>`), or wiring {{selected}} bindings. Do not edit Perch config by hand or assume a vault schema."
 version: 1
 ---
 
@@ -38,14 +38,15 @@ changed, validated, or opened. Drive Perch through its CLI. Do not edit
 ## TUI navigation
 
 Prefer the CLI. There is no sidebar. If the user is already in the TUI,
-navigation keys use `Space` as a leader: `Space t` types, `Space d`
+navigation keys use `Space` as a leader: `Space h` Home, `Space t` types, `Space d`
 daily, `Space q` saved queries, `Space v` views/layouts, `Space f` notes
 (`ctrl-p` stays), `Space s` full-text search, `Space a` actions,
 `Space Space` the navigation menu. `,` / `Space ,` opens config at the
-current view. Bare `t` `d` `q` `v` `f` do nothing in normal mode. Bare
+current view. Bare `t` `d` `q` `v` `f` do nothing in normal mode (on Home,
+`d`/`f`/`s`/`c`/`a` are shortcuts). Bare
 `s` sets a field or trait, `x` toggles a trait, `c` creates an object,
-`H`/`L` move a board card. `q` does not quit (`ctrl+c` quits; `esc` /
-`backspace` leave a note). Panel motions (`ctrl-h/j/k/l`, `ctrl-w` plus a
+`H`/`L` move a board card. `q` does not quit (`ctrl+c` quits). `esc` /
+`backspace` unwind local focus then pop Home/browse/note history. Panel motions (`ctrl-h/j/k/l`, `ctrl-w` plus a
 direction, tab) move among main panels. In-panel scrolling is `ctrl-d` /
 `ctrl-u` only. Field widgets follow `GET /v1/schema` only; do not assume
 vault field, type, or trait names.
@@ -78,10 +79,12 @@ perch views rm projects --force --json
 ## Layouts
 
 A layout is a nested split of panels. Each leaf is a named `view`, or a
-`type` / `query` inline (optional `inputs`, `layout`, and `id`/`name` for
-`bind`). `split` is `row` (side by side) or `col` (stacked). `bind` names
-the panel whose selection fills `{{selected}}` in that panel. List, board,
-and date work over both a type and a saved query.
+`type` / `query` inline (optional `inputs`, `kind`/`group_by`/`fields`,
+and `id`/`name` for `bind`). `split` is `row` (side by side) or `col`
+(stacked). `bind` names the panel whose selection fills `{{selected}}` in
+that panel. List, board, and date work over both a type and a saved
+query. A view opens on its own as a one-panel layout; do not add a
+`[layouts.*]` table just so the user can look at a `[views.*]`.
 
 ```bash
 perch layouts list --json
@@ -128,16 +131,29 @@ CLI; do not patch the TOML.
 
 ## Open
 
-Bare `perch` launches the TUI on the first view in config file order
-(as that view's list/board/date). With no views, the first layout. With
-neither, the navigation menu. `perch open <name>` opens a named view or
-layout (views win if both exist).
+Bare `perch` launches the TUI on the first `[layouts.*]` in config file
+order, with Home underneath in history. With no layouts, the first
+`[views.*]` as a one-panel layout. With neither, Home. `Space v` (and
+`Space l`) and Home list both so either can be opened with enter.
+
+`perch <target>` and `perch open <target>` open a named target. Resolution
+order: `home`, a `[views.<target>]` view, a `[layouts.<target>]` layout, a
+saved query from `/v1/schema`, then a schema type. Views win if a layout
+shares the name. Subcommands (`views`, `layouts`, `config`, `open`,
+`skill`) win over a target of the same name. Saved queries accept trailing
+`key=value` or positional args; missing args open a prompt. Home sits
+under the opened screen so `esc` / `backspace` / `[` land there. Unknown
+targets are `NOT_FOUND` before the TUI starts.
 
 ```bash
+perch home --json
+perch todos --json
 perch open projects --json
+perch person --json
 ```
 
-`--json` on `open` only affects launch errors. A successful open is the TUI.
+`--json` on `open` / a bare target only affects launch errors. A successful
+open is the TUI.
 
 ## Editor
 
@@ -154,7 +170,7 @@ is not a terminal editor, so `auto` does not suspend the TUI.
 | --- | --- |
 | `INVALID_ARGS` | Bad flags or extra arguments |
 | `MISSING_ARGUMENT` | Required name or `--type` / `--query` / `--panel` missing |
-| `NOT_FOUND` | Unknown view, layout, or `open` target |
+| `NOT_FOUND` | Unknown view, layout, saved query, type, or `open` target |
 | `DUPLICATE_NAME` | `add` when the name already exists |
 | `VALIDATION_FAILED` | Config fails the loader (kinds, `group_by`, layout trees) |
 | `FILE_READ_ERROR` | Config or `--from` file could not be read |
@@ -195,7 +211,7 @@ that receipt are left alone.
    Do not reuse example names from this skill unless they exist in the vault.
 3. `perch views add … --json` and `perch layouts add … --json`.
 4. `perch config check --json`.
-5. `perch open <name>` only if the user wants the TUI.
+5. `perch <target>` (or `perch open <target>`) only if the user wants the TUI.
 
 ## Safety
 

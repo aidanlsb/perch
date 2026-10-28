@@ -379,6 +379,7 @@ func (m Model) afterTypePicked(name string) (Model, tea.Cmd) {
 	switch m.mut.kind {
 	case mutNew:
 		m.mut.objType = name
+		m.mut.pickedType = true
 		return m.promptNewTitle()
 	case mutReclassify:
 		m.mut.newType = name

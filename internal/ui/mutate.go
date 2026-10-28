@@ -74,6 +74,8 @@ type mutState struct {
 	openType      string
 	viewName      string
 	view          config.View
+	fromActions   bool
+	pickedType    bool
 }
 
 type mutateMsg struct {
@@ -100,8 +102,7 @@ func (m Model) keysPrompt(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
 	switch key {
 	case "esc":
-		m.clearMut()
-		return m.dismissOverlay()
+		return m.promptEscape()
 	case "enter":
 		return m.commitPrompt()
 	case "backspace":
@@ -124,8 +125,7 @@ func (m Model) keysConfirm(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
 	switch key {
 	case "esc", "q":
-		m.clearMut()
-		return m.dismissOverlay()
+		return m.confirmEscape()
 	case "enter":
 		return m.applyConfirmed()
 	case "ctrl+c":

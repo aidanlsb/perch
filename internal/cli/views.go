@@ -93,7 +93,7 @@ func viewsList(path string) (any, string, error) {
 	for _, name := range f.ViewNames() {
 		item := viewData(name, f.Views[name], f.ViewLine(name))
 		items = append(items, item)
-		lines = append(lines, fmt.Sprintf("%s\t%s\t%s", name, viewOrigin(f.Views[name]), f.Views[name].Layout.Kind))
+		lines = append(lines, fmt.Sprintf("%s\t%s\t%s", name, viewOrigin(f.Views[name]), f.Views[name].Kind))
 	}
 	return map[string]any{"views": items}, strings.Join(lines, "\n"), nil
 }
@@ -134,7 +134,7 @@ func viewsAdd(path, name string, p parsedArgs) (any, string, error) {
 	if ref != "" {
 		return nil, "", fail(CodeInvalidInput, "view --layout is an inline spec (kind=board,group_by=...), not a layout name")
 	}
-	v := config.View{Type: typeName, Query: queryName, Inputs: inputs, Layout: present}
+	v := config.View{Type: typeName, Query: queryName, Inputs: inputs, Present: present}
 	if err := config.AddView(path, name, v); err != nil {
 		return nil, "", err
 	}
@@ -154,25 +154,24 @@ func viewsRM(path, name string, force bool) (any, string, error) {
 }
 
 func viewData(name string, v config.View, line int) map[string]any {
-	layout := map[string]any{"kind": v.Layout.Kind}
-	if v.Layout.GroupBy != "" {
-		layout["group_by"] = v.Layout.GroupBy
-	}
-	if len(v.Layout.Fields) > 0 {
-		layout["fields"] = v.Layout.Fields
-	}
-	if v.Layout.Sort != "" {
-		layout["sort"] = v.Layout.Sort
-	}
-	if v.Layout.Filter != "" {
-		layout["filter"] = v.Layout.Filter
-	}
-	if v.Layout.Granularity != "" {
-		layout["granularity"] = v.Layout.Granularity
-	}
 	out := map[string]any{
-		"name":   name,
-		"layout": layout,
+		"name": name,
+		"kind": v.Kind,
+	}
+	if v.GroupBy != "" {
+		out["group_by"] = v.GroupBy
+	}
+	if len(v.Fields) > 0 {
+		out["fields"] = v.Fields
+	}
+	if v.Sort != "" {
+		out["sort"] = v.Sort
+	}
+	if v.Filter != "" {
+		out["filter"] = v.Filter
+	}
+	if v.Granularity != "" {
+		out["granularity"] = v.Granularity
 	}
 	if v.Type != "" {
 		out["type"] = v.Type
@@ -199,24 +198,24 @@ func viewOrigin(v config.View) string {
 func formatView(name string, v config.View) string {
 	var b strings.Builder
 	if v.Query != "" {
-		fmt.Fprintf(&b, "name: %s\nquery: %s\nkind: %s", name, v.Query, v.Layout.Kind)
+		fmt.Fprintf(&b, "name: %s\nquery: %s\nkind: %s", name, v.Query, v.Kind)
 	} else {
-		fmt.Fprintf(&b, "name: %s\ntype: %s\nkind: %s", name, v.Type, v.Layout.Kind)
+		fmt.Fprintf(&b, "name: %s\ntype: %s\nkind: %s", name, v.Type, v.Kind)
 	}
-	if v.Layout.GroupBy != "" {
-		fmt.Fprintf(&b, "\ngroup_by: %s", v.Layout.GroupBy)
+	if v.GroupBy != "" {
+		fmt.Fprintf(&b, "\ngroup_by: %s", v.GroupBy)
 	}
-	if len(v.Layout.Fields) > 0 {
-		fmt.Fprintf(&b, "\nfields: %s", strings.Join(v.Layout.Fields, ", "))
+	if len(v.Fields) > 0 {
+		fmt.Fprintf(&b, "\nfields: %s", strings.Join(v.Fields, ", "))
 	}
-	if v.Layout.Sort != "" {
-		fmt.Fprintf(&b, "\nsort: %s", v.Layout.Sort)
+	if v.Sort != "" {
+		fmt.Fprintf(&b, "\nsort: %s", v.Sort)
 	}
-	if v.Layout.Filter != "" {
-		fmt.Fprintf(&b, "\nfilter: %s", v.Layout.Filter)
+	if v.Filter != "" {
+		fmt.Fprintf(&b, "\nfilter: %s", v.Filter)
 	}
-	if v.Layout.Granularity != "" {
-		fmt.Fprintf(&b, "\ngranularity: %s", v.Layout.Granularity)
+	if v.Granularity != "" {
+		fmt.Fprintf(&b, "\ngranularity: %s", v.Granularity)
 	}
 	if len(v.Inputs) > 0 {
 		fmt.Fprintf(&b, "\ninputs: %v", v.Inputs)

@@ -14,12 +14,12 @@ import (
 func nestedLayoutCfg() *config.File {
 	return &config.File{
 		Views: map[string]config.View{
-			"projects": {Type: "project", Layout: config.Present{Kind: kindList}},
+			"projects": {Type: "project", Present: config.Present{Kind: kindList}},
 			"tasks": {
 				Type:   "project",
-				Layout: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
+				Present: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
-			"notes": {Type: "person", Layout: config.Present{Kind: kindList}},
+			"notes": {Type: "person", Present: config.Present{Kind: kindList}},
 		},
 		Layouts: map[string]config.Layout{
 			"workspace": {
@@ -52,6 +52,86 @@ func TestOpenOptionLoadsLayout(t *testing.T) {
 	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
 	if m.currentLayout != "workspace" || len(m.panes) != 3 {
 		t.Fatalf("layout %s panes %d", m.currentLayout, len(m.panes))
+	}
+	if len(m.hist) < 2 || m.hist[0].Screen != kindHome {
+		t.Fatalf("home not under layout: %+v", m.hist)
+	}
+}
+
+func TestOpenOptionLoadsHome(t *testing.T) {
+	m := NewModel(Options{Config: nestedLayoutCfg(), Open: "home"})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.screen != kindHome {
+		t.Fatalf("screen %s", m.screen)
+	}
+	if m.currentView != "" || m.currentLayout != "" {
+		t.Fatalf("view=%s layout=%s", m.currentView, m.currentLayout)
+	}
+	if len(m.hist) < 1 || m.hist[0].Screen != kindHome {
+		t.Fatalf("hist %+v", m.hist)
+	}
+}
+
+func TestOpenOptionLoadsQuery(t *testing.T) {
+	m := NewModel(Options{Config: nestedLayoutCfg(), Open: "open"})
+	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if cmd == nil {
+		t.Fatal("expected query")
+	}
+	p := m.p()
+	if !p.sourceIsQuery || p.sourceBase != "open" {
+		t.Fatalf("pane %+v", p)
+	}
+	if len(m.hist) < 2 || m.hist[0].Screen != kindHome {
+		t.Fatalf("home not under query: %+v", m.hist)
+	}
+}
+
+func TestOpenOptionLoadsType(t *testing.T) {
+	m := NewModel(Options{Config: nestedLayoutCfg(), Open: "person"})
+	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if cmd == nil {
+		t.Fatal("expected type query")
+	}
+	if m.p().typeName != "person" || m.p().sourceIsQuery {
+		t.Fatalf("pane %+v", m.p())
+	}
+	if len(m.hist) < 2 || m.hist[0].Screen != kindHome {
+		t.Fatalf("home not under type: %+v", m.hist)
+	}
+}
+
+func TestOpenOptionQueryArgsPromptAndComplete(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{}, Open: "need"})
+	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if cmd != nil {
+		t.Fatal("need should prompt")
+	}
+	if m.overlay != overlayArgs || len(m.argsNames) != 1 || m.argsNames[0] != "x" {
+		t.Fatalf("overlay=%v names=%v", m.overlay, m.argsNames)
+	}
+
+	m = NewModel(Options{Config: &config.File{}, Open: "need", OpenInputs: map[string]string{"x": "p"}})
+	m, cmd = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if cmd == nil {
+		t.Fatal("complete args should query")
+	}
+	if m.overlay != overlayNone {
+		t.Fatalf("overlay %v", m.overlay)
+	}
+	if m.p().rawInputs["x"] != "p" {
+		t.Fatalf("inputs %v", m.p().rawInputs)
+	}
+}
+
+func TestOpenOptionUnknownGoesHome(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{}, Open: "ghost"})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.screen != kindHome {
+		t.Fatalf("screen %s", m.screen)
+	}
+	if !strings.Contains(m.errMsg, "ghost") {
+		t.Fatalf("err %q", m.errMsg)
 	}
 }
 
@@ -162,7 +242,7 @@ func TestReloadKeepsLastGoodOnError(t *testing.T) {
 	good := `
 [views.ok]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `
 	if err := os.WriteFile(path, []byte(good), 0o644); err != nil {
 		t.Fatal(err)
@@ -218,8 +298,11 @@ func TestSaveViewWritesConfig(t *testing.T) {
 	if !strings.Contains(s, "[views.my-board]") {
 		t.Fatalf("%s", s)
 	}
-	if !strings.Contains(s, `type = "project"`) || strings.Contains(s, "source") {
-		t.Fatalf("want type, got:\n%s", s)
+	if !strings.Contains(s, `type = "project"`) || !strings.Contains(s, `kind = "`) {
+		t.Fatalf("want type and kind, got:\n%s", s)
+	}
+	if strings.Contains(s, "source") || strings.Contains(s, "layout =") {
+		t.Fatalf("want flat renderer keys, got:\n%s", s)
 	}
 	if m.cfg == nil || m.cfg.Views["my-board"].Type != "project" {
 		t.Fatalf("cfg not reloaded %+v", m.cfg)
@@ -229,8 +312,8 @@ func TestSaveViewWritesConfig(t *testing.T) {
 func TestNamedQueryBoardAndDateViews(t *testing.T) {
 	cfg := &config.File{
 		Views: map[string]config.View{
-			"board": {Query: "open", Layout: config.Present{Kind: kindBoard, GroupBy: "status"}},
-			"when":  {Query: "open", Layout: config.Present{Kind: kindDate, GroupBy: "due", Granularity: layout.GranWeek}},
+			"board": {Query: "open", Present: config.Present{Kind: kindBoard, GroupBy: "status"}},
+			"when":  {Query: "open", Present: config.Present{Kind: kindDate, GroupBy: "due", Granularity: layout.GranWeek}},
 		},
 	}
 	m := loadNamedView(t, cfg, "board")
@@ -249,8 +332,8 @@ func TestInlineLayoutPanels(t *testing.T) {
 			"ws": {
 				Split: "row",
 				Panels: []config.Panel{
-					{Type: "project", ID: "projects", Layout: config.Present{Kind: kindBoard, GroupBy: "status"}},
-					{Query: "open", Bind: "projects", Layout: config.Present{Kind: kindList}},
+					{Type: "project", ID: "projects", Present: config.Present{Kind: kindBoard, GroupBy: "status"}},
+					{Query: "open", Bind: "projects", Present: config.Present{Kind: kindList}},
 				},
 			},
 		},

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -46,23 +47,25 @@ func Run(args []string, stdout, stderr io.Writer) error {
 	}
 }
 
-// ResolveOpen looks up a view or layout name. Views win if both exist.
+// ResolveOpen looks up a view or layout name in config. Views win if both
+// exist. Saved queries and types need schema; use ResolveTarget for those.
 func ResolveOpen(path, name string) (kind string, err error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", fail(CodeMissingArgument, "open needs a view or layout name")
+		return "", fail(CodeMissingArgument, "open needs a target name")
 	}
 	f, err := config.Load(path)
 	if err != nil {
 		return "", err
 	}
-	if _, ok := f.Views[name]; ok {
-		return "view", nil
+	t, err := ResolveTarget(f, nil, name, nil)
+	if errors.Is(err, ErrNeedSchema) {
+		return "", fail(CodeNotFound, "no view, layout, saved query, or type named "+name)
 	}
-	if _, ok := f.Layouts[name]; ok {
-		return "layout", nil
+	if err != nil {
+		return "", err
 	}
-	return "", fail(CodeNotFound, "no view or layout named "+name)
+	return t.Kind, nil
 }
 
 // JSONRequested reports whether --json appears anywhere in args.

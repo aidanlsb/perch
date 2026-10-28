@@ -38,25 +38,30 @@ var Keymap = []Binding{
 	{"browse", "space t", "type picker (schema types)"},
 	{"browse", "space d", "daily-note date picker"},
 	{"browse", "space q", "saved query picker"},
-	{"browse", "space v", "views and layouts picker"},
+	{"browse", "space v / space l", "views and layouts picker"},
 	{"browse", "ctrl-p / space f", "fuzzy notes picker"},
 	{"browse", "space s", "full-text content search"},
 	{"browse", "space a", "actions (create, edit, schema)"},
 	{"browse", "space ,", "open config at the current view"},
+	{"browse", "space h / gh", "home"},
 	{"browse", "space space", "navigation menu"},
 	{"browse", "/", "fuzzy search in current view"},
+	{"browse", "[ / ctrl-o", "back in history (or home)"},
+	{"browse", "] / ctrl-i", "forward in history"},
+	{"browse", "esc / backspace", "clear search / unfocus / unzoom / back"},
 	{"browse", "n / N", "next / previous search hit"},
 	{"browse", ".", "cycle date granularity (day/week/month)"},
 	{"browse", "p", "toggle preview pane"},
 	{"browse", ":", "run an ad-hoc RQL query"},
 	{"browse", "r", "refresh (and reload config)"},
-	{"browse", "space", "leader (t/d/q/v/f/s/a/, / space)"},
+	{"browse", "space", "leader (t/d/q/v/l/f/s/a/, / space)"},
 	{"browse", "esc", "clear search / close overlay / cancel leader"},
 
+	{"leader", "space h", "home"},
 	{"leader", "space t", "type picker"},
 	{"leader", "space d", "daily-note date picker"},
 	{"leader", "space q", "saved query picker"},
-	{"leader", "space v", "views and layouts"},
+	{"leader", "space v / space l", "views and layouts"},
 	{"leader", "space f", "notes picker"},
 	{"leader", "space s", "full-text content search"},
 	{"leader", "space a", "actions"},
@@ -64,8 +69,9 @@ var Keymap = []Binding{
 	{"leader", "space space", "navigation menu"},
 	{"leader", "esc", "cancel"},
 
-	{"note", "esc / backspace / [ / ctrl-o", "previous note, or browse if none"},
-	{"note", "] / ctrl-i", "forward in note history"},
+	{"note", "esc / backspace / [ / ctrl-o", "backlinks → note, then previous screen"},
+	{"note", "] / ctrl-i", "forward in history"},
+	{"note", "space h / gh", "home"},
 	{"note", "/", "fuzzy search in browse"},
 	{"note", "hjkl / arrows", "scroll / backlinks"},
 	{"note", "gg / G", "top / bottom"},
@@ -93,7 +99,7 @@ var Keymap = []Binding{
 	{"picker", "j/k / ctrl-n/p", "move"},
 	{"picker", "enter", "open selection"},
 	{"picker", "e", "open note in editor (notes picker)"},
-	{"picker", "q / esc", "close"},
+	{"picker", "esc", "close / previous step"},
 
 	{"daily", "h/l", "previous / next day"},
 	{"daily", "j/k", "previous / next week"},
@@ -103,14 +109,27 @@ var Keymap = []Binding{
 	{"daily", "q / esc", "close"},
 
 	{"args", "enter", "next argument / run query"},
-	{"args", "esc", "cancel"},
+	{"args", "esc", "previous argument / queries"},
 
 	{"mutate", "enter", "confirm value / apply"},
-	{"mutate", "esc", "cancel"},
+	{"mutate", "esc", "previous step / cancel"},
+
+	{"home", "h/l / tab", "switch dashboard section"},
+	{"home", "j/k", "move in section"},
+	{"home", "enter", "open selected view, type, or query"},
+	{"home", "d", "today's daily note"},
+	{"home", "f / ctrl-p", "find notes"},
+	{"home", "s / /", "content search"},
+	{"home", ":", "run RQL"},
+	{"home", "c", "new object"},
+	{"home", "a", "actions"},
+	{"home", ",", "edit config"},
+	{"home", "space h / gh", "home"},
+	{"home", "[ / ]", "back / forward"},
 	{"mutate", "ctrl-d", "unset optional field"},
 }
 
-const leaderFooter = "space  space menu  a actions  v views  t types  q queries  d daily  f notes  s search  , config  esc cancel"
+const leaderFooter = "space  space menu  h home  a actions  v/l views  t types  q queries  d daily  f notes  s search  , config  esc cancel"
 
 func footerKeys(m Model) string {
 	if m.pending == "space" {
@@ -123,7 +142,7 @@ func footerKeys(m Model) string {
 		return "search  enter keep  n/N next  esc clear"
 	case overlayPicker:
 		if m.pickerKind == pickerNav {
-			return "navigate  j/k  enter  q / esc"
+			return "navigate  j/k  enter  esc"
 		}
 		if m.pickerKind == pickerActions {
 			return "actions  j/k  enter  esc"
@@ -140,13 +159,16 @@ func footerKeys(m Model) string {
 	case overlayRQL:
 		return "query  enter run  esc"
 	case overlayArgs:
-		return "args  enter next  esc cancel"
+		return "args  enter next  esc back"
 	case overlaySave:
 		return "save view  enter write  esc"
 	case overlayPrompt:
 		return "enter confirm  esc cancel"
 	case overlayConfirm:
 		return "enter apply  esc cancel"
+	}
+	if m.screen == kindHome {
+		return "h/l sections  jk  enter  d today  f find  s search  : rql  c new  a actions  , config  [ ] hist  space …  ? help"
 	}
 	if m.screen == kindNote {
 		if isDailyNoteID(m.noteID()) {

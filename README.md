@@ -28,6 +28,8 @@ From a vault, or with an explicit path:
 
 ```bash
 perch
+perch todos
+perch home
 perch --vault-path /path/to/vault
 perch --url http://127.0.0.1:7438 --token "$RAVEN_API_TOKEN" --no-start
 perch --poll-interval 2s
@@ -70,12 +72,13 @@ secondary context; the raw trait id (`path.md:trait:N`) is not a
 column. Preview of a nested row leads with that same label.
 
 A **layout** is a nested split of panels. Each leaf is a named `view`, or
-a `type` / `query` inline (with optional `inputs`, `layout = { … }`, and
-`id` / `name` so other panels can `bind` to it). `split` is `row` (side
-by side) or `col` (stacked). `bind` names the panel whose selection fills
-`{{selected}}` in that panel. Bound panels update as the driving
-selection moves. Enter in the driving panel moves focus to the bound
-panel.
+a `type` / `query` inline (with optional `inputs`, `kind` / `group_by` /
+`fields`, and `id` / `name` so other panels can `bind` to it). `split` is
+`row` (side by side) or `col` (stacked). `bind` names the panel whose
+selection fills `{{selected}}` in that panel. Bound panels update as the
+driving selection moves. Enter in the driving panel moves focus to the
+bound panel. A view opens on its own as a one-panel layout; you do not
+need a `[layouts.*]` table just to look at a `[views.*]`.
 
 List, board, and date presentations work the same whether the source is
 a schema type or a saved query.
@@ -86,10 +89,15 @@ cycles date granularity (day → week → month) inside a date view.
 `section` is omitted because Raven cannot query `type:section`. There is
 no sidebar: navigation is the Space leader, pickers, and hotkeys.
 
-Bare `perch` opens the first view in config file order as that view's
-list, board, or date. If no views are configured, the first layout.
-If neither views nor layouts are configured, the navigation menu opens.
-It does not pick a schema type on its own.
+Bare `perch` opens the first `[layouts.*]` in config file order. With no
+layouts, the first `[views.*]` as a one-panel layout. Home is seeded
+under that first screen, so backing out lands on Home. If neither is
+configured, Perch starts on **Home**, a dashboard of views, layouts,
+types, and saved queries. Enter on Home opens any of them. `Space v`
+(and `Space l`) lists views and layouts. It does not pick a schema type
+on its own. `Space h` / `gh` jump to Home from anywhere.
+`perch <target>` (or `perch open <target>`) opens Home, a named view,
+layout, saved query, or type; Home still sits under that screen.
 
 ## Config
 
@@ -100,12 +108,14 @@ and field names in examples are not special.
 ```toml
 [views.projects]
 type = "item"
-layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
+kind = "board"
+group_by = "state"
+fields = ["state", "when"]
 
 [views.tasks]
 type = "task"
 inputs = { item = "{{selected}}" }
-layout = { kind = "list" }
+kind = "list"
 
 [layouts.workspace]
 split = "row"
@@ -114,22 +124,24 @@ panels = [ { view = "projects" }, { view = "tasks", bind = "projects" } ]
 [layouts.direct]
 split = "row"
 panels = [
-  { type = "item", id = "projects", layout = { kind = "board", group_by = "state" } },
-  { query = "inbox", bind = "projects", layout = { kind = "list" } },
+  { type = "item", id = "projects", kind = "board", group_by = "state" },
+  { query = "inbox", bind = "projects", kind = "list" },
 ]
 ```
 
-Exactly one of `type` or `query` is required on a view. A layout panel is
-a named `view`, or that same `type` / `query` plus `layout` inline.
-A `source` key is a startup
-error. `kind` is `list`, `board`, or `date`. Board `group_by` is an enum
-or ref field. Date `group_by` is a date/datetime field; `granularity` is
-`day`, `week`, or `month`. Optional `filter` is an RQL predicate appended
-to the type query or saved-query body.
+Exactly one of `type` or `query` is required on a view. Renderer keys
+(`kind`, `group_by`, `fields`, `sort`, `filter`, `granularity`) sit
+directly on the view or inline panel. A layout panel is a named `view`,
+or that same `type` / `query` plus those keys inline. A `source` key is a
+startup error. `kind` is `list`, `board`, or `date`. Board `group_by` is
+an enum or ref field. Date `group_by` is a date/datetime field;
+`granularity` is `day`, `week`, or `month`. Optional `filter` is an RQL
+predicate appended to the type query or saved-query body.
 
 `[[types.*.layouts]]` and `[[queries.*.layouts]]` are a startup error
-pointing at this shape. The old single `layout =` form and `[[views]]`
-array of tables are likewise rejected.
+pointing at this shape. Nested `layout = { … }` on a view or panel, the
+old single `layout =` form, and `[[views]]` array of tables are likewise
+rejected. The word `layout` means only `[layouts.<name>]`.
 
 At startup Perch validates views against `GET /v1/schema` and
 `query_saved_list`, and shows warnings in the footer (with line numbers)
@@ -139,16 +151,22 @@ for unknown types, queries, or fields.
 to the current view's table where the editor supports a line argument.
 On return Perch reloads and validates; errors include line numbers and
 the last good config is kept. `S` prompts for a name and writes the
-on-screen view (`type` or `query` plus layout settings) as `[views.x]`.
-Ad-hoc `:` queries are saved with `query_saved_set` then referenced by
-name. Config writes go only to Perch's config, never the vault.
+on-screen view (`type` or `query` plus `kind` / `group_by` / `fields`) as
+`[views.x]`, which is then openable from Home and `Space v`. Ad-hoc `:`
+queries are saved with `query_saved_set` then referenced by name. Config
+writes go only to Perch's config, never the vault.
 
 ## CLI (for agents)
 
 Do not edit `config.toml` by hand and do not drive the TUI. The CLI is the
 stable way to list, add, and remove views and layouts. Bare `perch` still
-opens the TUI. `perch open <name>` opens the TUI on that view or layout
-(views win if both exist).
+opens the TUI. `perch <target>` and `perch open <target>` open the TUI on
+that target: `home`, a named view, a named layout, a saved query from
+`/v1/schema`, or a schema type, in that order. Views win if a layout
+shares the name. Built-in subcommands (`views`, `layouts`, `config`,
+`open`, `skill`) win over a target of the same name. Saved queries accept
+trailing `key=value` or positional args; missing args open a prompt.
+Home sits under the opened screen. Unknown targets are `NOT_FOUND`.
 
 ```bash
 perch views list
@@ -169,8 +187,11 @@ perch layouts rm workspace
 
 perch config path
 perch config check
+perch home
+perch todos
 perch open projects
 perch open workspace
+perch person
 
 perch skill list
 perch skill install --confirm --json
@@ -187,7 +208,7 @@ process exits nonzero. `error.details` may add line numbers or names.
 | --- | --- |
 | `INVALID_ARGS` | Bad flags or extra arguments |
 | `MISSING_ARGUMENT` | Required name or `--type` / `--query` / `--panel` missing |
-| `NOT_FOUND` | Unknown view, layout, or `open` target |
+| `NOT_FOUND` | Unknown view, layout, saved query, type, or `open` target |
 | `DUPLICATE_NAME` | `add` when the name already exists |
 | `VALIDATION_FAILED` | Config fails the existing loader (kinds, `group_by`, layout trees) |
 | `CONFIG_INVALID` | (reserved; decode failures are reported as `VALIDATION_FAILED` with a line) |
@@ -244,12 +265,13 @@ do nothing in normal mode so they cannot fire by accident. Bare `s`
 edits a field or trait; `Space s` is content search. `ctrl-p` and
 `,` still work without the leader.
 
-With no view or layout loaded, Perch opens the same navigation menu
-(`Space Space`).
+With no view or layout loaded, Perch starts on Home. `Space Space` is
+the navigation menu (Home is the first item).
 
 | Key | Opens |
 | --- | --- |
-| `Space Space` | Navigation menu: views, types, queries, daily, notes, search, actions, config |
+| `Space Space` | Navigation menu: home, views, types, queries, daily, notes, search, actions, config |
+| `Space h` / `gh` | Home dashboard |
 | `Space t` | Types from `GET /v1/schema` (fuzzy). Selecting fills the main pane with that type's objects as a plain list. |
 | `Space d` | Daily-note date picker, starting on today (`GET /v1/session` `daily.today_id` when present). `h`/`l` move a day, `j`/`k` a week, `t` today. Enter resolves or creates that day's daily note via `daily`. |
 | `Space q` | Saved queries (fuzzy). `q` does not quit; `ctrl+c` quits. |
@@ -267,14 +289,16 @@ With no view or layout loaded, Perch opens the same navigation menu
 | `H` / `L` | Move the selected board card to the previous / next column (`set` / `unset` the group-by field) |
 
 Saved queries that declare `args` open an argument prompt. Values are sent as
-`query` `inputs` (`{{args.*}}`). Esc cancels.
+`query` `inputs` (`{{args.*}}`). Esc steps back one argument, then returns to
+the query picker if that is how you got here.
 
 ## Preview and editor
 
 `p` toggles a preview pane of the selected row's rendered Markdown.
 Trait, section, and link rows preview the containing object, scrolled to
-the row's source line. Reads are cached; moving the cursor does not block
-the UI.
+the row's source line, with the target line marked. Opening a trait view
+(`query_kind: "trait"`) turns preview on unless you have toggled it off
+with `p`. Reads are cached; moving the cursor does not block the UI.
 
 `e` opens the selected row's file in the editor from browse, preview, note
 view, or the notes picker. When the row carries `file_path` and `line`
@@ -288,10 +312,12 @@ saved into Raven as a named query, then referenced from config.
 
 ## Keys
 
-`?` lists this table inside the TUI. From a note, `esc` / `backspace` /
-`[` / `ctrl-o` go to the previous note, and only leave to the browse view
-when there is no previous note. `]` / `ctrl-i` go forward in that history.
-Overlays still close with `q` / `esc`. `ctrl+c` quits.
+`?` lists this table inside the TUI. History is one stack across Home,
+browse views, and notes. `[` / `ctrl-o` go back, `]` / `ctrl-i` forward.
+`esc` / `backspace` unwind local state first (search, preview focus,
+zoom, bound panel, backlinks pane), then pop that stack, and land on
+Home rather than an empty pane. Overlays step back with `esc` (`q` types
+into a fuzzy picker; it does not close it). `ctrl+c` quits.
 
 | Key | Action |
 | --- | --- |
@@ -306,6 +332,7 @@ Overlays still close with `q` / `esc`. `ctrl+c` quits.
 | `enter` | Open note / follow link / move to the bound panel |
 | `Space` | Leader for navigation keys |
 | `Space Space` | Navigation menu |
+| `Space h` / `gh` | Home |
 | `Space t` | Type picker |
 | `Space d` | Daily-note date picker |
 | `Space q` | Saved query picker (does not quit) |
@@ -326,10 +353,10 @@ Overlays still close with `q` / `esc`. `ctrl+c` quits.
 | `S` | Save on-screen view |
 | `e` | Open in editor |
 | `r` | Refresh (and reload config) |
-| `[` `]` `ctrl-o` `ctrl-i` | Note history back / forward |
+| `[` `]` `ctrl-o` `ctrl-i` | History back / forward (Home, browse, notes) |
 | `[d` `]d` | Previous / next daily note (in a daily note; creates if missing) |
 | `?` | Help |
-| `esc` / `backspace` | Close overlay / previous note, or browse when at the start of history |
+| `esc` / `backspace` | Close overlay / unwind focus / previous screen, or Home at the start of history |
 | `ctrl+c` | Quit |
 
 Focus follows the panel. The focused panel has a highlighted border.
@@ -387,7 +414,9 @@ status-line mark and back off; they do not take over the footer.
 The note view renders Markdown, shows frontmatter as a header, and cycles
 wiki links from `read --json` `data.links` using UTF-8 byte offsets. Perch
 does not parse `[[links]]` itself. Enter follows a resolved `object_id`.
-A backlinks pane lists `data.backlinks`.
+A backlinks pane lists `data.backlinks` with source labels, context
+snippets, and a live preview of the selected source around the
+referencing line.
 
 ## Raven API gaps
 

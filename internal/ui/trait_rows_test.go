@@ -122,10 +122,10 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 	cfgPath := filepath.Join(dir, "config.toml")
 	cfg := &config.File{
 		Views: map[string]config.View{
-			"priorities": {Query: "priorities", Layout: config.Present{Kind: kindList}},
+			"priorities": {Query: "priorities", Present: config.Present{Kind: kindList}},
 			"related": {
 				Type:   "project",
-				Layout: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
+				Present: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
 		},
 		Layouts: map[string]config.Layout{
@@ -227,14 +227,17 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 		t.Fatalf("editor path %q", path)
 	}
 
-	m, cmd = m.update(key("p"))
 	if !m.previewOn {
-		t.Fatal("preview on")
+		t.Fatal("trait view should auto-enable preview")
 	}
-	if cmd == nil {
-		t.Fatal("preview read")
+	if m.preview == nil {
+		m2, c := m.previewCmd()
+		m = m2
+		if c == nil {
+			t.Fatal("preview read")
+		}
+		m, _ = m.update(c())
 	}
-	m, _ = m.update(cmd())
 	if m.errMsg != "" {
 		t.Fatalf("preview err %s", m.errMsg)
 	}

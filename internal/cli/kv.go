@@ -173,7 +173,7 @@ func parsePanelFlag(s string) (config.Panel, error) {
 		p.Inputs = ins
 	}
 	if kind := kv["kind"]; kind != "" || kv["group_by"] != "" || kv["fields"] != "" || kv["sort"] != "" || kv["filter"] != "" || kv["granularity"] != "" {
-		p.Layout = config.Present{
+		p.Present = config.Present{
 			Kind:        kind,
 			GroupBy:     firstKV(kv, "group_by", "group-by"),
 			Granularity: kv["granularity"],
@@ -181,7 +181,7 @@ func parsePanelFlag(s string) (config.Panel, error) {
 			Filter:      kv["filter"],
 		}
 		if f := kv["fields"]; f != "" {
-			p.Layout.Fields = splitFields(f)
+			p.Fields = splitFields(f)
 		}
 	}
 	if p.View == "" && p.Type == "" && p.Query == "" && p.Split == "" && len(p.Panels) == 0 {

@@ -10,6 +10,7 @@ import (
 const dailyLayout = "2006-01-02"
 
 func (m Model) openDatePicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayDate
 	m.datePurpose = "daily"
 	m.dateCur = m.todayID()
@@ -30,7 +31,7 @@ func (m Model) keysDate(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
 	switch key {
 	case "esc", "q":
-		return m.dismissOverlay()
+		return m.dateEscape()
 	case "enter":
 		if m.datePurpose == "value" {
 			return m.commitValue(m.dateCur)

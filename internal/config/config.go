@@ -20,24 +20,29 @@ const SelectedToken = "{{selected}}"
 
 const viewShape = `[views.projects]
 type = "item"
-layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
+kind = "board"
+group_by = "state"
+fields = ["state", "when"]
 
 [views.tasks]
 query = "open-tasks"
 inputs = { item = "{{selected}}" }
-layout = { kind = "list" }
+kind = "list"
 
 [layouts.workspace]
 split = "row"
 panels = [
   { view = "projects" },
-  { type = "task", bind = "projects", layout = { kind = "list" } },
-  { query = "inbox", id = "inbox", layout = { kind = "list" } },
+  { type = "task", bind = "projects", kind = "list" },
+  { query = "inbox", id = "inbox", kind = "list" },
 ]
 
 A view requires exactly one of type (a schema type name) or query (a Raven saved query name).
-A layout panel is a named view, or that same type/query plus layout inline.
-Inline RQL is not allowed in config. kind is list, board, or date. See examples/config.toml.`
+A layout panel is a named view, or that same type/query plus kind/group_by/fields inline.
+Inline RQL is not allowed in config. kind is list, board, or date. See examples/config.toml.
+layout exclusively means [layouts.<name>]; do not set a nested layout = { ... } on a view or panel.`
+
+const nestedLayoutRemoved = `views.*.layout was removed; set kind, group_by, fields, sort, filter, and granularity directly on the view or panel`
 
 const legacyRemoved = `[[types.*.layouts]] and [[queries.*.layouts]] were removed.
 
@@ -63,16 +68,18 @@ type File struct {
 }
 
 // View is [views.<name>]: exactly one of type or query, plus a list/board/date presentation.
+// Renderer keys (kind, group_by, fields, sort, filter, granularity) sit on the view.
 type View struct {
 	Type   string            `toml:"type" json:"type,omitempty"`
 	Query  string            `toml:"query" json:"query,omitempty"`
 	Inputs map[string]string `toml:"inputs" json:"inputs,omitempty"`
-	Layout Present           `toml:"layout" json:"layout"`
+	Present
+	NestedLayout any `toml:"layout,omitempty" json:"-"`
 }
 
-// Present is the inline layout = { kind, group_by, ... } table on a view.
+// Present is the list/board/date renderer on a view or inline panel.
 type Present struct {
-	Kind        string   `toml:"kind" json:"kind"`
+	Kind        string   `toml:"kind" json:"kind,omitempty"`
 	GroupBy     string   `toml:"group_by" json:"group_by,omitempty"`
 	Fields      []string `toml:"fields" json:"fields,omitempty"`
 	Sort        string   `toml:"sort" json:"sort,omitempty"`
@@ -81,7 +88,7 @@ type Present struct {
 }
 
 // Layout is [layouts.<name>]: a nested split of panels. Each leaf is a named
-// view, or an inline type or saved query (with optional layout / inputs / id).
+// view, or an inline type or saved query (with optional kind / inputs / id).
 type Layout struct {
 	Split  string  `toml:"split" json:"split"`
 	Panels []Panel `toml:"panels" json:"panels"`
@@ -94,12 +101,13 @@ type Panel struct {
 	Type   string            `toml:"type" json:"type,omitempty"`
 	Query  string            `toml:"query" json:"query,omitempty"`
 	Inputs map[string]string `toml:"inputs" json:"inputs,omitempty"`
-	Layout Present           `toml:"layout" json:"layout,omitempty"`
-	ID     string            `toml:"id" json:"id,omitempty"`
-	Name   string            `toml:"name" json:"name,omitempty"`
-	Bind   string            `toml:"bind" json:"bind,omitempty"`
-	Split  string            `toml:"split" json:"split,omitempty"`
-	Panels []Panel           `toml:"panels" json:"panels,omitempty"`
+	Present
+	ID           string  `toml:"id" json:"id,omitempty"`
+	Name         string  `toml:"name" json:"name,omitempty"`
+	Bind         string  `toml:"bind" json:"bind,omitempty"`
+	Split        string  `toml:"split" json:"split,omitempty"`
+	Panels       []Panel `toml:"panels" json:"panels,omitempty"`
+	NestedLayout any     `toml:"layout,omitempty" json:"-"`
 }
 
 const (
@@ -184,6 +192,9 @@ func Parse(path, src string) (*File, error) {
 		if meta.IsDefined("views", name, "source") {
 			return nil, &Error{Path: path, Line: f.viewLine(name), Msg: sourceKeyMsg(name)}
 		}
+		if meta.IsDefined("views", name, "layout") || v.NestedLayout != nil {
+			return nil, &Error{Path: path, Line: f.viewLine(name), Msg: nestedLayoutRemoved}
+		}
 		nv, err := v.normalize()
 		if err != nil {
 			return nil, &Error{Path: path, Line: f.viewLine(name), Msg: fmt.Sprintf("views.%s: %s", name, err.Error())}
@@ -204,16 +215,20 @@ func Parse(path, src string) (*File, error) {
 }
 
 func (v View) normalize() (View, error) {
+	if v.NestedLayout != nil {
+		return v, fmt.Errorf("%s", nestedLayoutRemoved)
+	}
 	v.Type = strings.TrimSpace(v.Type)
 	v.Query = strings.TrimSpace(v.Query)
 	if err := v.typeQueryChoice(); err != nil {
 		return v, err
 	}
-	p, err := v.Layout.normalize()
+	p, err := v.Present.normalize()
 	if err != nil {
 		return v, err
 	}
-	v.Layout = p
+	v.Present = p
+	v.NestedLayout = nil
 	if v.Inputs != nil {
 		clean := make(map[string]string, len(v.Inputs))
 		for k, val := range v.Inputs {
@@ -319,6 +334,9 @@ func normalizePanels(in []Panel) ([]Panel, error) {
 }
 
 func (p Panel) normalize() (Panel, error) {
+	if p.NestedLayout != nil {
+		return p, fmt.Errorf("%s", nestedLayoutRemoved)
+	}
 	p.View = strings.TrimSpace(p.View)
 	p.Type = strings.TrimSpace(p.Type)
 	p.Query = strings.TrimSpace(p.Query)
@@ -371,8 +389,8 @@ func (p Panel) normalize() (Panel, error) {
 		if p.ID != "" || p.Name != "" {
 			return p, fmt.Errorf("id/name is only valid on a leaf panel")
 		}
-		if len(p.Inputs) > 0 || !p.Layout.isZero() {
-			return p, fmt.Errorf("split panel cannot set inputs or layout")
+		if len(p.Inputs) > 0 || !p.isZero() {
+			return p, fmt.Errorf("split panel cannot set inputs, kind, group_by, fields, sort, filter, or granularity")
 		}
 		if p.Split == "" {
 			p.Split = SplitRow
@@ -391,19 +409,21 @@ func (p Panel) normalize() (Panel, error) {
 		return p, fmt.Errorf("leaf panel cannot nest panels")
 	}
 	if hasView {
-		if !p.Layout.isZero() {
-			return p, fmt.Errorf("view panel cannot set layout (set it on the view)")
+		if !p.isZero() {
+			return p, fmt.Errorf("view panel cannot set kind, group_by, fields, sort, filter, or granularity (set them on the view)")
 		}
 		if len(p.Inputs) > 0 {
 			return p, fmt.Errorf("view panel cannot set inputs (set them on the view)")
 		}
+		p.NestedLayout = nil
 		return p, nil
 	}
-	np, err := p.Layout.normalize()
+	np, err := p.Present.normalize()
 	if err != nil {
 		return p, err
 	}
-	p.Layout = np
+	p.Present = np
+	p.NestedLayout = nil
 	return p, nil
 }
 
@@ -445,7 +465,7 @@ func (p Panel) AsView(views map[string]View) View {
 		}
 		return views[p.View]
 	}
-	return View{Type: p.Type, Query: p.Query, Inputs: p.Inputs, Layout: p.Layout}
+	return View{Type: p.Type, Query: p.Query, Inputs: p.Inputs, Present: p.Present}
 }
 
 // Summary is a short label for CLI lists (view name, type:x, or query:x).
@@ -557,7 +577,7 @@ func flattenPanels(ps []Panel) []Panel {
 
 // Spec converts a view's presentation into a layout.Spec named after the view.
 func (v View) Spec(name string) layout.Spec {
-	return v.Layout.Spec(name)
+	return v.Present.Spec(name)
 }
 
 func (p Present) Spec(name string) layout.Spec {
@@ -589,7 +609,7 @@ func (v View) NeedsSelected() bool {
 	if strings.Contains(v.Type, SelectedToken) || strings.Contains(v.Query, SelectedToken) {
 		return true
 	}
-	if strings.Contains(v.Layout.Filter, SelectedToken) {
+	if strings.Contains(v.Filter, SelectedToken) {
 		return true
 	}
 	for _, val := range v.Inputs {
@@ -1012,6 +1032,10 @@ func CheckSource(path, src string) []Issue {
 		hasSource := meta.IsDefined("views", name, "source")
 		if hasSource {
 			issues = append(issues, Issue{Line: line, Path: path, Message: sourceKeyMsg(name)})
+		}
+		if meta.IsDefined("views", name, "layout") || decoded.Views[name].NestedLayout != nil {
+			issues = append(issues, Issue{Line: line, Path: path, Message: nestedLayoutRemoved})
+			continue
 		}
 		nv, nerr := decoded.Views[name].normalize()
 		if nerr != nil {

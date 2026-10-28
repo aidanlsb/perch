@@ -50,6 +50,8 @@ type viewState struct {
 	restoreID     string
 	restoreOff    int
 	live          bool
+	queryKind     string
+	previewOff    bool
 }
 
 type layoutTree struct {

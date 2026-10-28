@@ -17,6 +17,7 @@ var schemaTraitTypes = []string{
 }
 
 func (m Model) openActionsPicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerActions
 	m.pickerQ = ""
@@ -40,32 +41,36 @@ func (m Model) openActionsPicker() (Model, tea.Cmd) {
 }
 
 func (m Model) runAction(id string) (Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch id {
 	case "new":
-		return m.startNewObject()
+		m, cmd = m.startNewObject()
 	case "capture":
-		return m.startCapture()
+		m, cmd = m.startCapture()
 	case "set":
-		return m.startSet()
+		m, cmd = m.startSet()
 	case "move":
-		return m.startMove()
+		m, cmd = m.startMove()
 	case "reclassify":
-		return m.startReclassify()
+		m, cmd = m.startReclassify()
 	case "delete":
-		return m.startDelete()
+		m, cmd = m.startDelete()
 	case "schema_add_type":
-		return m.startSchemaAddType()
+		m, cmd = m.startSchemaAddType()
 	case "schema_add_field":
-		return m.startSchemaAddField()
+		m, cmd = m.startSchemaAddField()
 	case "schema_add_trait":
-		return m.startSchemaAddTrait()
+		m, cmd = m.startSchemaAddTrait()
 	case "schema_rename_type":
-		return m.startSchemaRenameType()
+		m, cmd = m.startSchemaRenameType()
 	case "schema_rename_field":
-		return m.startSchemaRenameField()
+		m, cmd = m.startSchemaRenameField()
+	default:
+		m.overlay = overlayNone
+		return m, nil
 	}
-	m.overlay = overlayNone
-	return m, nil
+	m.mut.fromActions = true
+	return m, cmd
 }
 
 func (m Model) startNewObject() (Model, tea.Cmd) {

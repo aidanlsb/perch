@@ -28,7 +28,9 @@ func (m Model) openNavPicker() (Model, tea.Cmd) {
 	m.pickerKind = pickerNav
 	m.pickerQ = ""
 	m.pickerCur = 0
+	m.fromNav = false
 	var items []pickItem
+	items = append(items, pickItem{Kind: pickerNav, Label: "home", Sub: "vault dashboard", ID: "nav:home"})
 	hasViews := m.cfg != nil && (len(m.cfg.Views) > 0 || len(m.cfg.Layouts) > 0)
 	if hasViews {
 		items = append(items, pickItem{Kind: pickerNav, Label: "views & layouts", Sub: "saved views and panel layouts", ID: "nav:views"})
@@ -48,6 +50,7 @@ func (m Model) openNavPicker() (Model, tea.Cmd) {
 }
 
 func (m Model) openTypePicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerTypes
 	m.pickerQ = ""
@@ -68,6 +71,7 @@ func (m Model) openTypePicker() (Model, tea.Cmd) {
 }
 
 func (m Model) openQueryPicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerQueries
 	m.pickerQ = ""
@@ -94,13 +98,14 @@ func (m Model) openQueryPicker() (Model, tea.Cmd) {
 }
 
 func (m Model) openViewsPicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerViews
 	m.pickerQ = ""
 	m.pickerCur = 0
 	var items []pickItem
 	if m.cfg != nil {
-		for _, name := range m.cfg.ViewNames() {
+		for _, name := range m.cfg.ViewsInOrder() {
 			v := m.cfg.Views[name]
 			items = append(items, pickItem{
 				Kind:  pickerViews,
@@ -109,11 +114,11 @@ func (m Model) openViewsPicker() (Model, tea.Cmd) {
 				ID:    "view:" + name,
 			})
 		}
-		for _, name := range m.cfg.LayoutNames() {
+		for _, name := range m.cfg.LayoutsInOrder() {
 			items = append(items, pickItem{
 				Kind:  pickerViews,
 				Label: name,
-				Sub:   "layout",
+				Sub:   "layout · " + layoutSummary(m.cfg.Layouts[name]),
 				ID:    "layout:" + name,
 			})
 		}
@@ -131,6 +136,7 @@ func viewPickerSub(v config.View) string {
 }
 
 func (m Model) openSearchPicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerSearch
 	m.pickerQ = ""
@@ -174,6 +180,7 @@ func (m *Model) applySearchHits(sr *api.SearchResult) {
 }
 
 func (m Model) openNotesPicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerNotes
 	m.pickerQ = ""
@@ -254,20 +261,25 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 	if m.mut.kind != mutNone && m.pickerKind != pickerNav {
 		return m.confirmMutPicker(it)
 	}
-	m.overlay = overlayNone
+	fromQueries := m.pickerKind == pickerQueries
 	switch m.pickerKind {
 	case pickerNav:
 		return m.confirmNav(it)
 	case pickerActions:
+		m.overlay = overlayNone
 		return m.runAction(it.ID)
 	case pickerTypes:
+		m.overlay = overlayNone
 		return m.loadType(it.Type)
 	case pickerQueries:
+		m.fromQueries = fromQueries
+		m.overlay = overlayNone
 		if it.Query != nil {
 			return m.loadQuery(it.Query)
 		}
 		return m, nil
 	case pickerViews:
+		m.overlay = overlayNone
 		if strings.HasPrefix(it.ID, "layout:") {
 			return m.loadNamedLayout(strings.TrimPrefix(it.ID, "layout:"))
 		}
@@ -277,12 +289,14 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 		}
 		return m.loadNamedView(name)
 	case pickerSearch:
+		m.overlay = overlayNone
 		id := it.ID
 		if it.Object != nil && it.Object.ID != "" {
 			id = it.Object.ID
 		}
 		return m.openNote(id)
 	default:
+		m.overlay = overlayNone
 		id := it.ID
 		if it.Object != nil && it.Object.ID != "" {
 			id = it.Object.ID
@@ -291,8 +305,17 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 	}
 }
 
+func (m *Model) markFromNav() {
+	if m.overlay == overlayPicker && m.pickerKind == pickerNav {
+		m.fromNav = true
+	}
+}
+
 func (m Model) confirmNav(it pickItem) (Model, tea.Cmd) {
 	switch it.ID {
+	case "nav:home":
+		m.overlay = overlayNone
+		return m.goHome()
 	case "nav:views":
 		return m.openViewsPicker()
 	case "nav:types":
@@ -330,13 +353,31 @@ func inputsComplete(names []string, inputs map[string]string) bool {
 }
 
 func (m Model) startArgsPrompt(q *api.SavedQuery) (Model, tea.Cmd) {
+	return m.startArgsPromptWith(q, nil)
+}
+
+func (m Model) startArgsPromptWith(q *api.SavedQuery, have map[string]string) (Model, tea.Cmd) {
+	if m.overlay == overlayPicker && m.pickerKind == pickerQueries {
+		m.fromQueries = true
+	}
 	m.overlay = overlayArgs
 	m.argsQuery = q
 	m.argsNames = append([]string(nil), q.Args...)
-	m.argsIdx = 0
 	m.argsVals = map[string]string{}
+	for k, v := range have {
+		if s := strings.TrimSpace(v); s != "" {
+			m.argsVals[k] = s
+		}
+	}
+	m.argsIdx = 0
+	for m.argsIdx < len(m.argsNames) && strings.TrimSpace(m.argsVals[m.argsNames[m.argsIdx]]) != "" {
+		m.argsIdx++
+	}
 	m.argsBuf = ""
 	m.status = "args for " + q.Name
+	if m.argsIdx >= len(m.argsNames) {
+		return m.finishArgs()
+	}
 	return m, nil
 }
 
@@ -344,9 +385,7 @@ func (m Model) keysArgs(msg tea.KeyMsg) (Model, tea.Cmd) {
 	key := keyIdent(msg)
 	switch key {
 	case "esc":
-		m.argsQuery = nil
-		m.argsBuf = ""
-		return m.dismissOverlay()
+		return m.argsEscape()
 	case "enter":
 		return m.commitArg()
 	case "backspace":
@@ -397,23 +436,8 @@ func (m Model) keysPicker(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 	switch key {
-	case "esc", "q":
-		if m.mut.kind != mutNone && m.pickerKind != pickerNav {
-			m.clearMut()
-			m.overlay = overlayNone
-			if m.isEmpty() {
-				return m.openNavPicker()
-			}
-			return m, nil
-		}
-		if m.pickerKind == pickerNav && m.isEmpty() {
-			return m, nil
-		}
-		if m.pickerKind != pickerNav && m.isEmpty() {
-			return m.openNavPicker()
-		}
-		m.overlay = overlayNone
-		return m, nil
+	case "esc":
+		return m.pickerEscape()
 	case "enter":
 		return m.confirmPicker()
 	case "e":

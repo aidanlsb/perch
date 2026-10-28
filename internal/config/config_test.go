@@ -35,28 +35,36 @@ func TestLoadViewsAndLayouts(t *testing.T) {
 	path := writeTOML(t, `
 [views.projects]
 type = "item"
-layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
+kind = "board"
+group_by = "state"
+fields = ["state", "when"]
 
 [views.by-when]
 type = "item"
-layout = { kind = "list", fields = ["state", "when"], sort = "when" }
+kind = "list"
+fields = ["state", "when"]
+sort = "when"
 
 [views.open]
 type = "item"
-layout = { kind = "list", filter = ".state==open" }
+kind = "list"
+filter = ".state==open"
 
 [views.week]
 type = "event"
-layout = { kind = "date", group_by = "when", granularity = "week" }
+kind = "date"
+group_by = "when"
+granularity = "week"
 
 [views.inbox]
 query = "inbox"
-layout = { kind = "list", sort = "label" }
+kind = "list"
+sort = "label"
 
 [views.tasks]
 type = "task"
 inputs = { item = "{{selected}}" }
-layout = { kind = "list" }
+kind = "list"
 
 [layouts.workspace]
 split = "row"
@@ -70,17 +78,17 @@ panels = [
 		t.Fatal(err)
 	}
 	v := f.Views["projects"]
-	if v.Type != "item" || v.Query != "" || v.Layout.Kind != KindBoard || v.Layout.GroupBy != "state" {
+	if v.Type != "item" || v.Query != "" || v.Kind != KindBoard || v.GroupBy != "state" {
 		t.Fatalf("%+v", v)
 	}
 	spec := v.Spec("projects")
 	if spec.Name != "projects" || spec.Kind != KindBoard {
 		t.Fatalf("spec %+v", spec)
 	}
-	if f.Views["open"].Layout.Filter != ".state==open" {
+	if f.Views["open"].Filter != ".state==open" {
 		t.Fatalf("filter %+v", f.Views["open"])
 	}
-	if f.Views["week"].Layout.Granularity != GranWeek {
+	if f.Views["week"].Granularity != GranWeek {
 		t.Fatalf("%+v", f.Views["week"])
 	}
 	if f.Views["inbox"].Query != "inbox" || f.Views["inbox"].Type != "" {
@@ -109,11 +117,11 @@ func TestViewsInOrderFollowsFileNotAlphabet(t *testing.T) {
 	path := writeTOML(t, `
 [views.zebra]
 type = "person"
-layout = { kind = "list" }
+kind = "list"
 
 [views.alpha]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	f, err := Load(path)
 	if err != nil {
@@ -133,13 +141,13 @@ func TestLoadNestedPanels(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [views.b]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [views.c]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 
 [layouts.nested]
 split = "row"
@@ -231,11 +239,41 @@ group_by = "state"
 	}
 }
 
+func TestLoadRejectsNestedLayout(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+type = "item"
+layout = { kind = "list" }
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), nestedLayoutRemoved) {
+		t.Fatalf("want nested-layout-removed, got %v", err)
+	}
+}
+
+func TestLoadRejectsNestedLayoutOnPanel(t *testing.T) {
+	path := writeTOML(t, `
+[layouts.ws]
+split = "row"
+panels = [ { type = "item", layout = { kind = "list" } } ]
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), nestedLayoutRemoved) {
+		t.Fatalf("want nested-layout-removed, got %v", err)
+	}
+}
+
 func TestLoadRejectsBadKind(t *testing.T) {
 	path := writeTOML(t, `
 [views.x]
 type = "item"
-layout = { kind = "kanban" }
+kind = "kanban"
 `)
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected error")
@@ -246,7 +284,7 @@ func TestLoadRejectsBoardWithoutGroupBy(t *testing.T) {
 	path := writeTOML(t, `
 [views.board]
 type = "item"
-layout = { kind = "board" }
+kind = "board"
 `)
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected error")
@@ -258,8 +296,8 @@ func TestLoadInlineTypeAndQueryPanels(t *testing.T) {
 [layouts.workspace]
 split = "row"
 panels = [
-  { type = "item", id = "projects", layout = { kind = "board", group_by = "state" } },
-  { query = "inbox", bind = "projects", layout = { kind = "list" } },
+  { type = "item", id = "projects", kind = "board", group_by = "state" },
+  { query = "inbox", bind = "projects", kind = "list" },
 ]
 `)
 	f, err := Load(path)
@@ -270,10 +308,10 @@ panels = [
 	if len(leaves) != 2 {
 		t.Fatalf("%+v", leaves)
 	}
-	if leaves[0].Type != "item" || leaves[0].LeafID() != "projects" || leaves[0].Layout.Kind != KindBoard {
+	if leaves[0].Type != "item" || leaves[0].LeafID() != "projects" || leaves[0].Kind != KindBoard {
 		t.Fatalf("type panel %+v", leaves[0])
 	}
-	if leaves[1].Query != "inbox" || leaves[1].Bind != "projects" || leaves[1].Layout.Kind != KindList {
+	if leaves[1].Query != "inbox" || leaves[1].Bind != "projects" || leaves[1].Kind != KindList {
 		t.Fatalf("query panel %+v", leaves[1])
 	}
 	if leaves[1].LeafID() != "query:inbox" {
@@ -285,20 +323,23 @@ func TestLoadViewOverQueryWithBoard(t *testing.T) {
 	path := writeTOML(t, `
 [views.board]
 query = "inbox"
-layout = { kind = "board", group_by = "state" }
+kind = "board"
+group_by = "state"
 
 [views.when]
 query = "inbox"
-layout = { kind = "date", group_by = "when", granularity = "week" }
+kind = "date"
+group_by = "when"
+granularity = "week"
 `)
 	f, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Views["board"].Query != "inbox" || f.Views["board"].Layout.Kind != KindBoard {
+	if f.Views["board"].Query != "inbox" || f.Views["board"].Kind != KindBoard {
 		t.Fatalf("%+v", f.Views["board"])
 	}
-	if f.Views["when"].Layout.Kind != KindDate || f.Views["when"].Layout.Granularity != GranWeek {
+	if f.Views["when"].Kind != KindDate || f.Views["when"].Granularity != GranWeek {
 		t.Fatalf("%+v", f.Views["when"])
 	}
 }
@@ -307,7 +348,7 @@ func TestLoadRejectsPanelTypeAndView(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [layouts.x]
 split = "row"
 panels = [ { view = "a", type = "item" } ]
@@ -326,8 +367,8 @@ func TestLoadRejectsDuplicatePanelID(t *testing.T) {
 [layouts.x]
 split = "row"
 panels = [
-  { type = "item", id = "same", layout = { kind = "list" } },
-  { query = "inbox", id = "same", layout = { kind = "list" } },
+  { type = "item", id = "same", kind = "list" },
+  { query = "inbox", id = "same", kind = "list" },
 ]
 `)
 	_, err := Load(path)
@@ -344,8 +385,8 @@ func TestLoadInlineBindByID(t *testing.T) {
 [layouts.x]
 split = "row"
 panels = [
-  { type = "item", name = "left", layout = { kind = "list" } },
-  { type = "task", inputs = { item = "{{selected}}" }, bind = "left", layout = { kind = "list" } },
+  { type = "item", name = "left", kind = "list" },
+  { type = "task", inputs = { item = "{{selected}}" }, bind = "left", kind = "list" },
 ]
 `)
 	f, err := Load(path)
@@ -365,7 +406,7 @@ func TestCheckAcceptsInlineLayoutPanels(t *testing.T) {
 	path := writeTOML(t, `
 [layouts.ws]
 split = "row"
-panels = [ { type = "item", layout = { kind = "list" } } ]
+panels = [ { type = "item", kind = "list" } ]
 `)
 	if issues := Check(path); len(issues) != 0 {
 		t.Fatalf("%+v", issues)
@@ -376,7 +417,7 @@ func TestLoadRejectsUnknownViewInLayout(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [layouts.x]
 split = "row"
 panels = [ { view = "a" }, { view = "ghost" } ]
@@ -394,10 +435,10 @@ func TestLoadRejectsBindToMissingPanel(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [views.b]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [layouts.x]
 split = "row"
 panels = [ { view = "a" }, { view = "b", bind = "nope" } ]
@@ -415,10 +456,10 @@ func TestLoadRejectsBindCycle(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [views.b]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [layouts.x]
 split = "row"
 panels = [ { view = "a", bind = "b" }, { view = "b", bind = "a" } ]
@@ -436,7 +477,7 @@ func TestLoadRejectsDuplicateView(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [layouts.x]
 split = "col"
 panels = [ { view = "a" }, { view = "a" } ]
@@ -468,11 +509,11 @@ layout = { kind = "list"
 func TestValidateUnknownFields(t *testing.T) {
 	f := &File{
 		Views: map[string]View{
-			"board": {Type: "item", Layout: Present{Kind: KindBoard, GroupBy: "nope", Fields: []string{"state", "missing"}, Sort: "zzz"}},
-			"ghost": {Type: "ghost", Layout: Present{Kind: KindList}},
-			"open":  {Query: "inbox", Layout: Present{Kind: KindList, Fields: []string{"missing"}}},
-			"gone":  {Query: "nope", Layout: Present{Kind: KindList}},
-			"trait": {Query: "priorities", Layout: Present{Kind: KindList, Fields: []string{"missing"}}},
+			"board": {Type: "item", Present: Present{Kind: KindBoard, GroupBy: "nope", Fields: []string{"state", "missing"}, Sort: "zzz"}},
+			"ghost": {Type: "ghost", Present: Present{Kind: KindList}},
+			"open":  {Query: "inbox", Present: Present{Kind: KindList, Fields: []string{"missing"}}},
+			"gone":  {Query: "nope", Present: Present{Kind: KindList}},
+			"trait": {Query: "priorities", Present: Present{Kind: KindList, Fields: []string{"missing"}}},
 		},
 	}
 	schema := api.Schema{
@@ -513,7 +554,7 @@ func TestValidateUnknownFields(t *testing.T) {
 
 func TestValidateBoardGroupByType(t *testing.T) {
 	f := &File{Views: map[string]View{
-		"board": {Type: "item", Layout: Present{Kind: KindBoard, GroupBy: "when"}},
+		"board": {Type: "item", Present: Present{Kind: KindBoard, GroupBy: "when"}},
 	}}
 	schema := api.Schema{Types: map[string]api.TypeSchema{
 		"item": {Name: "item", Fields: map[string]api.FieldSchema{
@@ -529,10 +570,10 @@ func TestValidateBoardGroupByType(t *testing.T) {
 func TestUpsertViewWritesAndReplaces(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte("# keep me\n[views.old]\ntype = \"item\"\nlayout = { kind = \"list\" }\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("# keep me\n[views.old]\ntype = \"item\"\nkind = \"list\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	v := View{Type: "item", Layout: Present{Kind: KindList, Fields: []string{"state"}, Sort: "when"}}
+	v := View{Type: "item", Present: Present{Kind: KindList, Fields: []string{"state"}, Sort: "when"}}
 	if err := UpsertView(path, "saved", v); err != nil {
 		t.Fatal(err)
 	}
@@ -544,8 +585,8 @@ func TestUpsertViewWritesAndReplaces(t *testing.T) {
 	if !strings.Contains(s, "# keep me") || !strings.Contains(s, "[views.saved]") || !strings.Contains(s, "[views.old]") {
 		t.Fatalf("%s", s)
 	}
-	v.Layout.Kind = KindBoard
-	v.Layout.GroupBy = "state"
+	v.Kind = KindBoard
+	v.GroupBy = "state"
 	if err := UpsertView(path, "saved", v); err != nil {
 		t.Fatal(err)
 	}
@@ -558,7 +599,7 @@ func TestUpsertViewWritesAndReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Views["saved"].Layout.Kind != KindBoard || f.Views["saved"].Layout.GroupBy != "state" {
+	if f.Views["saved"].Kind != KindBoard || f.Views["saved"].GroupBy != "state" {
 		t.Fatalf("%+v", f.Views["saved"])
 	}
 }
@@ -566,9 +607,9 @@ func TestUpsertViewWritesAndReplaces(t *testing.T) {
 func TestAddViewRefusesDuplicate(t *testing.T) {
 	path := writeTOML(t, `[views.old]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
-	err := AddView(path, "old", View{Type: "item", Layout: Present{Kind: KindList}})
+	err := AddView(path, "old", View{Type: "item", Present: Present{Kind: KindList}})
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("%v", err)
 	}
@@ -579,10 +620,10 @@ func TestRemoveViewRefusesInUse(t *testing.T) {
 # keep
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [views.b]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [layouts.ws]
 split = "row"
 panels = [ { view = "a" }, { view = "b" } ]
@@ -619,7 +660,7 @@ func TestRemoveViewForceDropsEmptyLayout(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [layouts.only]
 split = "row"
 panels = [ { view = "a" } ]
@@ -640,7 +681,7 @@ func TestAddLayoutAndRemove(t *testing.T) {
 	path := writeTOML(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	if err := AddLayout(path, "ws", Layout{Split: SplitRow, Panels: []Panel{{View: "a"}}}); err != nil {
 		t.Fatal(err)
@@ -667,7 +708,7 @@ layout = { kind = "list" }
 func TestCommitRefusesInvalid(t *testing.T) {
 	path := writeTOML(t, `[views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	err := AddLayout(path, "bad", Layout{Split: "row", Panels: []Panel{{View: "ghost"}}})
 	if err == nil {
@@ -686,7 +727,7 @@ func TestCheckReportsLineNumbers(t *testing.T) {
 	path := writeTOML(t, `
 [views.board]
 type = "item"
-layout = { kind = "board" }
+kind = "board"
 [layouts.x]
 split = "row"
 panels = [ { view = "ghost" } ]
@@ -717,7 +758,7 @@ func TestLoadRejectsViewSource(t *testing.T) {
 	path := writeTOML(t, `
 [views.projects]
 source = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	_, err := Load(path)
 	if err == nil {
@@ -740,7 +781,7 @@ func TestLoadRejectsTypeAndQuery(t *testing.T) {
 [views.x]
 type = "item"
 query = "inbox"
-layout = { kind = "list" }
+kind = "list"
 `)
 	_, err := Load(path)
 	if err == nil {
@@ -754,7 +795,7 @@ layout = { kind = "list" }
 func TestLoadRejectsMissingTypeAndQuery(t *testing.T) {
 	path := writeTOML(t, `
 [views.x]
-layout = { kind = "list" }
+kind = "list"
 `)
 	_, err := Load(path)
 	if err == nil {
@@ -765,11 +806,33 @@ layout = { kind = "list" }
 	}
 }
 
+func TestCheckReportsNestedLayout(t *testing.T) {
+	path := writeTOML(t, `
+[views.a]
+type = "item"
+layout = { kind = "list" }
+`)
+	issues := Check(path)
+	if len(issues) == 0 {
+		t.Fatal("expected issue")
+	}
+	joined := ""
+	for _, is := range issues {
+		if is.Line < 2 {
+			t.Fatalf("want line, got %+v", is)
+		}
+		joined += is.Message
+	}
+	if !strings.Contains(joined, nestedLayoutRemoved) {
+		t.Fatalf("%s", joined)
+	}
+}
+
 func TestCheckReportsSourceRemoved(t *testing.T) {
 	path := writeTOML(t, `
 [views.projects]
 source = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	issues := Check(path)
 	if len(issues) == 0 {
@@ -794,7 +857,7 @@ func TestValidateIncludesLineNumbers(t *testing.T) {
 	path := writeTOML(t, `
 [views.ghost]
 type = "ghost"
-layout = { kind = "list" }
+kind = "list"
 `)
 	f, err := Load(path)
 	if err != nil {
@@ -810,18 +873,24 @@ layout = { kind = "list" }
 }
 
 func TestEncodeViewWritesTypeOrQuery(t *testing.T) {
-	got, err := EncodeView("projects", View{Type: "item", Layout: Present{Kind: KindList}})
+	got, err := EncodeView("projects", View{Type: "item", Present: Present{Kind: KindList}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, `type = "item"`) || strings.Contains(got, "source") || strings.Contains(got, "query") {
+	if !strings.Contains(got, `type = "item"`) || !strings.Contains(got, `kind = "list"`) {
 		t.Fatalf("%s", got)
 	}
-	got, err = EncodeView("inbox", View{Query: "inbox", Layout: Present{Kind: KindList}})
+	if strings.Contains(got, "source") || strings.Contains(got, "query") || strings.Contains(got, "layout =") {
+		t.Fatalf("%s", got)
+	}
+	got, err = EncodeView("inbox", View{Query: "inbox", Present: Present{Kind: KindList}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, `query = "inbox"`) || strings.Contains(got, "source") || strings.Contains(got, "type =") {
+	if !strings.Contains(got, `query = "inbox"`) || !strings.Contains(got, `kind = "list"`) {
+		t.Fatalf("%s", got)
+	}
+	if strings.Contains(got, "source") || strings.Contains(got, "type =") || strings.Contains(got, "layout =") {
 		t.Fatalf("%s", got)
 	}
 }

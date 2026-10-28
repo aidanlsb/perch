@@ -21,14 +21,20 @@ const Version = "0.5.1"
 const usage = `perch %s — terminal UI for Raven
 
 Usage:
-  perch [flags]                      Launch the TUI
-  perch open <view|layout> [flags]   Launch the TUI into a named view or layout
-  perch views list|show|add|rm       Manage named views
-  perch layouts list|show|add|rm     Manage named layouts
-  perch config path|check            Print the config path or validate it
+  perch [flags]                         Launch the TUI
+  perch <target> [args] [flags]         Launch the TUI at a target
+  perch open <target> [args] [flags]    Same as perch <target>
+  perch views list|show|add|rm          Manage named views
+  perch layouts list|show|add|rm        Manage named layouts
+  perch config path|check               Print the config path or validate it
   perch skill list|install|remove|doctor
-                                     Manage the shipped agent skill
-                                     (perch skills is an alias)
+                                        Manage the shipped agent skill
+                                        (perch skills is an alias)
+
+  <target> is home, a named view, a named layout, a saved query, or a
+  schema type, in that order. Views win if a layout shares the name.
+  Built-in subcommands win over a target of the same name. Saved queries
+  take trailing key=value or positional args; missing args open a prompt.
 
   perch talks to rvn api over HTTP. If no server is running it starts one
   as a child process and stops it on exit. Vault mutations go through
@@ -55,11 +61,7 @@ Flags:
 
 // Main is the perch CLI entrypoint.
 func Main(args []string, stdout, stderr io.Writer) error {
-	jsonOut := cli.JSONRequested(args)
 	cmd, _ := cli.PeekCommand(args)
-	if cmd != "" && !cli.IsCommand(cmd) && !strings.HasPrefix(cmd, "-") {
-		return cli.Report(stdout, stderr, jsonOut, cli.Error(cli.CodeCommandNotFound, "unknown command "+cmd))
-	}
 	if wantsHelp(args) && (cmd == "" || onlyFlags(args)) {
 		fmt.Fprintf(stderr, usage, Version)
 		return nil
@@ -74,9 +76,17 @@ func Main(args []string, stdout, stderr io.Writer) error {
 	case "open":
 		return openTUI(args, stdout, stderr)
 	default:
-		return launchTUI(args, "", stdout, stderr)
+		return launchTUI(args, stdout, stderr)
 	}
 }
+
+const openUsage = `perch open <target> [args]
+
+Launch the TUI at home, a named view or layout, a saved query, or a
+schema type. Views win if a layout shares the name. Saved queries accept
+trailing key=value or positional args; missing args open a prompt.
+Home sits under the opened screen so esc / backspace / [ land there.
+`
 
 func openTUI(args []string, stdout, stderr io.Writer) error {
 	jsonOut := cli.JSONRequested(args)
@@ -88,27 +98,20 @@ func openTUI(args []string, stdout, stderr io.Writer) error {
 		return cli.Report(stdout, stderr, jsonOut, err)
 	}
 	if flags.Help {
-		fmt.Fprint(stderr, "perch open <view|layout>\n\nLaunch the TUI into a named view or layout. Views win if both exist.\n")
+		fmt.Fprint(stderr, openUsage)
+		return nil
+	}
+	if flags.Version {
+		fmt.Fprintln(stdout, "perch "+Version)
 		return nil
 	}
 	if len(flags.Pos) == 0 {
-		return cli.Report(stdout, stderr, jsonOut, cli.Error(cli.CodeMissingArgument, "open needs a view or layout name"))
+		return cli.Report(stdout, stderr, jsonOut, cli.Error(cli.CodeMissingArgument, "open needs a target name"))
 	}
-	if len(flags.Pos) > 1 {
-		return cli.Report(stdout, stderr, jsonOut, cli.Error(cli.CodeInvalidArgs, "unexpected argument "+flags.Pos[1]))
-	}
-	name := strings.TrimSpace(flags.Pos[0])
-	cfgFile := flags.Config
-	if cfgFile == "" {
-		cfgFile = config.DefaultPath()
-	}
-	if _, err := cli.ResolveOpen(cfgFile, name); err != nil {
-		return cli.Report(stdout, stderr, jsonOut, err)
-	}
-	return startTUI(flags, cfgFile, name, jsonOut, stdout, stderr)
+	return startNamed(flags, flags.Pos[0], flags.Pos[1:], jsonOut, stdout, stderr)
 }
 
-func launchTUI(args []string, open string, stdout, stderr io.Writer) error {
+func launchTUI(args []string, stdout, stderr io.Writer) error {
 	jsonOut := cli.JSONRequested(args)
 	flags, err := cli.ParseTUI(args)
 	if err != nil {
@@ -123,16 +126,31 @@ func launchTUI(args []string, open string, stdout, stderr io.Writer) error {
 		return nil
 	}
 	if len(flags.Pos) > 0 {
-		return cli.Report(stdout, stderr, jsonOut, cli.Error(cli.CodeCommandNotFound, "unknown command "+flags.Pos[0]))
+		return startNamed(flags, flags.Pos[0], flags.Pos[1:], jsonOut, stdout, stderr)
 	}
 	cfgFile := flags.Config
 	if cfgFile == "" {
 		cfgFile = config.DefaultPath()
 	}
-	return startTUI(flags, cfgFile, open, jsonOut, stdout, stderr)
+	return startTUI(flags, cfgFile, "", nil, jsonOut, stdout, stderr)
 }
 
-func startTUI(flags cli.TUIFlags, cfgFile, open string, jsonOut bool, stdout, stderr io.Writer) error {
+func startNamed(flags cli.TUIFlags, name string, extra []string, jsonOut bool, stdout, stderr io.Writer) error {
+	cfgFile := flags.Config
+	if cfgFile == "" {
+		cfgFile = config.DefaultPath()
+	}
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return cli.Report(stdout, stderr, jsonOut, err)
+	}
+	if _, err := cli.ResolveTarget(cfg, nil, name, extra); err != nil && !errors.Is(err, cli.ErrNeedSchema) {
+		return cli.Report(stdout, stderr, jsonOut, err)
+	}
+	return startTUI(flags, cfgFile, name, extra, jsonOut, stdout, stderr)
+}
+
+func startTUI(flags cli.TUIFlags, cfgFile, open string, extra []string, jsonOut bool, stdout, stderr io.Writer) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return cli.Report(stdout, stderr, jsonOut, err)
@@ -158,6 +176,14 @@ func startTUI(flags cli.TUIFlags, cfgFile, open string, jsonOut bool, stdout, st
 		}
 		return fmt.Errorf("%s: %w", api.RevisionRequired, revErr)
 	}
+	var openInputs map[string]string
+	if open != "" {
+		tgt, err := resolveLaunchTarget(ctx, client, cfg, open, extra)
+		if err != nil {
+			return cli.Report(stdout, stderr, jsonOut, err)
+		}
+		openInputs = tgt.Inputs
+	}
 	vaultPath := firstNonEmpty(handle.VaultPath, flags.Vault)
 	ed := ""
 	edMode := editor.ModeAuto
@@ -177,12 +203,25 @@ func startTUI(flags cli.TUIFlags, cfgFile, open string, jsonOut bool, stdout, st
 		Editor:       ed,
 		EditorMode:   edMode,
 		Open:         open,
+		OpenInputs:   openInputs,
 		PollInterval: flags.PollInterval,
 	})
 
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(stdout))
 	_, err = p.Run()
 	return err
+}
+
+func resolveLaunchTarget(ctx context.Context, client *api.Client, cfg *config.File, name string, extra []string) (cli.Target, error) {
+	tgt, err := cli.ResolveTarget(cfg, nil, name, extra)
+	if err == nil || !errors.Is(err, cli.ErrNeedSchema) {
+		return tgt, err
+	}
+	schema, err := client.Schema(ctx)
+	if err != nil {
+		return cli.Target{}, err
+	}
+	return cli.ResolveTarget(cfg, schema, name, extra)
 }
 
 func firstNonEmpty(a, b string) string {
