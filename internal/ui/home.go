@@ -100,7 +100,7 @@ func (m Model) keysHome(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m *Model) moveHomeSec(delta int) {
-	m.homeSec = (int(m.homeSec) + delta + int(homeSectionCount)) % int(homeSectionCount)
+	m.homeSec = (m.homeSec + delta + int(homeSectionCount)) % int(homeSectionCount)
 }
 
 func (m *Model) moveHome(delta int) {
@@ -179,7 +179,7 @@ func (m Model) homeViewItems() []homeItem {
 }
 
 func viewKindBadge(v config.View) string {
-	k := strings.ToLower(strings.TrimSpace(v.Layout.Kind))
+	k := strings.ToLower(strings.TrimSpace(v.Kind))
 	switch k {
 	case kindBoard, kindDate, kindList:
 		return k

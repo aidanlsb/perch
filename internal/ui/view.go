@@ -570,7 +570,7 @@ func (m Model) viewPicker() string {
 	case pickerNotes:
 		title = "notes"
 	case pickerViews:
-		title = "views"
+		title = "views & layouts"
 	case pickerSearch:
 		title = "search"
 	case pickerActions:

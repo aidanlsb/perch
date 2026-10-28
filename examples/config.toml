@@ -10,40 +10,52 @@
 # {{selected}} is filled from the panel named in bind.
 #
 # A layout is a nested split of panels. A leaf is a named view, or a type
-# or saved query inline (optional inputs, layout, and id/name for bind).
-# split is row (side by side) or col (stacked).
+# or saved query inline (optional inputs, kind/group_by/fields, and
+# id/name for bind). split is row (side by side) or col (stacked).
+# A view opens on its own as a one-panel layout; you do not need a
+# [layouts.*] table just to look at a [views.*].
 #
 # Space t lists every schema type as a plain list. Board and date
 # presentations are only those you declare here. Bare `perch` opens the
-# first view in this file (Home sits under it in history); with no views,
-# the first layout; with neither, the Home dashboard. `perch <name>`
-# opens home, a view, layout, saved query, or type. Space h / gh jump
-# to Home.
+# first layout in this file (Home sits under it in history); with no
+# layouts, the first view; with neither, the Home dashboard. `perch <name>`
+# opens home, a view, layout, saved query, or type. Space v / Space l
+# lists views and layouts. Space h / gh jump to Home.
 
 [views.projects]
 type = "item"
-layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
+kind = "board"
+group_by = "state"
+fields = ["state", "when"]
 
 [views.by-when]
 type = "item"
-layout = { kind = "list", fields = ["state", "when"], sort = "when" }
+kind = "list"
+fields = ["state", "when"]
+sort = "when"
 
 [views.open]
 type = "item"
-layout = { kind = "list", filter = ".state==open", fields = ["state", "when"] }
+kind = "list"
+filter = ".state==open"
+fields = ["state", "when"]
 
 [views.week]
 type = "event"
-layout = { kind = "date", group_by = "when", granularity = "week" }
+kind = "date"
+group_by = "when"
+granularity = "week"
 
 [views.inbox]
 query = "inbox"
-layout = { kind = "list", sort = "label" }
+kind = "list"
+sort = "label"
 
 [views.tasks]
 type = "task"
 inputs = { item = "{{selected}}" }
-layout = { kind = "list", fields = ["state"] }
+kind = "list"
+fields = ["state"]
 
 [layouts.workspace]
 split = "row"
@@ -59,7 +71,7 @@ panels = [
 [layouts.direct]
 split = "row"
 panels = [
-  { type = "item", id = "projects", layout = { kind = "board", group_by = "state", fields = ["state", "when"] } },
-  { type = "task", bind = "projects", inputs = { item = "{{selected}}" }, layout = { kind = "list", fields = ["state"] } },
-  { query = "inbox", layout = { kind = "list", sort = "label" } },
+  { type = "item", id = "projects", kind = "board", group_by = "state", fields = ["state", "when"] },
+  { type = "task", bind = "projects", inputs = { item = "{{selected}}" }, kind = "list", fields = ["state"] },
+  { query = "inbox", kind = "list", sort = "label" },
 ]

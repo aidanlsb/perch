@@ -10,6 +10,7 @@ import (
 const dailyLayout = "2006-01-02"
 
 func (m Model) openDatePicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayDate
 	m.datePurpose = "daily"
 	m.dateCur = m.todayID()

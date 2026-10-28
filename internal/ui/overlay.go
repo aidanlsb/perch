@@ -3,7 +3,7 @@ package ui
 import tea "github.com/charmbracelet/bubbletea"
 
 func (m Model) pickerEscape() (Model, tea.Cmd) {
-	if m.fromNav && (m.pickerKind == pickerViews || m.pickerKind == pickerTypes || m.pickerKind == pickerQueries) {
+	if m.fromNav && (m.pickerKind == pickerViews || m.pickerKind == pickerTypes || m.pickerKind == pickerQueries || m.pickerKind == pickerNotes || m.pickerKind == pickerSearch || m.pickerKind == pickerActions) {
 		m.fromNav = false
 		m.clearMut()
 		return m.openNavPicker()
@@ -58,6 +58,10 @@ func (m Model) confirmEscape() (Model, tea.Cmd) {
 func (m Model) dateEscape() (Model, tea.Cmd) {
 	if m.datePurpose == "value" && m.mut.kind != mutNone {
 		return m.mutStepBack()
+	}
+	if m.fromNav && m.datePurpose != "value" {
+		m.fromNav = false
+		return m.openNavPicker()
 	}
 	return m.dismissOverlay()
 }

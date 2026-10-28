@@ -17,6 +17,7 @@ var schemaTraitTypes = []string{
 }
 
 func (m Model) openActionsPicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerActions
 	m.pickerQ = ""

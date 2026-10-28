@@ -56,11 +56,12 @@ func TestStartupOpensFirstViewInConfigOrder(t *testing.T) {
 	f, err := config.Parse("config.toml", `
 [views.zebra]
 type = "person"
-layout = { kind = "list" }
+kind = "list"
 
 [views.alpha]
 type = "project"
-layout = { kind = "board", group_by = "status" }
+kind = "board"
+group_by = "status"
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -99,11 +100,40 @@ func TestStartupOpensNavWhenNoViews(t *testing.T) {
 	}
 }
 
+func TestStartupPrefersLayoutWhenBothExist(t *testing.T) {
+	f, err := config.Parse("config.toml", `
+[views.zebra]
+type = "person"
+kind = "list"
+
+[layouts.workspace]
+split = "row"
+panels = [ { view = "zebra" } ]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(Options{Config: f})
+	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.overlay != overlayNone {
+		t.Fatalf("overlay %v", m.overlay)
+	}
+	if m.currentLayout != "workspace" {
+		t.Fatalf("layout %q view %q, want first layout", m.currentLayout, m.currentView)
+	}
+	if len(m.hist) < 2 || m.hist[0].Screen != kindHome {
+		t.Fatalf("home not under layout: %+v", m.hist)
+	}
+	if cmd == nil {
+		t.Fatal("expected query")
+	}
+}
+
 func TestStartupOpensLayoutWhenNoViews(t *testing.T) {
 	f, err := config.Parse("config.toml", `
 [layouts.only]
 split = "row"
-panels = [ { type = "project", layout = { kind = "list" } } ]
+panels = [ { type = "project", kind = "list" } ]
 `)
 	if err != nil {
 		t.Fatal(err)

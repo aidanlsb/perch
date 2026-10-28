@@ -72,7 +72,7 @@ func TestOpenMissingJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(`[views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestConfigCheckThroughMain(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(`[views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestViewsSubcommandStillWins(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(`[views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

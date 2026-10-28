@@ -38,7 +38,7 @@ var Keymap = []Binding{
 	{"browse", "space t", "type picker (schema types)"},
 	{"browse", "space d", "daily-note date picker"},
 	{"browse", "space q", "saved query picker"},
-	{"browse", "space v", "views and layouts picker"},
+	{"browse", "space v / space l", "views and layouts picker"},
 	{"browse", "ctrl-p / space f", "fuzzy notes picker"},
 	{"browse", "space s", "full-text content search"},
 	{"browse", "space a", "actions (create, edit, schema)"},
@@ -54,14 +54,14 @@ var Keymap = []Binding{
 	{"browse", "p", "toggle preview pane"},
 	{"browse", ":", "run an ad-hoc RQL query"},
 	{"browse", "r", "refresh (and reload config)"},
-	{"browse", "space", "leader (t/d/q/v/f/s/a/, / space)"},
+	{"browse", "space", "leader (t/d/q/v/l/f/s/a/, / space)"},
 	{"browse", "esc", "clear search / close overlay / cancel leader"},
 
 	{"leader", "space h", "home"},
 	{"leader", "space t", "type picker"},
 	{"leader", "space d", "daily-note date picker"},
 	{"leader", "space q", "saved query picker"},
-	{"leader", "space v", "views and layouts"},
+	{"leader", "space v / space l", "views and layouts"},
 	{"leader", "space f", "notes picker"},
 	{"leader", "space s", "full-text content search"},
 	{"leader", "space a", "actions"},
@@ -129,7 +129,7 @@ var Keymap = []Binding{
 	{"mutate", "ctrl-d", "unset optional field"},
 }
 
-const leaderFooter = "space  space menu  h home  a actions  v views  t types  q queries  d daily  f notes  s search  , config  esc cancel"
+const leaderFooter = "space  space menu  h home  a actions  v/l views  t types  q queries  d daily  f notes  s search  , config  esc cancel"
 
 func footerKeys(m Model) string {
 	if m.pending == "space" {

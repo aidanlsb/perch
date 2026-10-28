@@ -79,10 +79,12 @@ perch views rm projects --force --json
 ## Layouts
 
 A layout is a nested split of panels. Each leaf is a named `view`, or a
-`type` / `query` inline (optional `inputs`, `layout`, and `id`/`name` for
-`bind`). `split` is `row` (side by side) or `col` (stacked). `bind` names
-the panel whose selection fills `{{selected}}` in that panel. List, board,
-and date work over both a type and a saved query.
+`type` / `query` inline (optional `inputs`, `kind`/`group_by`/`fields`,
+and `id`/`name` for `bind`). `split` is `row` (side by side) or `col`
+(stacked). `bind` names the panel whose selection fills `{{selected}}` in
+that panel. List, board, and date work over both a type and a saved
+query. A view opens on its own as a one-panel layout; do not add a
+`[layouts.*]` table just so the user can look at a `[views.*]`.
 
 ```bash
 perch layouts list --json
@@ -129,9 +131,10 @@ CLI; do not patch the TOML.
 
 ## Open
 
-Bare `perch` launches the TUI on the first view in config file order
-(as that view's list/board/date), with Home underneath in history. With
-no views, the first layout. With neither, Home.
+Bare `perch` launches the TUI on the first `[layouts.*]` in config file
+order, with Home underneath in history. With no layouts, the first
+`[views.*]` as a one-panel layout. With neither, Home. `Space v` (and
+`Space l`) and Home list both so either can be opened with enter.
 
 `perch <target>` and `perch open <target>` open a named target. Resolution
 order: `home`, a `[views.<target>]` view, a `[layouts.<target>]` layout, a

@@ -121,18 +121,18 @@ func (m Model) openNamed(name string) (Model, tea.Cmd) {
 	return m.goHome()
 }
 
-// openInitial loads the first configured view in file order as that view's
-// list, board, or date. With no views, the first layout. With neither, Home.
+// openInitial loads the first configured layout in file order. With no
+// layouts, the first view (shown as a one-panel layout). With neither, Home.
 // Schema type names are never chosen automatically. Home is always seeded at
 // the bottom of the navigation stack so backing out lands there.
 func (m Model) openInitial() (Model, tea.Cmd) {
 	m.seedHomeUnder()
 	if m.cfg != nil {
-		if names := m.cfg.ViewsInOrder(); len(names) > 0 {
-			return m.loadNamedView(names[0])
-		}
 		if names := m.cfg.LayoutsInOrder(); len(names) > 0 {
 			return m.loadNamedLayout(names[0])
+		}
+		if names := m.cfg.ViewsInOrder(); len(names) > 0 {
+			return m.loadNamedView(names[0])
 		}
 	}
 	return m, m.ensureCorpus()
@@ -582,7 +582,7 @@ func (m Model) keysLeader(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.openDatePicker()
 	case "q":
 		return m.openQueryPicker()
-	case "v":
+	case "v", "l":
 		return m.openViewsPicker()
 	case "f":
 		return m.openNotesPicker()

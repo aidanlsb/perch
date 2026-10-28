@@ -111,7 +111,7 @@ func (m Model) commitSaveView() (Model, tea.Cmd) {
 	p := m.p()
 	v := config.View{
 		Inputs: p.rawInputs,
-		Layout: config.Present{}.FromSpec(p.spec),
+		Present: config.Present{}.FromSpec(p.spec),
 	}
 	switch {
 	case p.viewName != "" && m.cfg != nil:

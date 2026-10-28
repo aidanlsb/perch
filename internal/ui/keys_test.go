@@ -43,7 +43,7 @@ func TestKeymapHelpRenders(t *testing.T) {
 			t.Fatalf("help missing %q in %s", want, out)
 		}
 	}
-	for _, old := range []string{"ctrl-b", "ctrl-e", "space st", "space sd", "space sg", "space l", "space c"} {
+	for _, old := range []string{"ctrl-b", "ctrl-e", "space st", "space sd", "space sg", "space c"} {
 		if strings.Contains(out, old) {
 			t.Fatalf("help still lists removed key %q", old)
 		}
@@ -121,6 +121,40 @@ func TestViewsPicker(t *testing.T) {
 	}
 	if len(m.pickerHit) < 2 {
 		t.Fatalf("views %v", labelsOf(m.pickerHit))
+	}
+}
+
+func TestViewsPickerListsLayouts(t *testing.T) {
+	cfg := namedViewCfg()
+	cfg.Layouts = map[string]config.Layout{
+		"workspace": {Split: "row", Panels: []config.Panel{{View: "projects"}}},
+	}
+	m := loadNamedView(t, cfg, "projects")
+	m, _ = pressLeader(m, "l")
+	if m.overlay != overlayPicker || m.pickerKind != pickerViews {
+		t.Fatalf("space l overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+	foundView, foundLayout := false, false
+	for _, it := range m.pickerHit {
+		if it.ID == "view:projects" {
+			foundView = true
+		}
+		if it.ID == "layout:workspace" {
+			foundLayout = true
+		}
+	}
+	if !foundView || !foundLayout {
+		t.Fatalf("picker %v", labelsOf(m.pickerHit))
+	}
+	for i, it := range m.pickerHit {
+		if it.ID == "layout:workspace" {
+			m.pickerCur = i
+			break
+		}
+	}
+	m, _ = m.update(key("enter"))
+	if m.currentLayout != "workspace" {
+		t.Fatalf("enter layout, layout=%q", m.currentLayout)
 	}
 }
 
@@ -293,6 +327,7 @@ func TestLeaderPickers(t *testing.T) {
 		{"t", pickerTypes, false},
 		{"q", pickerQueries, false},
 		{"v", pickerViews, false},
+		{"l", pickerViews, false},
 		{"f", pickerNotes, false},
 		{"s", pickerSearch, false},
 		{"a", pickerActions, false},
@@ -518,7 +553,7 @@ func TestConfigNamedViewUsed(t *testing.T) {
 func TestConfigWarningsOnSchema(t *testing.T) {
 	m := NewModel(Options{Config: &config.File{
 		Views: map[string]config.View{
-			"ghost": {Type: "ghost", Layout: config.Present{Kind: kindList}},
+			"ghost": {Type: "ghost", Present: config.Present{Kind: kindList}},
 		},
 	}})
 	m.width, m.height = 80, 24
@@ -549,10 +584,10 @@ func loadProjectBoard(t *testing.T) Model {
 func namedViewCfg() *config.File {
 	return &config.File{
 		Views: map[string]config.View{
-			"projects": {Type: "project", Layout: config.Present{Kind: kindBoard, GroupBy: "status"}},
-			"open":     {Type: "project", Layout: config.Present{Kind: kindList, Filter: ".status==active"}},
-			"week":     {Type: "project", Layout: config.Present{Kind: kindDate, GroupBy: "due", Granularity: layout.GranDay}},
-			"people":   {Type: "person", Layout: config.Present{Kind: kindList, Sort: "name"}},
+			"projects": {Type: "project", Present: config.Present{Kind: kindBoard, GroupBy: "status"}},
+			"open":     {Type: "project", Present: config.Present{Kind: kindList, Filter: ".status==active"}},
+			"week":     {Type: "project", Present: config.Present{Kind: kindDate, GroupBy: "due", Granularity: layout.GranDay}},
+			"people":   {Type: "person", Present: config.Present{Kind: kindList, Sort: "name"}},
 		},
 	}
 }

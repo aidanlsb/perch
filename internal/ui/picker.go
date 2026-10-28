@@ -50,7 +50,7 @@ func (m Model) openNavPicker() (Model, tea.Cmd) {
 }
 
 func (m Model) openTypePicker() (Model, tea.Cmd) {
-	m.fromNav = m.overlay == overlayPicker && m.pickerKind == pickerNav
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerTypes
 	m.pickerQ = ""
@@ -71,7 +71,7 @@ func (m Model) openTypePicker() (Model, tea.Cmd) {
 }
 
 func (m Model) openQueryPicker() (Model, tea.Cmd) {
-	m.fromNav = m.overlay == overlayPicker && m.pickerKind == pickerNav
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerQueries
 	m.pickerQ = ""
@@ -98,14 +98,14 @@ func (m Model) openQueryPicker() (Model, tea.Cmd) {
 }
 
 func (m Model) openViewsPicker() (Model, tea.Cmd) {
-	m.fromNav = m.overlay == overlayPicker && m.pickerKind == pickerNav
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerViews
 	m.pickerQ = ""
 	m.pickerCur = 0
 	var items []pickItem
 	if m.cfg != nil {
-		for _, name := range m.cfg.ViewNames() {
+		for _, name := range m.cfg.ViewsInOrder() {
 			v := m.cfg.Views[name]
 			items = append(items, pickItem{
 				Kind:  pickerViews,
@@ -114,11 +114,11 @@ func (m Model) openViewsPicker() (Model, tea.Cmd) {
 				ID:    "view:" + name,
 			})
 		}
-		for _, name := range m.cfg.LayoutNames() {
+		for _, name := range m.cfg.LayoutsInOrder() {
 			items = append(items, pickItem{
 				Kind:  pickerViews,
 				Label: name,
-				Sub:   "layout",
+				Sub:   "layout · " + layoutSummary(m.cfg.Layouts[name]),
 				ID:    "layout:" + name,
 			})
 		}
@@ -136,6 +136,7 @@ func viewPickerSub(v config.View) string {
 }
 
 func (m Model) openSearchPicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerSearch
 	m.pickerQ = ""
@@ -179,6 +180,7 @@ func (m *Model) applySearchHits(sr *api.SearchResult) {
 }
 
 func (m Model) openNotesPicker() (Model, tea.Cmd) {
+	m.markFromNav()
 	m.overlay = overlayPicker
 	m.pickerKind = pickerNotes
 	m.pickerQ = ""
@@ -300,6 +302,12 @@ func (m Model) confirmPicker() (Model, tea.Cmd) {
 			id = it.Object.ID
 		}
 		return m.openNote(id)
+	}
+}
+
+func (m *Model) markFromNav() {
+	if m.overlay == overlayPicker && m.pickerKind == pickerNav {
+		m.fromNav = true
 	}
 }
 

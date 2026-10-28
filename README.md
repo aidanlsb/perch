@@ -72,12 +72,13 @@ secondary context; the raw trait id (`path.md:trait:N`) is not a
 column. Preview of a nested row leads with that same label.
 
 A **layout** is a nested split of panels. Each leaf is a named `view`, or
-a `type` / `query` inline (with optional `inputs`, `layout = { … }`, and
-`id` / `name` so other panels can `bind` to it). `split` is `row` (side
-by side) or `col` (stacked). `bind` names the panel whose selection fills
-`{{selected}}` in that panel. Bound panels update as the driving
-selection moves. Enter in the driving panel moves focus to the bound
-panel.
+a `type` / `query` inline (with optional `inputs`, `kind` / `group_by` /
+`fields`, and `id` / `name` so other panels can `bind` to it). `split` is
+`row` (side by side) or `col` (stacked). `bind` names the panel whose
+selection fills `{{selected}}` in that panel. Bound panels update as the
+driving selection moves. Enter in the driving panel moves focus to the
+bound panel. A view opens on its own as a one-panel layout; you do not
+need a `[layouts.*]` table just to look at a `[views.*]`.
 
 List, board, and date presentations work the same whether the source is
 a schema type or a saved query.
@@ -88,12 +89,13 @@ cycles date granularity (day → week → month) inside a date view.
 `section` is omitted because Raven cannot query `type:section`. There is
 no sidebar: navigation is the Space leader, pickers, and hotkeys.
 
-Bare `perch` opens the first view in config file order as that view's
-list, board, or date. If no views are configured, the first layout.
-Home is seeded under that first screen, so backing out lands on Home.
-If neither views nor layouts are configured, Perch starts on **Home**,
-a dashboard of views, types, and saved queries. It does not pick a
-schema type on its own. `Space h` / `gh` jump to Home from anywhere.
+Bare `perch` opens the first `[layouts.*]` in config file order. With no
+layouts, the first `[views.*]` as a one-panel layout. Home is seeded
+under that first screen, so backing out lands on Home. If neither is
+configured, Perch starts on **Home**, a dashboard of views, layouts,
+types, and saved queries. Enter on Home opens any of them. `Space v`
+(and `Space l`) lists views and layouts. It does not pick a schema type
+on its own. `Space h` / `gh` jump to Home from anywhere.
 `perch <target>` (or `perch open <target>`) opens Home, a named view,
 layout, saved query, or type; Home still sits under that screen.
 
@@ -106,12 +108,14 @@ and field names in examples are not special.
 ```toml
 [views.projects]
 type = "item"
-layout = { kind = "board", group_by = "state", fields = ["state", "when"] }
+kind = "board"
+group_by = "state"
+fields = ["state", "when"]
 
 [views.tasks]
 type = "task"
 inputs = { item = "{{selected}}" }
-layout = { kind = "list" }
+kind = "list"
 
 [layouts.workspace]
 split = "row"
@@ -120,22 +124,24 @@ panels = [ { view = "projects" }, { view = "tasks", bind = "projects" } ]
 [layouts.direct]
 split = "row"
 panels = [
-  { type = "item", id = "projects", layout = { kind = "board", group_by = "state" } },
-  { query = "inbox", bind = "projects", layout = { kind = "list" } },
+  { type = "item", id = "projects", kind = "board", group_by = "state" },
+  { query = "inbox", bind = "projects", kind = "list" },
 ]
 ```
 
-Exactly one of `type` or `query` is required on a view. A layout panel is
-a named `view`, or that same `type` / `query` plus `layout` inline.
-A `source` key is a startup
-error. `kind` is `list`, `board`, or `date`. Board `group_by` is an enum
-or ref field. Date `group_by` is a date/datetime field; `granularity` is
-`day`, `week`, or `month`. Optional `filter` is an RQL predicate appended
-to the type query or saved-query body.
+Exactly one of `type` or `query` is required on a view. Renderer keys
+(`kind`, `group_by`, `fields`, `sort`, `filter`, `granularity`) sit
+directly on the view or inline panel. A layout panel is a named `view`,
+or that same `type` / `query` plus those keys inline. A `source` key is a
+startup error. `kind` is `list`, `board`, or `date`. Board `group_by` is
+an enum or ref field. Date `group_by` is a date/datetime field;
+`granularity` is `day`, `week`, or `month`. Optional `filter` is an RQL
+predicate appended to the type query or saved-query body.
 
 `[[types.*.layouts]]` and `[[queries.*.layouts]]` are a startup error
-pointing at this shape. The old single `layout =` form and `[[views]]`
-array of tables are likewise rejected.
+pointing at this shape. Nested `layout = { … }` on a view or panel, the
+old single `layout =` form, and `[[views]]` array of tables are likewise
+rejected. The word `layout` means only `[layouts.<name>]`.
 
 At startup Perch validates views against `GET /v1/schema` and
 `query_saved_list`, and shows warnings in the footer (with line numbers)
@@ -145,9 +151,10 @@ for unknown types, queries, or fields.
 to the current view's table where the editor supports a line argument.
 On return Perch reloads and validates; errors include line numbers and
 the last good config is kept. `S` prompts for a name and writes the
-on-screen view (`type` or `query` plus layout settings) as `[views.x]`.
-Ad-hoc `:` queries are saved with `query_saved_set` then referenced by
-name. Config writes go only to Perch's config, never the vault.
+on-screen view (`type` or `query` plus `kind` / `group_by` / `fields`) as
+`[views.x]`, which is then openable from Home and `Space v`. Ad-hoc `:`
+queries are saved with `query_saved_set` then referenced by name. Config
+writes go only to Perch's config, never the vault.
 
 ## CLI (for agents)
 

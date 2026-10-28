@@ -127,21 +127,44 @@ func TestPickerQTypesInsteadOfClosing(t *testing.T) {
 }
 
 func TestEscFromNavChildReturnsToNav(t *testing.T) {
-	m := loadBrowse(t)
-	m, _ = pressLeader(m, " ")
-	for i, it := range m.pickerHit {
-		if it.ID == "nav:queries" {
-			m.pickerCur = i
-			break
-		}
+	cases := []struct {
+		id      string
+		overlay overlay
+		picker  pickerKind
+	}{
+		{id: "nav:queries", overlay: overlayPicker, picker: pickerQueries},
+		{id: "nav:notes", overlay: overlayPicker, picker: pickerNotes},
+		{id: "nav:search", overlay: overlayPicker, picker: pickerSearch},
+		{id: "nav:actions", overlay: overlayPicker, picker: pickerActions},
+		{id: "nav:daily", overlay: overlayDate},
 	}
-	m, _ = m.update(key("enter"))
-	if m.pickerKind != pickerQueries {
-		t.Fatalf("kind %v", m.pickerKind)
-	}
-	m, _ = m.update(key("esc"))
-	if m.overlay != overlayPicker || m.pickerKind != pickerNav {
-		t.Fatalf("esc to nav, overlay=%v kind=%v", m.overlay, m.pickerKind)
+	for _, tc := range cases {
+		t.Run(tc.id, func(t *testing.T) {
+			m := loadBrowse(t)
+			m, _ = pressLeader(m, " ")
+			found := false
+			for i, it := range m.pickerHit {
+				if it.ID == tc.id {
+					m.pickerCur = i
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("missing %s in %v", tc.id, labelsOf(m.pickerHit))
+			}
+			m, _ = m.update(key("enter"))
+			if m.overlay != tc.overlay {
+				t.Fatalf("overlay=%v want %v", m.overlay, tc.overlay)
+			}
+			if tc.picker != 0 && m.pickerKind != tc.picker {
+				t.Fatalf("kind %v want %v", m.pickerKind, tc.picker)
+			}
+			m, _ = m.update(key("esc"))
+			if m.overlay != overlayPicker || m.pickerKind != pickerNav {
+				t.Fatalf("esc to nav, overlay=%v kind=%v", m.overlay, m.pickerKind)
+			}
+		})
 	}
 }
 

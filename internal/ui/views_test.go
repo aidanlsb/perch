@@ -14,12 +14,12 @@ import (
 func nestedLayoutCfg() *config.File {
 	return &config.File{
 		Views: map[string]config.View{
-			"projects": {Type: "project", Layout: config.Present{Kind: kindList}},
+			"projects": {Type: "project", Present: config.Present{Kind: kindList}},
 			"tasks": {
 				Type:   "project",
-				Layout: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
+				Present: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
-			"notes": {Type: "person", Layout: config.Present{Kind: kindList}},
+			"notes": {Type: "person", Present: config.Present{Kind: kindList}},
 		},
 		Layouts: map[string]config.Layout{
 			"workspace": {
@@ -242,7 +242,7 @@ func TestReloadKeepsLastGoodOnError(t *testing.T) {
 	good := `
 [views.ok]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `
 	if err := os.WriteFile(path, []byte(good), 0o644); err != nil {
 		t.Fatal(err)
@@ -298,8 +298,11 @@ func TestSaveViewWritesConfig(t *testing.T) {
 	if !strings.Contains(s, "[views.my-board]") {
 		t.Fatalf("%s", s)
 	}
-	if !strings.Contains(s, `type = "project"`) || strings.Contains(s, "source") {
-		t.Fatalf("want type, got:\n%s", s)
+	if !strings.Contains(s, `type = "project"`) || !strings.Contains(s, `kind = "`) {
+		t.Fatalf("want type and kind, got:\n%s", s)
+	}
+	if strings.Contains(s, "source") || strings.Contains(s, "layout =") {
+		t.Fatalf("want flat renderer keys, got:\n%s", s)
 	}
 	if m.cfg == nil || m.cfg.Views["my-board"].Type != "project" {
 		t.Fatalf("cfg not reloaded %+v", m.cfg)
@@ -309,8 +312,8 @@ func TestSaveViewWritesConfig(t *testing.T) {
 func TestNamedQueryBoardAndDateViews(t *testing.T) {
 	cfg := &config.File{
 		Views: map[string]config.View{
-			"board": {Query: "open", Layout: config.Present{Kind: kindBoard, GroupBy: "status"}},
-			"when":  {Query: "open", Layout: config.Present{Kind: kindDate, GroupBy: "due", Granularity: layout.GranWeek}},
+			"board": {Query: "open", Present: config.Present{Kind: kindBoard, GroupBy: "status"}},
+			"when":  {Query: "open", Present: config.Present{Kind: kindDate, GroupBy: "due", Granularity: layout.GranWeek}},
 		},
 	}
 	m := loadNamedView(t, cfg, "board")
@@ -329,8 +332,8 @@ func TestInlineLayoutPanels(t *testing.T) {
 			"ws": {
 				Split: "row",
 				Panels: []config.Panel{
-					{Type: "project", ID: "projects", Layout: config.Present{Kind: kindBoard, GroupBy: "status"}},
-					{Query: "open", Bind: "projects", Layout: config.Present{Kind: kindList}},
+					{Type: "project", ID: "projects", Present: config.Present{Kind: kindBoard, GroupBy: "status"}},
+					{Query: "open", Bind: "projects", Present: config.Present{Kind: kindList}},
 				},
 			},
 		},

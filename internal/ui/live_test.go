@@ -166,7 +166,7 @@ func startLive(t *testing.T, f *liveFake) (Model, *httptest.Server) {
 		PollInterval: -1,
 		Config: &config.File{
 			Views: map[string]config.View{
-				"projects": {Type: "project", Layout: config.Present{Kind: kindList}},
+				"projects": {Type: "project", Present: config.Present{Kind: kindList}},
 			},
 		},
 	})
@@ -276,10 +276,10 @@ func TestLiveBindReresolvesAfterCounter(t *testing.T) {
 	t.Cleanup(srv.Close)
 	cfg := &config.File{
 		Views: map[string]config.View{
-			"projects": {Type: "project", Layout: config.Present{Kind: kindList}},
+			"projects": {Type: "project", Present: config.Present{Kind: kindList}},
 			"tasks": {
 				Type:   "project",
-				Layout: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
+				Present: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
 		},
 		Layouts: map[string]config.Layout{

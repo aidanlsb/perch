@@ -122,10 +122,10 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 	cfgPath := filepath.Join(dir, "config.toml")
 	cfg := &config.File{
 		Views: map[string]config.View{
-			"priorities": {Query: "priorities", Layout: config.Present{Kind: kindList}},
+			"priorities": {Query: "priorities", Present: config.Present{Kind: kindList}},
 			"related": {
 				Type:   "project",
-				Layout: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
+				Present: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
 		},
 		Layouts: map[string]config.Layout{

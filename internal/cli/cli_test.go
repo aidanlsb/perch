@@ -16,7 +16,9 @@ func TestViewsListJSON(t *testing.T) {
 	path := writeCfg(t, `
 [views.projects]
 type = "item"
-layout = { kind = "board", group_by = "state", fields = ["state"] }
+kind = "board"
+group_by = "state"
+fields = ["state"]
 `)
 	env := runJSON(t, "views", "list", "--config", path)
 	if !env.OK || env.Error != nil {
@@ -31,9 +33,8 @@ layout = { kind = "board", group_by = "state", fields = ["state"] }
 	if v["name"] != "projects" || v["type"] != "item" {
 		t.Fatalf("%v", v)
 	}
-	layout := asMap(t, v["layout"])
-	if layout["kind"] != "board" || layout["group_by"] != "state" {
-		t.Fatalf("%v", layout)
+	if v["kind"] != "board" || v["group_by"] != "state" {
+		t.Fatalf("%v", v)
 	}
 }
 
@@ -41,7 +42,7 @@ func TestViewsShowAndMissing(t *testing.T) {
 	path := writeCfg(t, `
 [views.projects]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	env := runJSON(t, "views", "show", "projects", "--config", path)
 	if !env.OK {
@@ -66,12 +67,19 @@ func TestViewsAddAndRMJSON(t *testing.T) {
 		t.Fatalf("%+v", env)
 	}
 	data := asMap(t, env.Data)
-	if data["name"] != "projects" {
+	if data["name"] != "projects" || data["kind"] != "board" || data["group_by"] != "state" {
 		t.Fatalf("%v", data)
 	}
+	if _, ok := data["layout"]; ok {
+		t.Fatalf("json still nests layout: %v", data)
+	}
 	body, _ := os.ReadFile(path)
-	if !strings.Contains(string(body), "[views.projects]") {
+	s := string(body)
+	if !strings.Contains(s, "[views.projects]") || !strings.Contains(s, `kind = "board"`) {
 		t.Fatalf("%s", body)
+	}
+	if strings.Contains(s, "layout =") {
+		t.Fatalf("wrote nested layout:\n%s", body)
 	}
 	dup := runJSONErr(t, "views", "add", "projects", "--type", "item", "--config", path)
 	if dup.Error == nil || dup.Error.Code != CodeDuplicateName {
@@ -134,10 +142,10 @@ func TestViewsRMRequiresForce(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [views.b]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [layouts.ws]
 split = "row"
 panels = [ { view = "a" }, { view = "b" } ]
@@ -156,10 +164,10 @@ func TestLayoutsListShowAddRM(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [views.b]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	add := runJSON(t, "layouts", "add", "ws", "--split", "row",
 		"--panel", "view=a", "--panel", "view=b,bind=a", "--config", path)
@@ -206,7 +214,7 @@ func TestLayoutsAddInlineTypeQueryPanel(t *testing.T) {
 	if len(leaves) != 2 {
 		t.Fatalf("%+v", leaves)
 	}
-	if leaves[0].Type != "item" || leaves[0].LeafID() != "projects" || leaves[0].Layout.Kind != config.KindBoard {
+	if leaves[0].Type != "item" || leaves[0].LeafID() != "projects" || leaves[0].Kind != config.KindBoard {
 		t.Fatalf("type panel %+v", leaves[0])
 	}
 	if leaves[1].Query != "inbox" || leaves[1].Bind != "projects" {
@@ -218,7 +226,7 @@ func TestLayoutsAddFromTOMLAndJSON(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	tomlAdd := runJSON(t, "layouts", "add", "fromtoml", "--from", `split = "col"
 panels = [ { view = "a" } ]`, "--config", path)
@@ -238,7 +246,7 @@ func TestLayoutsAddFromFile(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	snippet := filepath.Join(t.TempDir(), "lay.json")
 	if err := os.WriteFile(snippet, []byte(`{"split":"row","panels":[{"view":"a"}]}`), 0o644); err != nil {
@@ -254,7 +262,7 @@ func TestConfigPathAndCheck(t *testing.T) {
 	path := writeCfg(t, `
 [views.a]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	got := runJSON(t, "config", "path", "--config", path)
 	if !got.OK || asMap(t, got.Data)["path"] != path {
@@ -267,7 +275,7 @@ layout = { kind = "list" }
 	bad := writeCfg(t, `
 [views.board]
 type = "item"
-layout = { kind = "board" }
+kind = "board"
 `)
 	fail := runJSONErr(t, "config", "check", "--config", bad)
 	if fail.OK || fail.Error == nil || fail.Error.Code != CodeValidationFailed {
@@ -294,7 +302,7 @@ func TestHumanViewsList(t *testing.T) {
 	path := writeCfg(t, `
 [views.projects]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 `)
 	var out, errb bytes.Buffer
 	if err := Run([]string{"views", "list", "--config", path}, &out, &errb); err != nil {
@@ -319,7 +327,7 @@ func TestResolveOpen(t *testing.T) {
 	path := writeCfg(t, `
 [views.projects]
 type = "item"
-layout = { kind = "list" }
+kind = "list"
 [layouts.ws]
 split = "row"
 panels = [ { view = "projects" } ]

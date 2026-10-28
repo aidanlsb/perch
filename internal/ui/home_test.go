@@ -22,7 +22,7 @@ func TestStartupHomeWhenNoViewsOrLayouts(t *testing.T) {
 		t.Fatalf("screen=%s overlay=%v", m.screen, m.overlay)
 	}
 	out := m.View()
-	for _, want := range []string{"aidan", "/vaults/aidan", "types", "saved queries", "will be created"} {
+	for _, want := range []string{"aidan", "/vaults/aidan", "views & layouts", "types", "saved queries", "will be created"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("home missing %q in\n%s", want, out)
 		}
@@ -33,7 +33,7 @@ func TestStartupSeedsHomeUnderFirstView(t *testing.T) {
 	f, err := config.Parse("config.toml", `
 [views.zebra]
 type = "person"
-layout = { kind = "list" }
+kind = "list"
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +85,41 @@ func TestHomeSectionNavAndEnter(t *testing.T) {
 	}
 	if m.screen != kindBrowse || m.p().typeName != "person" {
 		t.Fatalf("screen=%s type=%s", m.screen, m.p().typeName)
+	}
+}
+
+func TestHomeEnterLayout(t *testing.T) {
+	f, err := config.Parse("config.toml", `
+[views.zebra]
+type = "person"
+kind = "list"
+
+[layouts.workspace]
+split = "row"
+panels = [ { view = "zebra" } ]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(Options{Config: f})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	m, _ = m.goHome()
+	m.homeSec = int(homeViews)
+	items := m.homeItems(homeViews)
+	idx := -1
+	for i, it := range items {
+		if it.Kind == "layout" && it.ID == "workspace" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("layout missing from home: %+v", items)
+	}
+	m.homeCur[homeViews] = idx
+	m, cmd := m.update(key("enter"))
+	if m.currentLayout != "workspace" {
+		t.Fatalf("enter layout, layout=%q view=%q cmd=%v", m.currentLayout, m.currentView, cmd)
 	}
 }
 

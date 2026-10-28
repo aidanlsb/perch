@@ -243,7 +243,7 @@ func atomicWrite(path string, data []byte) error {
 	return nil
 }
 
-// EncodeView renders a [views.name] table using the documented inline layout form.
+// EncodeView renders a [views.name] table with flat renderer keys.
 func EncodeView(name string, v View) (string, error) {
 	nv, err := v.normalize()
 	if err != nil {
@@ -271,31 +271,10 @@ func EncodeView(name string, v View) (string, error) {
 		}
 		b.WriteString(" }\n")
 	}
-	b.WriteString("layout = {")
-	fmt.Fprintf(&b, " kind = %s", tomlString(nv.Layout.Kind))
-	if nv.Layout.GroupBy != "" {
-		fmt.Fprintf(&b, ", group_by = %s", tomlString(nv.Layout.GroupBy))
+	for _, line := range presentKV(nv.Present) {
+		b.WriteString(line)
+		b.WriteByte('\n')
 	}
-	if len(nv.Layout.Fields) > 0 {
-		b.WriteString(", fields = [")
-		for i, f := range nv.Layout.Fields {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			b.WriteString(tomlString(f))
-		}
-		b.WriteString("]")
-	}
-	if nv.Layout.Sort != "" {
-		fmt.Fprintf(&b, ", sort = %s", tomlString(nv.Layout.Sort))
-	}
-	if nv.Layout.Filter != "" {
-		fmt.Fprintf(&b, ", filter = %s", tomlString(nv.Layout.Filter))
-	}
-	if nv.Layout.Granularity != "" && nv.Layout.Kind == KindDate {
-		fmt.Fprintf(&b, ", granularity = %s", tomlString(nv.Layout.Granularity))
-	}
-	b.WriteString(" }\n")
 	return b.String(), nil
 }
 
@@ -363,7 +342,7 @@ func encodeLeafPanel(p Panel) string {
 		parts = append(parts, "inputs = "+encodeInlineMap(p.Inputs))
 	}
 	if p.View == "" {
-		parts = append(parts, "layout = "+encodeInlinePresent(p.Layout))
+		parts = append(parts, presentKV(p.Present)...)
 	}
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
@@ -386,16 +365,18 @@ func encodeInlineMap(m map[string]string) string {
 	return b.String()
 }
 
-func encodeInlinePresent(p Present) string {
-	var b strings.Builder
-	b.WriteString("{ kind = ")
-	b.WriteString(tomlString(p.Kind))
+func presentKV(p Present) []string {
+	kind := p.Kind
+	if kind == "" {
+		kind = KindList
+	}
+	parts := []string{"kind = " + tomlString(kind)}
 	if p.GroupBy != "" {
-		b.WriteString(", group_by = ")
-		b.WriteString(tomlString(p.GroupBy))
+		parts = append(parts, "group_by = "+tomlString(p.GroupBy))
 	}
 	if len(p.Fields) > 0 {
-		b.WriteString(", fields = [")
+		var b strings.Builder
+		b.WriteString("fields = [")
 		for i, f := range p.Fields {
 			if i > 0 {
 				b.WriteString(", ")
@@ -403,21 +384,18 @@ func encodeInlinePresent(p Present) string {
 			b.WriteString(tomlString(f))
 		}
 		b.WriteString("]")
+		parts = append(parts, b.String())
 	}
 	if p.Sort != "" {
-		b.WriteString(", sort = ")
-		b.WriteString(tomlString(p.Sort))
+		parts = append(parts, "sort = "+tomlString(p.Sort))
 	}
 	if p.Filter != "" {
-		b.WriteString(", filter = ")
-		b.WriteString(tomlString(p.Filter))
+		parts = append(parts, "filter = "+tomlString(p.Filter))
 	}
-	if p.Granularity != "" && p.Kind == KindDate {
-		b.WriteString(", granularity = ")
-		b.WriteString(tomlString(p.Granularity))
+	if p.Granularity != "" && kind == KindDate {
+		parts = append(parts, "granularity = "+tomlString(p.Granularity))
 	}
-	b.WriteString(" }")
-	return b.String()
+	return parts
 }
 
 func stripViewFromLayout(l Layout, view string) Layout {
