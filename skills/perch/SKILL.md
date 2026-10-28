@@ -1,6 +1,6 @@
 ---
 name: perch
-description: "Manage Perch views and panel layouts through the perch CLI. Use when listing, adding, showing, or removing views/layouts, validating config.toml, opening a named view, or wiring {{selected}} bindings. Do not edit Perch config by hand or assume a vault schema."
+description: "Manage Perch views and panel layouts through the perch CLI. Use when listing, adding, showing, or removing views/layouts, validating config.toml, opening a named view, layout, saved query, type, or Home (`perch <target>`), or wiring {{selected}} bindings. Do not edit Perch config by hand or assume a vault schema."
 version: 1
 ---
 
@@ -131,14 +131,26 @@ CLI; do not patch the TOML.
 
 Bare `perch` launches the TUI on the first view in config file order
 (as that view's list/board/date), with Home underneath in history. With
-no views, the first layout. With neither, Home. `perch open <name>` opens
-a named view or layout (views win if both exist).
+no views, the first layout. With neither, Home.
+
+`perch <target>` and `perch open <target>` open a named target. Resolution
+order: `home`, a `[views.<target>]` view, a `[layouts.<target>]` layout, a
+saved query from `/v1/schema`, then a schema type. Views win if a layout
+shares the name. Subcommands (`views`, `layouts`, `config`, `open`,
+`skill`) win over a target of the same name. Saved queries accept trailing
+`key=value` or positional args; missing args open a prompt. Home sits
+under the opened screen so `esc` / `backspace` / `[` land there. Unknown
+targets are `NOT_FOUND` before the TUI starts.
 
 ```bash
+perch home --json
+perch todos --json
 perch open projects --json
+perch person --json
 ```
 
-`--json` on `open` only affects launch errors. A successful open is the TUI.
+`--json` on `open` / a bare target only affects launch errors. A successful
+open is the TUI.
 
 ## Editor
 
@@ -155,7 +167,7 @@ is not a terminal editor, so `auto` does not suspend the TUI.
 | --- | --- |
 | `INVALID_ARGS` | Bad flags or extra arguments |
 | `MISSING_ARGUMENT` | Required name or `--type` / `--query` / `--panel` missing |
-| `NOT_FOUND` | Unknown view, layout, or `open` target |
+| `NOT_FOUND` | Unknown view, layout, saved query, type, or `open` target |
 | `DUPLICATE_NAME` | `add` when the name already exists |
 | `VALIDATION_FAILED` | Config fails the loader (kinds, `group_by`, layout trees) |
 | `FILE_READ_ERROR` | Config or `--from` file could not be read |
@@ -196,7 +208,7 @@ that receipt are left alone.
    Do not reuse example names from this skill unless they exist in the vault.
 3. `perch views add … --json` and `perch layouts add … --json`.
 4. `perch config check --json`.
-5. `perch open <name>` only if the user wants the TUI.
+5. `perch <target>` (or `perch open <target>`) only if the user wants the TUI.
 
 ## Safety
 

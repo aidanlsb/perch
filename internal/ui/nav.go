@@ -169,7 +169,7 @@ func (m Model) loadQueryWithInputs(q *api.SavedQuery, inputs map[string]string) 
 	m.setSinglePane(p)
 	m.commitNav()
 	if len(q.Args) > 0 && !inputsComplete(q.Args, p.rawInputs) {
-		return m.startArgsPrompt(q)
+		return m.startArgsPromptWith(q, p.rawInputs)
 	}
 	m.status = "loading " + q.Name + "…"
 	return m.startPaneQuery(p, "")

@@ -325,11 +325,15 @@ split = "row"
 panels = [ { view = "projects" } ]
 `)
 	kind, err := ResolveOpen(path, "projects")
-	if err != nil || kind != "view" {
+	if err != nil || kind != TargetView {
 		t.Fatalf("%s %v", kind, err)
 	}
 	kind, err = ResolveOpen(path, "ws")
-	if err != nil || kind != "layout" {
+	if err != nil || kind != TargetLayout {
+		t.Fatalf("%s %v", kind, err)
+	}
+	kind, err = ResolveOpen(path, "home")
+	if err != nil || kind != TargetHome {
 		t.Fatalf("%s %v", kind, err)
 	}
 	if _, err := ResolveOpen(path, "ghost"); err == nil {

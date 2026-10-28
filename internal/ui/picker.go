@@ -345,16 +345,31 @@ func inputsComplete(names []string, inputs map[string]string) bool {
 }
 
 func (m Model) startArgsPrompt(q *api.SavedQuery) (Model, tea.Cmd) {
+	return m.startArgsPromptWith(q, nil)
+}
+
+func (m Model) startArgsPromptWith(q *api.SavedQuery, have map[string]string) (Model, tea.Cmd) {
 	if m.overlay == overlayPicker && m.pickerKind == pickerQueries {
 		m.fromQueries = true
 	}
 	m.overlay = overlayArgs
 	m.argsQuery = q
 	m.argsNames = append([]string(nil), q.Args...)
-	m.argsIdx = 0
 	m.argsVals = map[string]string{}
+	for k, v := range have {
+		if s := strings.TrimSpace(v); s != "" {
+			m.argsVals[k] = s
+		}
+	}
+	m.argsIdx = 0
+	for m.argsIdx < len(m.argsNames) && strings.TrimSpace(m.argsVals[m.argsNames[m.argsIdx]]) != "" {
+		m.argsIdx++
+	}
 	m.argsBuf = ""
 	m.status = "args for " + q.Name
+	if m.argsIdx >= len(m.argsNames) {
+		return m.finishArgs()
+	}
 	return m, nil
 }
 

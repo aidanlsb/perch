@@ -28,6 +28,8 @@ From a vault, or with an explicit path:
 
 ```bash
 perch
+perch todos
+perch home
 perch --vault-path /path/to/vault
 perch --url http://127.0.0.1:7438 --token "$RAVEN_API_TOKEN" --no-start
 perch --poll-interval 2s
@@ -92,6 +94,8 @@ Home is seeded under that first screen, so backing out lands on Home.
 If neither views nor layouts are configured, Perch starts on **Home**,
 a dashboard of views, types, and saved queries. It does not pick a
 schema type on its own. `Space h` / `gh` jump to Home from anywhere.
+`perch <target>` (or `perch open <target>`) opens Home, a named view,
+layout, saved query, or type; Home still sits under that screen.
 
 ## Config
 
@@ -149,8 +153,13 @@ name. Config writes go only to Perch's config, never the vault.
 
 Do not edit `config.toml` by hand and do not drive the TUI. The CLI is the
 stable way to list, add, and remove views and layouts. Bare `perch` still
-opens the TUI. `perch open <name>` opens the TUI on that view or layout
-(views win if both exist).
+opens the TUI. `perch <target>` and `perch open <target>` open the TUI on
+that target: `home`, a named view, a named layout, a saved query from
+`/v1/schema`, or a schema type, in that order. Views win if a layout
+shares the name. Built-in subcommands (`views`, `layouts`, `config`,
+`open`, `skill`) win over a target of the same name. Saved queries accept
+trailing `key=value` or positional args; missing args open a prompt.
+Home sits under the opened screen. Unknown targets are `NOT_FOUND`.
 
 ```bash
 perch views list
@@ -171,8 +180,11 @@ perch layouts rm workspace
 
 perch config path
 perch config check
+perch home
+perch todos
 perch open projects
 perch open workspace
+perch person
 
 perch skill list
 perch skill install --confirm --json
@@ -189,7 +201,7 @@ process exits nonzero. `error.details` may add line numbers or names.
 | --- | --- |
 | `INVALID_ARGS` | Bad flags or extra arguments |
 | `MISSING_ARGUMENT` | Required name or `--type` / `--query` / `--panel` missing |
-| `NOT_FOUND` | Unknown view, layout, or `open` target |
+| `NOT_FOUND` | Unknown view, layout, saved query, type, or `open` target |
 | `DUPLICATE_NAME` | `add` when the name already exists |
 | `VALIDATION_FAILED` | Config fails the existing loader (kinds, `group_by`, layout trees) |
 | `CONFIG_INVALID` | (reserved; decode failures are reported as `VALIDATION_FAILED` with a line) |

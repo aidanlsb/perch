@@ -16,7 +16,8 @@
 # Space t lists every schema type as a plain list. Board and date
 # presentations are only those you declare here. Bare `perch` opens the
 # first view in this file (Home sits under it in history); with no views,
-# the first layout; with neither, the Home dashboard. Space h / gh jump
+# the first layout; with neither, the Home dashboard. `perch <name>`
+# opens home, a view, layout, saved query, or type. Space h / gh jump
 # to Home.
 
 [views.projects]

@@ -53,6 +53,86 @@ func TestOpenOptionLoadsLayout(t *testing.T) {
 	if m.currentLayout != "workspace" || len(m.panes) != 3 {
 		t.Fatalf("layout %s panes %d", m.currentLayout, len(m.panes))
 	}
+	if len(m.hist) < 2 || m.hist[0].Screen != kindHome {
+		t.Fatalf("home not under layout: %+v", m.hist)
+	}
+}
+
+func TestOpenOptionLoadsHome(t *testing.T) {
+	m := NewModel(Options{Config: nestedLayoutCfg(), Open: "home"})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.screen != kindHome {
+		t.Fatalf("screen %s", m.screen)
+	}
+	if m.currentView != "" || m.currentLayout != "" {
+		t.Fatalf("view=%s layout=%s", m.currentView, m.currentLayout)
+	}
+	if len(m.hist) < 1 || m.hist[0].Screen != kindHome {
+		t.Fatalf("hist %+v", m.hist)
+	}
+}
+
+func TestOpenOptionLoadsQuery(t *testing.T) {
+	m := NewModel(Options{Config: nestedLayoutCfg(), Open: "open"})
+	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if cmd == nil {
+		t.Fatal("expected query")
+	}
+	p := m.p()
+	if !p.sourceIsQuery || p.sourceBase != "open" {
+		t.Fatalf("pane %+v", p)
+	}
+	if len(m.hist) < 2 || m.hist[0].Screen != kindHome {
+		t.Fatalf("home not under query: %+v", m.hist)
+	}
+}
+
+func TestOpenOptionLoadsType(t *testing.T) {
+	m := NewModel(Options{Config: nestedLayoutCfg(), Open: "person"})
+	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if cmd == nil {
+		t.Fatal("expected type query")
+	}
+	if m.p().typeName != "person" || m.p().sourceIsQuery {
+		t.Fatalf("pane %+v", m.p())
+	}
+	if len(m.hist) < 2 || m.hist[0].Screen != kindHome {
+		t.Fatalf("home not under type: %+v", m.hist)
+	}
+}
+
+func TestOpenOptionQueryArgsPromptAndComplete(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{}, Open: "need"})
+	m, cmd := m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if cmd != nil {
+		t.Fatal("need should prompt")
+	}
+	if m.overlay != overlayArgs || len(m.argsNames) != 1 || m.argsNames[0] != "x" {
+		t.Fatalf("overlay=%v names=%v", m.overlay, m.argsNames)
+	}
+
+	m = NewModel(Options{Config: &config.File{}, Open: "need", OpenInputs: map[string]string{"x": "p"}})
+	m, cmd = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if cmd == nil {
+		t.Fatal("complete args should query")
+	}
+	if m.overlay != overlayNone {
+		t.Fatalf("overlay %v", m.overlay)
+	}
+	if m.p().rawInputs["x"] != "p" {
+		t.Fatalf("inputs %v", m.p().rawInputs)
+	}
+}
+
+func TestOpenOptionUnknownGoesHome(t *testing.T) {
+	m := NewModel(Options{Config: &config.File{}, Open: "ghost"})
+	m, _ = m.update(schemaMsg{schema: ptrSchema(sampleSchema())})
+	if m.screen != kindHome {
+		t.Fatalf("screen %s", m.screen)
+	}
+	if !strings.Contains(m.errMsg, "ghost") {
+		t.Fatalf("err %q", m.errMsg)
+	}
 }
 
 func TestLayoutNestingLoadsLeaves(t *testing.T) {

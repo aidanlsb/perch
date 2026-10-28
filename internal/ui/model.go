@@ -111,6 +111,7 @@ type Options struct {
 	Editor     string
 	EditorMode string
 	Open       string
+	OpenInputs map[string]string
 	// PollInterval is how often to GET /v1/revision. Zero means 1s.
 	// Negative disables polling (tests).
 	PollInterval time.Duration
@@ -207,13 +208,14 @@ type Model struct {
 	corpusDone    bool
 	corpusLoading bool
 
-	status  string
-	errMsg  string
-	liveErr string
-	loading bool
-	gen     int
-	ready   bool
-	open    string
+	status     string
+	errMsg     string
+	liveErr    string
+	loading    bool
+	gen        int
+	ready      bool
+	open       string
+	openInputs map[string]string
 
 	pollInterval  time.Duration
 	revGeneration string
@@ -254,6 +256,7 @@ func NewModel(opts Options) Model {
 		readCache:    map[string]*api.ReadResult{},
 		noteIndex:    map[string]api.Object{},
 		open:         strings.TrimSpace(opts.Open),
+		openInputs:   copyStringMap(opts.OpenInputs),
 		pollInterval: poll,
 	}
 }

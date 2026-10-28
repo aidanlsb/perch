@@ -97,6 +97,9 @@ func (m Model) onSchema(msg schemaMsg) (Model, tea.Cmd) {
 
 func (m Model) openNamed(name string) (Model, tea.Cmd) {
 	m.seedHomeUnder()
+	if name == kindHome {
+		return m, m.ensureCorpus()
+	}
 	if m.cfg != nil {
 		if _, ok := m.cfg.Views[name]; ok {
 			return m.loadNamedView(name)
@@ -105,7 +108,16 @@ func (m Model) openNamed(name string) (Model, tea.Cmd) {
 			return m.loadNamedLayout(name)
 		}
 	}
-	m.errMsg = "unknown view or layout " + name
+	if q, ok := m.schema.Queries[name]; ok {
+		if q.Name == "" {
+			q.Name = name
+		}
+		return m.loadQueryWithInputs(&q, m.openInputs)
+	}
+	if _, ok := m.schema.Types[name]; ok && name != "section" {
+		return m.loadType(name)
+	}
+	m.errMsg = "unknown target " + name
 	return m.goHome()
 }
 
