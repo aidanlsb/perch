@@ -260,8 +260,9 @@ Perch-managed files. A skill directory without that receipt is left alone.
 
 Navigation keys use `Space` as a leader in browse and note mode. Press
 `Space` once to enter a pending leader state (the footer lists the
-keys). `esc` or an unknown key cancels. Bare `t` `d` `q` `v` `f`
-do nothing in normal mode so they cannot fire by accident. Bare `s`
+keys). `esc` or an unknown key cancels. Bare `t` `d` `q` `f`
+do nothing in normal mode so they cannot fire by accident. Bare `v`
+toggles multi-select; `Space v` is the views picker. Bare `s`
 edits a field or trait; `Space s` is content search. `ctrl-p` and
 `,` still work without the leader.
 
@@ -283,10 +284,13 @@ the navigation menu (Home is the first item).
 | `:` | Ad-hoc RQL |
 | `,` / `Space ,` | Config at the current view's entry |
 | `S` | Save the on-screen view as `[views.name]` (ad-hoc RQL is saved in Raven first) |
-| `s` | Set / edit the selected object's field or a trait value (schema-typed widget) |
-| `x` | Fast-toggle a trait row (`bool`, two-value `enum`, or open the value picker) |
-| `c` | Create a new object of the focused pane's type |
-| `H` / `L` | Move the selected board card to the previous / next column (`set` / `unset` the group-by field) |
+| `s` | Set / edit the selected object's field or a trait value (schema-typed widget). With a multi-selection, the field picker lists only fields common to every selected object's type. |
+| `x` | Fast-toggle a trait row (`bool`, two-value `enum`, or open the value picker). With a multi-selection, every row is set to the same target derived from the first selected item (see Keys). |
+| `c` | Create a new object of the focused pane's type (always the cursor; not the selection) |
+| `H` / `L` | Move the selected board card to the previous / next column (`set` / `unset` the group-by field). With a multi-selection, every selected card moves one column. |
+| `v` | Toggle selection on the cursor row and move down |
+| `V` | Range-select: anchor at the cursor, `j`/`k` extend, `v` or `V` commits the range into the selection |
+| `ctrl-a` | Select all visible (filtered) rows in the focused pane |
 
 Saved queries that declare `args` open an argument prompt. Values are sent as
 `query` `inputs` (`{{args.*}}`). Esc steps back one argument, then returns to
@@ -314,9 +318,10 @@ saved into Raven as a named query, then referenced from config.
 
 `?` lists this table inside the TUI. History is one stack across Home,
 browse views, and notes. `[` / `ctrl-o` go back, `]` / `ctrl-i` forward.
-`esc` / `backspace` unwind local state first (search, preview focus,
+`esc` / `backspace` unwind local state first (multi-select, search, preview focus,
 zoom, bound panel, backlinks pane), then pop that stack, and land on
-Home rather than an empty pane. Overlays step back with `esc` (`q` types
+Home rather than an empty pane. `esc` clears an active selection before
+any of those other layers. Overlays step back with `esc` (`q` types
 into a fuzzy picker; it does not close it). `ctrl+c` quits.
 
 | Key | Action |
@@ -340,10 +345,13 @@ into a fuzzy picker; it does not close it). `ctrl+c` quits.
 | `ctrl-p` / `Space f` | Notes picker |
 | `Space s` | Full-text content search |
 | `Space a` | Actions menu |
-| `s` | Set / edit field or trait |
-| `x` | Toggle / cycle trait |
+| `v` | Toggle selection and move down |
+| `V` | Range-select (`j`/`k` extend; `v`/`V` commit) |
+| `ctrl-a` | Select all visible rows |
+| `s` | Set / edit field or trait (the selection if any, else the cursor) |
+| `x` | Toggle / cycle trait (the selection if any, else the cursor) |
 | `c` | New object |
-| `H` / `L` | Move board card to previous / next column |
+| `H` / `L` | Move board card(s) to previous / next column |
 | `/` | Fuzzy search in view |
 | `n` / `N` | Next / previous search hit |
 | `.` | Cycle date granularity |
@@ -356,13 +364,54 @@ into a fuzzy picker; it does not close it). `ctrl+c` quits.
 | `[` `]` `ctrl-o` `ctrl-i` | History back / forward (Home, browse, notes) |
 | `[d` `]d` | Previous / next daily note (in a daily note; creates if missing) |
 | `?` | Help |
-| `esc` / `backspace` | Close overlay / unwind focus / previous screen, or Home at the start of history |
+| `esc` / `backspace` | Clear selection, then close overlay / unwind focus / previous screen, or Home at the start of history |
 | `ctrl+c` | Quit |
 
 Focus follows the panel. The focused panel has a highlighted border.
 Help and the status line show keys for that panel. In-panel movement is
 unchanged (`hjkl` in a board still moves columns and rows). In-panel
 scrolling is `ctrl-d` / `ctrl-u` only.
+
+### Multi-select
+
+Browse panes (list, board, date, including trait query rows) keep a
+per-pane selection keyed by object id (row id for traits). It survives
+cursor movement and `/` search. It is cleared when the pane's source
+changes, when you navigate away in history, and after a mutation
+applies. Bound child panes still follow the driver's **cursor**, not
+the multi-selection. `{{selected}}` is unchanged.
+
+Selected rows show a `┃` gutter marker (accent), distinct from the
+cursor `▸`. The panel header adds `· N selected`. The footer switches
+to selection keys while a selection is active.
+
+Mutations apply to the selection when it is non-empty, otherwise to the
+cursor row:
+
+- `s` offers only fields common to every selected object's type (from
+  `/v1/schema`). If none are common, the status line says so. The value
+  widget is shared; Perch then `set`/`unset` (objects) or `update`
+  (traits) per row.
+- `x` on a multi-selection sets every trait to the same target, derived
+  from the **first** selected item: a bool becomes all true or all
+  false (the first item's toggled value); a two-value enum becomes the
+  other value of the first item's current value; larger enums open the
+  picker once and apply that choice to all.
+- `H`/`L` move every selected board card one column relative to its
+  own column.
+- `Space a` move, reclassify, delete, and set field apply to the set.
+  Quick capture and create stay single-target. Multi-move treats the
+  destination as a directory prefix (`dest/` + the last path segment of
+  each id).
+
+Before any multi-object mutation Perch shows one confirmation
+(`set status → done on 5 objects`). Destructive and multi-file ops reuse
+the existing dry-run preview, aggregated across items with totals.
+Applies are sequential per-object `/v1/invoke` calls. Partial failure
+is `4/5 applied, 1 failed` on the status line; failed ids are listed in
+the result modal. After apply, affected panes refresh once, the
+selection clears, and the cursor stays on the same object (or the
+nearest neighbor if that row left the view).
 
 ## Editor
 
@@ -402,7 +451,8 @@ backed by paginated `objects` loaded in the background. Older `rvn` without
 `date` hub, then `daily` to create a missing note. The picker anchors
 "today" on `session.daily.today_id` when present. Perch never guesses a
 type or directory. After an applied mutation it refetches visible panes
-and any open note, keeping cursor by object id.
+and any open note, keeping cursor by object id (or the nearest neighbor
+if that object left the view).
 
 Live refresh polls `GET /v1/revision` for `{generation, counter}`. A new
 generation drops the in-memory cache and refetches schema plus every visible

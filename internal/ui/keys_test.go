@@ -351,7 +351,7 @@ func TestLeaderPickers(t *testing.T) {
 func TestBareNavKeysDoNothing(t *testing.T) {
 	m := loadBrowse(t)
 	src := m.p().sourceQuery
-	for _, k := range []string{"t", "d", "q", "v", "f"} {
+	for _, k := range []string{"t", "d", "q", "f"} {
 		m, cmd := m.update(key(k))
 		if cmd != nil {
 			t.Fatalf("bare %s ran a command", k)

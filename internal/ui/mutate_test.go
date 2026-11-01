@@ -829,3 +829,222 @@ func TestMutationAPIErrorShownInFooter(t *testing.T) {
 		t.Fatalf("footer missing error:\n%s", out)
 	}
 }
+
+func TestMultiSetConfirmsThenAppliesEach(t *testing.T) {
+	m, log := loadMutBrowse(t)
+	focusMain(&m)
+	m, _ = m.update(key("ctrl+a"))
+	m, _ = m.update(key("s"))
+	if m.overlay != overlayPicker || m.pickerKind != pickerFields {
+		t.Fatalf("field picker overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+	pickByID(&m, "status")
+	m, _ = m.update(key("enter"))
+	pickByID(&m, "done")
+	m, _ = m.update(key("enter"))
+	if m.overlay != overlayConfirm {
+		t.Fatalf("want confirm, overlay=%v status=%s", m.overlay, m.status)
+	}
+	if !strings.Contains(m.mut.confirmText, "2 objects") || !strings.Contains(m.mut.confirmText, "status") {
+		t.Fatalf("confirm %s", m.mut.confirmText)
+	}
+	m, cmd := m.update(key("enter"))
+	m = flushMut(t, m, cmd)
+	if log.count("set") != 2 {
+		t.Fatalf("set calls %d %+v", log.count("set"), log.calls)
+	}
+}
+
+func TestMultiSetNoCommonFields(t *testing.T) {
+	m := loadBrowse(t)
+	focusMain(&m)
+	p := m.p()
+	p.objects = []api.Object{
+		{ID: "projects/a", Title: "A", Type: "project", Fields: map[string]any{"name": "A", "status": "active"}},
+		{ID: "ghost/1", Title: "G", Type: "ghost"},
+	}
+	p.applyFilterAndGroup(m.typeSchemaFor(p))
+	m, _ = m.update(key("ctrl+a"))
+	m, _ = m.update(key("s"))
+	if m.status != "no common fields" {
+		t.Fatalf("status %q", m.status)
+	}
+	if m.overlay != overlayNone {
+		t.Fatalf("overlay %v", m.overlay)
+	}
+}
+
+func TestMultiTraitXUsesFirstToggle(t *testing.T) {
+	m, log := loadMutBrowse(t)
+	focusMain(&m)
+	m.p().objects = []api.Object{
+		{ID: "n.md:trait:0", Kind: "trait", Type: "done", Fields: map[string]any{"trait_type": "done", "value": "false"}},
+		{ID: "n.md:trait:1", Kind: "trait", Type: "done", Fields: map[string]any{"trait_type": "done", "value": "true"}},
+	}
+	m.p().applyFilterAndGroup(api.TypeSchema{})
+	m, _ = m.update(key("ctrl+a"))
+	m, _ = m.update(key("x"))
+	if m.overlay != overlayConfirm {
+		t.Fatalf("confirm overlay=%v %s", m.overlay, m.status)
+	}
+	if !strings.Contains(m.mut.confirmText, "true") {
+		t.Fatalf("target from first item: %s", m.mut.confirmText)
+	}
+	m, cmd := m.update(key("enter"))
+	m = flushMut(t, m, cmd)
+	if log.count("update") != 2 {
+		t.Fatalf("updates %d %+v", log.count("update"), log.calls)
+	}
+	for _, c := range log.calls {
+		if c.Command == "update" && c.Args["value"] != "true" {
+			t.Fatalf("all should be true: %+v", c.Args)
+		}
+	}
+}
+
+func TestMultiBoardHLConfirms(t *testing.T) {
+	srv, log := newMutServer(t)
+	m := loadNamedView(t, namedViewCfg(), "projects")
+	m.client = api.NewClient(srv.URL, "t")
+	focusMain(&m)
+	m, _ = m.update(key("ctrl+a"))
+	m, _ = m.update(key("L"))
+	if m.overlay != overlayConfirm {
+		t.Fatalf("overlay %v %s", m.overlay, m.status)
+	}
+	m, cmd := m.update(key("enter"))
+	m = flushMut(t, m, cmd)
+	if log.count("set") < 1 {
+		t.Fatalf("expected set calls, %+v", log.calls)
+	}
+}
+
+func TestPartialFailureShowsFailedIDs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/session":
+			writeOK(w, map[string]any{"api_version": "1", "vault_path": "/vault", "revision": map[string]any{"generation": "g1", "counter": 1}})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/revision":
+			writeOK(w, map[string]any{"generation": "g1", "counter": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/schema":
+			writeOK(w, map[string]any{"version": 1, "types": map[string]any{}, "traits": map[string]any{}, "queries": map[string]any{}})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/invoke":
+			body, _ := io.ReadAll(r.Body)
+			var req invokeCall
+			_ = json.Unmarshal(body, &req)
+			if req.Command == "set" {
+				ref, _ := req.Args["reference"].(string)
+				if ref == "projects/b" {
+					writeErr(w, "FAIL", "nope")
+					return
+				}
+				writeOK(w, map[string]any{"object_id": ref, "file": ref + ".md", "type": "project"})
+				return
+			}
+			handleReadInvoke(w, req)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	m := loadBrowse(t)
+	m.client = api.NewClient(srv.URL, "t")
+	focusMain(&m)
+	m, _ = m.update(key("ctrl+a"))
+	m.mut = mutState{
+		kind: mutSet, field: "status", targets: []string{"projects/a", "projects/b"},
+		fields: map[string]any{"status": "done"}, restoreID: "projects/b",
+	}
+	m, cmd := m.invokeSetBatch()
+	m = flushMut(t, m, cmd)
+	if !strings.Contains(m.status, "1/2 applied, 1 failed") && !strings.Contains(m.mut.confirmText, "1/2 applied") {
+		t.Fatalf("status=%q confirm=%q", m.status, m.mut.confirmText)
+	}
+	if !strings.Contains(m.mut.confirmText, "projects/b") {
+		t.Fatalf("failed id missing: %s", m.mut.confirmText)
+	}
+	if m.overlay != overlayConfirm || !m.mut.resultOnly {
+		t.Fatalf("result overlay=%v resultOnly=%v", m.overlay, m.mut.resultOnly)
+	}
+}
+
+func TestCursorRetainedAfterMultiApply(t *testing.T) {
+	m, _ := loadMutBrowse(t)
+	focusMain(&m)
+	m.p().listCur = 1
+	m, _ = m.update(key("ctrl+a"))
+	if m.p().selectedRowID() != "projects/b" {
+		t.Fatalf("cursor %s", m.p().selectedRowID())
+	}
+	m.mut = mutState{
+		kind: mutSet, field: "status", targets: []string{"projects/a", "projects/b"},
+		fields: map[string]any{"status": "done"}, restoreID: "projects/b",
+	}
+	m, cmd := m.invokeSetBatch()
+	m, next := m.update(cmd())
+	if m.p().restoreID != "projects/b" || !m.p().keepCursor {
+		t.Fatalf("restoreID=%s keep=%v", m.p().restoreID, m.p().keepCursor)
+	}
+	gen := m.p().gen
+	m, _ = m.update(queryMsg{
+		gen: gen, pane: m.p().id, typeName: "project",
+		objects: []api.Object{
+			{ID: "projects/a", Title: "Alpha", Type: "project", Fields: map[string]any{"status": "done"}},
+			{ID: "projects/b", Title: "Beta", Type: "project", Fields: map[string]any{"status": "done"}},
+		},
+	})
+	if m.p().selectedRowID() != "projects/b" {
+		t.Fatalf("cursor after refresh %s", m.p().selectedRowID())
+	}
+	_ = next
+}
+
+func TestCursorNearestNeighbourWhenGone(t *testing.T) {
+	m := loadBrowse(t)
+	focusMain(&m)
+	p := m.p()
+	p.listCur = 1
+	p.keepCursor = true
+	p.restoreID = "projects/b"
+	p.objects = []api.Object{
+		{ID: "projects/a", Title: "Alpha", Type: "project"},
+		{ID: "projects/c", Title: "Gamma", Type: "project"},
+	}
+	p.applyFilterAndGroup(m.typeSchemaFor(p))
+	m.restorePaneCursor(p)
+	if p.selectedRowID() != "projects/c" && p.listCur != 1 {
+		t.Fatalf("want nearest neighbor, id=%s cur=%d", p.selectedRowID(), p.listCur)
+	}
+}
+
+func TestMultiSetOverlaysEachRow(t *testing.T) {
+	m, _ := loadMutBrowse(t)
+	focusMain(&m)
+	m, _ = m.update(key("ctrl+a"))
+	if m.p().markCount() != 2 {
+		t.Fatalf("marks %d", m.p().markCount())
+	}
+	m.mut = mutState{
+		kind: mutSet, field: "status", targets: []string{"projects/a", "projects/b"},
+		fields: map[string]any{"status": "done"}, restoreID: "projects/a",
+	}
+	m, cmd := m.invokeSetBatch()
+	m = flushMut(t, m, cmd)
+	if m.p().hasMarks() {
+		t.Fatal("selection should clear after apply")
+	}
+	for _, id := range []string{"projects/a", "projects/b"} {
+		obj := objectInPane(m.p(), id)
+		if obj == nil {
+			t.Fatalf("missing %s", id)
+		}
+		if api.ScalarString(obj.Fields["status"]) != "done" {
+			t.Fatalf("%s still stale: %+v", id, obj.Fields)
+		}
+	}
+	if m.p().selectedRowID() != "projects/a" {
+		t.Fatalf("cursor %s", m.p().selectedRowID())
+	}
+}

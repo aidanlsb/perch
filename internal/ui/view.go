@@ -218,6 +218,9 @@ func (m Model) paneHeader(v *viewState, focused bool) string {
 	}
 	parts = append(parts, badge)
 	parts = append(parts, m.paneCount(v))
+	if n := v.markCount(); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d selected", n))
+	}
 	return strings.Join(parts, " · ")
 }
 
@@ -350,8 +353,12 @@ func (m Model) viewList(v *viewState, width, height int, focused bool) string {
 		obj := m.labeled(v.filtered[i])
 		cells := rowCells(obj, cols)
 		sel := i == v.listCur
-		line := rowCursor(sel, focused) + formatRowFlex(cells, widths, flex)
+		marked := v.isMarked(obj.ID)
+		line := rowGutter(sel, marked) + formatRowFlex(cells, widths, flex)
 		st := selectStyle(sel, focused)
+		if !sel && marked {
+			st = styleRowIdle
+		}
 		if sel {
 			b.WriteString(st.Width(width).Render(truncate(line, width)))
 		} else {
@@ -402,13 +409,13 @@ func (m Model) viewBoard(v *viewState, width, height int, focused bool) string {
 		showMeta := colW >= 16 && len(v.listFields) > 0
 		for j := off; j < len(c.Items) && j-off < visible; j++ {
 			sel := active && j == v.boardRow
-			mark := " "
-			if sel {
-				mark = "▌"
-			}
+			marked := v.isMarked(c.Items[j].ID)
 			title := truncate(m.displayTitle(c.Items[j]), cardW)
-			line := mark + title
+			line := cardGutter(sel, marked) + title
 			st := selectStyle(sel, focused)
+			if !sel && marked {
+				st = styleRowIdle
+			}
 			rows = append(rows, st.Width(colW).Render(truncate(line, colW)))
 			if showMeta && j-off+1 < visible {
 				if meta := cardMeta(c.Items[j], v.listFields, v.groupBy, m.displayTitle(c.Items[j])); meta != "" {
@@ -456,8 +463,12 @@ func (m Model) viewDate(v *viewState, width, height int, focused bool) string {
 		lines = append(lines, styleDateHead.Width(width).Render(truncate(head, width)))
 		for ri, obj := range sec.Items {
 			sel := si == v.dateSec && ri == v.dateRow
-			label := rowCursor(sel, focused) + m.displayTitle(obj)
+			marked := v.isMarked(obj.ID)
+			label := rowGutter(sel, marked) + m.displayTitle(obj)
 			st := selectStyle(sel, focused)
+			if !sel && marked {
+				st = styleRowIdle
+			}
 			if sel {
 				lines = append(lines, st.Width(width).Render(truncate(label, width)))
 			} else {

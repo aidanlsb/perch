@@ -202,6 +202,9 @@ func (m *Model) applyBrowse(snap *browseSnap) {
 	if m.focus != "" {
 		m.setFocus(m.focus)
 	}
+	for _, p := range m.panes {
+		p.clearMarks()
+	}
 	m.status = m.currentLayoutName()
 }
 
@@ -295,6 +298,8 @@ func cloneViewState(p *viewState) *viewState {
 		q.Args = append([]string(nil), p.savedQuery.Args...)
 		cp.savedQuery = &q
 	}
+	cp.selected = cloneIDSet(p.selected)
+	cp.rangeAnchor = p.rangeAnchor
 	return &cp
 }
 
