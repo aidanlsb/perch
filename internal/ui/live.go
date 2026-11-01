@@ -99,12 +99,17 @@ func (m Model) onDebounce(msg debounceMsg) (Model, tea.Cmd) {
 }
 
 func (m *Model) dropCaches() {
-	m.queryCache = map[string]queryCacheEntry{}
+	m.dropQueryCache()
 	m.readCache = map[string]*api.ReadResult{}
 	m.noteIndex = map[string]api.Object{}
+	m.overlays = nil
 	m.corpusDone = false
 	m.needPrefetch = true
 	m.corpusLoading = false
+}
+
+func (m *Model) dropQueryCache() {
+	m.queryCache = map[string]queryCacheEntry{}
 }
 
 func (m *Model) applyRevision(rev *api.Revision) {
@@ -181,12 +186,10 @@ func (m Model) liveRefetch(keep bool) (Model, tea.Cmd) {
 		m.previewLoading = true
 		cmds = append(cmds, fetchReadFull(m.client, m.gen, m.previewID, "preview", keep, true))
 	}
+	m.dropQueryCache()
 	for _, p := range m.panes {
 		if p == nil {
 			continue
-		}
-		if m.queryCache != nil {
-			delete(m.queryCache, cacheKey(p.sourceQuery, p.sourceInputs))
 		}
 		if p.bind != "" {
 			continue

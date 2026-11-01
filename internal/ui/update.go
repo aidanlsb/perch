@@ -229,7 +229,8 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 	}
 	keep := p.keepCursor
 	live := p.live
-	p.objects = msg.objects
+	m.pruneOverlays(msg.objects)
+	p.objects = m.applyMutOverlaysOpts(msg.objects, false)
 	if msg.typeName != "" {
 		p.typeName = msg.typeName
 	}
@@ -249,6 +250,7 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 		p.listFields = defaultFields(ts)
 		p.spec.Fields = p.listFields
 	}
+	m.refreshObjectTitles(p.objects, ts)
 	m.resolveTraitTitles(p.objects)
 	p.applyFilterAndGroup(ts)
 	m.restorePaneCursor(p)
@@ -264,15 +266,25 @@ func (m Model) onQuery(msg queryMsg) (Model, tea.Cmd) {
 	}
 	m.recomputeSearchHits()
 	n := len(p.filtered)
-	m.status = fmt.Sprintf("%d objects", n)
-	if p.hasMore {
-		m.status = fmt.Sprintf("%d of %d (truncated)", n, p.total)
+	if live && m.pendingStatus != "" {
+		m.status = m.pendingStatus
+	} else {
+		m.status = fmt.Sprintf("%d objects", n)
+		if p.hasMore {
+			m.status = fmt.Sprintf("%d of %d (truncated)", n, p.total)
+		}
+		m.pendingStatus = ""
 	}
 	var cmds []tea.Cmd
 	var preview tea.Cmd
 	m, preview = m.maybeTraitPreview(p)
 	if preview != nil {
 		cmds = append(cmds, preview)
+	}
+	m2, created := m.openCreatedIfMissing(p)
+	m = m2
+	if created != nil {
+		cmds = append(cmds, created)
 	}
 	if m.needPrefetch {
 		m.needPrefetch = false
@@ -348,7 +360,7 @@ func (m Model) onRead(msg readMsg) (Model, tea.Cmd) {
 			m.screen = kindNote
 		}
 	} else {
-		m.noteScroll = sourceLineScroll(msg.result.Content, m.noteBody, m.currentNoteLine())
+		m.noteScroll = mapSourceSpan(msg.result.Content, m.noteBody, m.currentNoteLine(), m.anchorNeedles()...).scroll
 		m.linkIdx = 0
 		m.backIdx = 0
 		if !msg.live {
@@ -419,7 +431,8 @@ func (m *Model) applyPreviewScroll() {
 		m.previewScroll = 0
 		return
 	}
-	m.previewScroll = sourceLineScroll(m.preview.Content, m.previewBody, m.previewLine)
+	span := mapSourceSpan(m.preview.Content, m.previewBody, m.previewLine, m.anchorNeedles()...)
+	m.previewScroll = span.scroll
 }
 
 func (m Model) onSearch(msg searchMsg) (Model, tea.Cmd) {
@@ -1042,6 +1055,7 @@ func (m Model) previewCmd() (Model, tea.Cmd) {
 	}
 	same := m.previewID == ref && m.preview != nil
 	m.previewLine = obj.Line
+	m.scrollNeedle = objectNeedle(*obj)
 	if same {
 		m.applyPreviewScroll()
 		return m, nil
@@ -1131,11 +1145,9 @@ func (m Model) refresh() (Model, tea.Cmd) {
 	if len(m.panes) == 0 {
 		return m, fetchSchema(m.client)
 	}
+	m.dropQueryCache()
 	var cmds []tea.Cmd
 	for _, p := range m.panes {
-		if m.queryCache != nil {
-			delete(m.queryCache, cacheKey(p.sourceQuery, p.sourceInputs))
-		}
 		sel := ""
 		if p.bind != "" {
 			if d := m.viewByID(p.bind); d != nil {
@@ -1158,6 +1170,7 @@ func (m Model) openSelectedNote() (Model, tea.Cmd) {
 	if id == "" {
 		return m, nil
 	}
+	m.scrollNeedle = objectNeedle(*obj)
 	return m.openNoteAt(id, obj.Line)
 }
 
@@ -1231,6 +1244,7 @@ func (m Model) followOrOpenBacklink() (Model, tea.Cmd) {
 			if rd, ok := m.readCache[g.Source]; ok && rd != nil {
 				content = rd.Content
 			}
+			m.scrollNeedle = firstNonEmpty(backlinkNeedles(g, m.note.ObjectID)...)
 			return m.openNoteAt(g.Source, backlinkAnchorLine(g, content, m.note.ObjectID))
 		}
 		return m, nil

@@ -270,6 +270,36 @@ func TestLiveGenerationDropsCacheAndRefetchesSchema(t *testing.T) {
 	}
 }
 
+func TestLiveRefetchIgnoresStaleQueryCache(t *testing.T) {
+	f := newLiveFake()
+	m, _ := startLive(t, f)
+	focusMain(&m)
+	key := cacheKey(m.p().sourceQuery, m.p().sourceInputs)
+	stale := []api.Object{{
+		ID: "projects/stale", Title: "Stale", Type: "project",
+		Fields: map[string]any{"name": "Stale"},
+	}}
+	m.queryCache[key] = queryCacheEntry{objects: stale, typeName: "project", total: 1}
+	m.p().objects = stale
+	m.p().applyFilterAndGroup(api.TypeSchema{})
+	queries := f.queryN
+	m, cmd := m.liveRefetch(true)
+	if cmd == nil {
+		t.Fatal("expected refetch")
+	}
+	if len(m.queryCache) != 0 {
+		t.Fatal("live refetch should drop the query cache")
+	}
+	m = execCmds(t, m, cmd)
+	if f.queryN <= queries {
+		t.Fatal("live refetch must re-query")
+	}
+	sel := m.p().selectedObject()
+	if sel == nil || sel.ID == "projects/stale" {
+		t.Fatalf("stale cache served after live refetch: %+v", sel)
+	}
+}
+
 func TestLiveBindReresolvesAfterCounter(t *testing.T) {
 	f := newLiveFake()
 	srv := httptest.NewServer(f.handler())
@@ -278,7 +308,7 @@ func TestLiveBindReresolvesAfterCounter(t *testing.T) {
 		Views: map[string]config.View{
 			"projects": {Type: "project", Present: config.Present{Kind: kindList}},
 			"tasks": {
-				Type:   "project",
+				Type:    "project",
 				Present: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
 		},

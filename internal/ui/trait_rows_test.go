@@ -124,7 +124,7 @@ func TestTraitQueryRowsAgainstFakeAPI(t *testing.T) {
 		Views: map[string]config.View{
 			"priorities": {Query: "priorities", Present: config.Present{Kind: kindList}},
 			"related": {
-				Type:   "project",
+				Type:    "project",
 				Present: config.Present{Kind: kindList, Filter: ".id=={{selected}}"},
 			},
 		},
