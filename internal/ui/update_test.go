@@ -368,6 +368,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyRight}
 	case "ctrl+c":
 		return tea.KeyMsg{Type: tea.KeyCtrlC}
+	case "ctrl+a":
+		return tea.KeyMsg{Type: tea.KeyCtrlA}
 	case "ctrl+d":
 		return tea.KeyMsg{Type: tea.KeyCtrlD}
 	case "ctrl+u":

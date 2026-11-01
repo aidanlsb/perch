@@ -208,7 +208,7 @@ func (m *Model) restorePaneCursor(p *viewState) {
 	}
 	if p.restoreID == "" || !p.selectID(p.restoreID) {
 		if p.restoreID != "" {
-			p.resetCursor()
+			p.clampCursor()
 		}
 	} else {
 		p.listOff = p.restoreOff

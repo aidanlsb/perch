@@ -624,12 +624,16 @@ func (m Model) dismissOverlay() (Model, tea.Cmd) {
 }
 
 func (m Model) keysTraitFast() (Model, tea.Cmd) {
-	obj := m.selectedObject()
-	if obj == nil || !obj.IsTrait() {
+	objs := m.actionObjects()
+	if len(objs) == 0 {
 		m.status = "not a trait"
 		return m, nil
 	}
-	return m.startTraitFast(*obj)
+	if !allTraits(objs) {
+		m.status = "not a trait"
+		return m, nil
+	}
+	return m.startTraitFast(objs[0])
 }
 
 func (m Model) keysRQL(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -702,6 +706,9 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if isSpace(msg) {
 		return m.startLeader()
+	}
+	if m2, cmd, ok := m.keysSelect(key); ok {
+		return m2, cmd
 	}
 	switch key {
 	case "esc":
@@ -802,6 +809,12 @@ func (m Model) keysBrowse(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) browseUnwind(key string) (Model, tea.Cmd) {
+	if key == "esc" {
+		if p := m.focusedView(); p != nil && p.hasMarks() {
+			p.clearMarks()
+			return m, nil
+		}
+	}
 	if key == "esc" && m.searchQ != "" {
 		m.searchQ = ""
 		m.searchHits = nil

@@ -42,11 +42,19 @@ navigation keys use `Space` as a leader: `Space h` Home, `Space t` types, `Space
 daily, `Space q` saved queries, `Space v` views/layouts, `Space f` notes
 (`ctrl-p` stays), `Space s` full-text search, `Space a` actions,
 `Space Space` the navigation menu. `,` / `Space ,` opens config at the
-current view. Bare `t` `d` `q` `v` `f` do nothing in normal mode (on Home,
-`d`/`f`/`s`/`c`/`a` are shortcuts). Bare
+current view. Bare `t` `d` `q` `f` do nothing in normal mode (on Home,
+`d`/`f`/`s`/`c`/`a` are shortcuts). Bare `v` toggles multi-select (`V`
+range-select, `ctrl-a` select all visible); `Space v` is still the views
+picker. Bare
 `s` sets a field or trait, `x` toggles a trait, `c` creates an object,
-`H`/`L` move a board card. `q` does not quit (`ctrl+c` quits). `esc` /
-`backspace` unwind local focus then pop Home/browse/note history. Panel motions (`ctrl-h/j/k/l`, `ctrl-w` plus a
+`H`/`L` move a board card. With a non-empty selection those mutations
+(and `Space a` move / reclassify / delete / set field) apply to every
+selected row after one confirmation; create and capture stay
+single-target. `x` on several traits uses the first item's toggled
+value (bool: all true or all false; two-value enum: the other value;
+larger enums: one picker). `q` does not quit (`ctrl+c` quits). `esc` /
+`backspace` unwind local focus then pop Home/browse/note history; `esc`
+clears an active selection before search, preview, zoom, or history. Panel motions (`ctrl-h/j/k/l`, `ctrl-w` plus a
 direction, tab) move among main panels. In-panel scrolling is `ctrl-d` /
 `ctrl-u` only. Field widgets follow `GET /v1/schema` only; do not assume
 vault field, type, or trait names.

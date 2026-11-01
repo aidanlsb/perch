@@ -193,45 +193,109 @@ func (m Model) startCapture() (Model, tea.Cmd) {
 }
 
 func (m Model) startMove() (Model, tea.Cmd) {
-	obj := m.targetFileObject()
-	if obj == nil || obj.ID == "" {
+	files := m.actionFileObjects()
+	if len(files) == 0 {
 		m.status = "no object"
 		return m, nil
 	}
-	m.mut = mutState{kind: mutMove, ref: obj.ID, restoreID: obj.ID, step: "dest", dryRun: true}
-	return m.openPrompt("destination", obj.ID, false)
+	ids := make([]string, 0, len(files))
+	for _, o := range files {
+		ids = append(ids, o.ID)
+	}
+	restore := files[0].ID
+	if p := m.focusedView(); p != nil {
+		if cur := p.selectedRowID(); cur != "" {
+			restore = cur
+		}
+	}
+	initial := files[0].ID
+	if len(files) > 1 {
+		initial = ""
+	}
+	m.mut = mutState{kind: mutMove, ref: files[0].ID, restoreID: restore, step: "dest", dryRun: true, targets: ids}
+	return m.openPrompt("destination", initial, false)
 }
 
 func (m Model) startDelete() (Model, tea.Cmd) {
-	obj := m.targetFileObject()
-	if obj == nil || obj.ID == "" {
+	files := m.actionFileObjects()
+	if len(files) == 0 {
 		m.status = "no object"
 		return m, nil
 	}
-	m.mut = mutState{kind: mutDelete, ref: obj.ID, restoreID: obj.ID, dryRun: true}
+	ids := make([]string, 0, len(files))
+	for _, o := range files {
+		ids = append(ids, o.ID)
+	}
+	restore := files[0].ID
+	if p := m.focusedView(); p != nil {
+		if cur := p.selectedRowID(); cur != "" {
+			restore = cur
+		}
+	}
+	m.mut = mutState{kind: mutDelete, ref: files[0].ID, restoreID: restore, dryRun: true, targets: ids}
+	if len(ids) > 1 {
+		return m.invokeDeleteBatch()
+	}
 	return m.invokeDelete()
 }
 
 func (m Model) startReclassify() (Model, tea.Cmd) {
-	obj := m.targetFileObject()
-	if obj == nil || obj.ID == "" {
+	files := m.actionFileObjects()
+	if len(files) == 0 {
 		m.status = "no object"
 		return m, nil
 	}
-	m.mut = mutState{kind: mutReclassify, ref: obj.ID, objType: obj.Type, fields: map[string]any{}, restoreID: obj.ID, step: "type"}
+	ids := make([]string, 0, len(files))
+	for _, o := range files {
+		ids = append(ids, o.ID)
+	}
+	restore := files[0].ID
+	if p := m.focusedView(); p != nil {
+		if cur := p.selectedRowID(); cur != "" {
+			restore = cur
+		}
+	}
+	m.mut = mutState{kind: mutReclassify, ref: files[0].ID, objType: files[0].Type, fields: map[string]any{}, restoreID: restore, step: "type", targets: ids}
 	return m.openMutTypePicker()
 }
 
 func (m Model) startReclassifyFields() (Model, tea.Cmd) {
-	obj := m.targetFileObject()
-	have := map[string]any{}
-	if obj != nil {
+	ts := m.schema.Types[m.mut.newType]
+	missing := map[string]struct{}{}
+	files := m.actionFileObjects()
+	if len(m.mut.targets) > 0 {
+		files = nil
+		for _, id := range m.mut.targets {
+			if o := m.objectByID(id); o != nil {
+				if fo := m.fileObjectOf(*o); fo != nil {
+					files = append(files, *fo)
+				}
+			} else {
+				files = append(files, api.Object{ID: id, Fields: map[string]any{}})
+			}
+		}
+	}
+	if len(files) == 0 {
+		if obj := m.targetFileObject(); obj != nil {
+			files = []api.Object{*obj}
+		}
+	}
+	for _, obj := range files {
+		have := map[string]any{}
 		for k, v := range obj.Fields {
 			have[k] = v
 		}
+		for _, name := range requiredFieldsWithoutDefault(ts, have) {
+			missing[name] = struct{}{}
+		}
 	}
-	ts := m.schema.Types[m.mut.newType]
-	m.mut.need = requiredFieldsWithoutDefault(ts, have)
+	var need []string
+	for _, name := range ts.FieldNames() {
+		if _, ok := missing[name]; ok {
+			need = append(need, name)
+		}
+	}
+	m.mut.need = need
 	m.mut.needIdx = 0
 	m.mut.fields = map[string]any{}
 	return m.nextReclassifyField()
@@ -240,6 +304,9 @@ func (m Model) startReclassifyFields() (Model, tea.Cmd) {
 func (m Model) nextReclassifyField() (Model, tea.Cmd) {
 	if m.mut.needIdx >= len(m.mut.need) {
 		m.mut.force = false
+		if m.isMulti() {
+			return m.invokeReclassifyBatch()
+		}
 		return m.invokeReclassify()
 	}
 	name := m.mut.need[m.mut.needIdx]

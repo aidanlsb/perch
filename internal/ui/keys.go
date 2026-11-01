@@ -31,10 +31,13 @@ var Keymap = []Binding{
 	{"browse", "gg / G", "top / bottom"},
 	{"browse", "ctrl-d / ctrl-u", "half-page down / up"},
 	{"browse", "enter", "open note, or move to the bound panel"},
-	{"browse", "s", "set / edit field or trait"},
-	{"browse", "x", "toggle / cycle trait value"},
+	{"browse", "v", "toggle selection and move down"},
+	{"browse", "V", "range-select (j/k extend; v/V commit)"},
+	{"browse", "ctrl-a", "select all visible rows"},
+	{"browse", "s", "set / edit field or trait (selection if any)"},
+	{"browse", "x", "toggle / cycle trait value (selection if any)"},
 	{"browse", "c", "create a new object"},
-	{"browse", "H / L", "move board card to previous / next column"},
+	{"browse", "H / L", "move board card(s) to previous / next column"},
 	{"browse", "space t", "type picker (schema types)"},
 	{"browse", "space d", "daily-note date picker"},
 	{"browse", "space q", "saved query picker"},
@@ -48,14 +51,14 @@ var Keymap = []Binding{
 	{"browse", "/", "fuzzy search in current view"},
 	{"browse", "[ / ctrl-o", "back in history (or home)"},
 	{"browse", "] / ctrl-i", "forward in history"},
-	{"browse", "esc / backspace", "clear search / unfocus / unzoom / back"},
+	{"browse", "esc / backspace", "clear selection, then search / unfocus / unzoom / back"},
 	{"browse", "n / N", "next / previous search hit"},
 	{"browse", ".", "cycle date granularity (day/week/month)"},
 	{"browse", "p", "toggle preview pane"},
 	{"browse", ":", "run an ad-hoc RQL query"},
 	{"browse", "r", "refresh (and reload config)"},
 	{"browse", "space", "leader (t/d/q/v/l/f/s/a/, / space)"},
-	{"browse", "esc", "clear search / close overlay / cancel leader"},
+	{"browse", "esc", "clear selection / search / close overlay / cancel leader"},
 
 	{"leader", "space h", "home"},
 	{"leader", "space t", "type picker"},
@@ -192,15 +195,25 @@ func panelFooter(m Model) string {
 		return "j/k scroll  h back  e edit  p close  ? help"
 	default:
 		p := m.p()
+		if p.hasMarks() {
+			return selectionFooter(p)
+		}
 		switch p.spec.Kind {
 		case kindBoard:
-			return "hjkl board  H/L card  s set  c new  enter  space …  / search  S save  ? help"
+			return "hjkl board  H/L card  s set  c new  v sel  enter  space …  / search  S save  ? help"
 		case kindDate:
-			return "jk dates  . gran  s set  c new  enter  space …  / search  S save  ? help"
+			return "jk dates  . gran  s set  c new  v sel  enter  space …  / search  S save  ? help"
 		default:
-			return "jk list  s set  c new  enter  space …  / search  S save  , config  ? help"
+			return "jk list  s set  c new  v sel  enter  space …  / search  S save  , config  ? help"
 		}
 	}
+}
+
+func selectionFooter(p *viewState) string {
+	if p != nil && p.spec.Kind == kindBoard {
+		return "v toggle  V range  esc clear  s set  x  H/L  space a  ? help"
+	}
+	return "v toggle  V range  esc clear  s set  x  space a  ? help"
 }
 
 // keyIdent is the string we switch on for bindings.

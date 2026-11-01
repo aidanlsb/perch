@@ -52,6 +52,8 @@ type viewState struct {
 	live          bool
 	queryKind     string
 	previewOff    bool
+	selected      map[string]struct{}
+	rangeAnchor   string
 }
 
 type layoutTree struct {
@@ -133,6 +135,32 @@ func (v *viewState) resetCursor() {
 	v.boardRow = 0
 	v.dateSec = 0
 	v.dateRow = 0
+}
+
+func (v *viewState) clampCursor() {
+	if v == nil {
+		return
+	}
+	switch v.spec.Kind {
+	case kindBoard:
+		if len(v.board) == 0 {
+			v.boardCol = 0
+			v.boardRow = 0
+			return
+		}
+		v.boardCol = clamp(v.boardCol, 0, len(v.board)-1)
+		v.boardRow = clamp(v.boardRow, 0, max(0, len(v.board[v.boardCol].Items)-1))
+	case kindDate:
+		if len(v.dateCols) == 0 {
+			v.dateSec = 0
+			v.dateRow = 0
+			return
+		}
+		v.dateSec = clamp(v.dateSec, 0, len(v.dateCols)-1)
+		v.dateRow = clamp(v.dateRow, 0, max(0, len(v.dateCols[v.dateSec].Items)-1))
+	default:
+		v.listCur = clamp(v.listCur, 0, max(0, len(v.filtered)-1))
+	}
 }
 
 func (v *viewState) selectedObject() *api.Object {
@@ -337,6 +365,7 @@ func applyViewSource(p *viewState, schema api.Schema, v config.View) {
 	if p == nil {
 		return
 	}
+	p.clearMarks()
 	p.rawInputs = v.Inputs
 	p.savedQuery = nil
 	p.sourceIsQuery = false

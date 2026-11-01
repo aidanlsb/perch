@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/aidanlsb/perch/internal/api"
@@ -8,13 +9,34 @@ import (
 )
 
 func (m Model) startSet() (Model, tea.Cmd) {
-	obj := m.targetObject()
-	if obj == nil {
+	objs := m.typedActionObjects()
+	if len(objs) == 0 {
 		m.status = "no object"
 		return m, nil
 	}
-	if obj.IsTrait() {
-		return m.startTraitValue(*obj)
+	ids := make([]string, 0, len(objs))
+	for _, o := range objs {
+		ids = append(ids, o.ID)
+	}
+	if anyTrait(objs) && !allTraits(objs) {
+		m.status = "selection mixes objects and traits"
+		return m, nil
+	}
+	if allTraits(objs) {
+		restore := ids[0]
+		if p := m.focusedView(); p != nil {
+			if cur := p.selectedRowID(); cur != "" {
+				restore = cur
+			}
+		}
+		m.mut = mutState{kind: mutTrait, targets: ids, restoreID: restore}
+		return m.startTraitValue(objs[0])
+	}
+	obj := objs[0]
+	cf := commonFields(m.schema, objs)
+	if len(objs) > 1 && len(cf) == 0 {
+		m.status = "no common fields"
+		return m, nil
 	}
 	ts, ok := m.schema.Types[strings.TrimSpace(obj.Type)]
 	if !ok {
@@ -29,12 +51,57 @@ func (m Model) startSet() (Model, tea.Cmd) {
 		m.status = "no schema fields"
 		return m, nil
 	}
-	return m.openFieldPicker(*obj, ts)
+	m.mut = mutState{kind: mutSet, ref: obj.ID, objType: obj.Type, restoreID: obj.ID, targets: ids}
+	if p := m.focusedView(); p != nil {
+		if cur := p.selectedRowID(); cur != "" {
+			m.mut.restoreID = cur
+		}
+	}
+	if len(cf) > 0 {
+		return m.openCommonFieldPicker(obj, cf)
+	}
+	return m.openFieldPicker(obj, ts)
+}
+
+func (m Model) typedActionObjects() []api.Object {
+	objs := m.actionObjects()
+	fallback := ""
+	if p := m.p(); p != nil {
+		fallback = p.typeName
+	}
+	out := make([]api.Object, 0, len(objs))
+	for _, o := range objs {
+		if strings.TrimSpace(o.Type) == "" {
+			o.Type = fallback
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+func (m Model) mutObject() *api.Object {
+	if len(m.mut.targets) > 0 {
+		if o := m.objectByID(m.mut.targets[0]); o != nil {
+			if strings.TrimSpace(o.Type) == "" {
+				o.Type = m.mut.objType
+			}
+			return o
+		}
+	}
+	return m.targetObject()
 }
 
 func (m Model) startTraitValue(obj api.Object) (Model, tea.Cmd) {
 	tt := traitTypeOf(obj)
 	ts := m.schema.Traits[tt]
+	targets := m.mut.targets
+	restore := m.mut.restoreID
+	if restore == "" {
+		restore = obj.ID
+	}
+	if len(targets) == 0 {
+		targets = []string{obj.ID}
+	}
 	m.mut = mutState{
 		kind:      mutTrait,
 		step:      "value",
@@ -42,32 +109,48 @@ func (m Model) startTraitValue(obj api.Object) (Model, tea.Cmd) {
 		traitType: tt,
 		schema:    ts.AsField(),
 		current:   traitValueOf(obj),
-		restoreID: obj.ID,
+		restoreID: restore,
+		targets:   targets,
 	}
 	return m.openValueWidget()
 }
 
 func (m Model) startTraitFast(obj api.Object) (Model, tea.Cmd) {
-	tt := traitTypeOf(obj)
-	ts := m.schema.Traits[tt]
-	cur := traitValueOf(obj)
-	if next, ok := traitToggleValue(ts, cur); ok {
-		m.mut = mutState{kind: mutTrait, traitID: obj.ID, restoreID: obj.ID}
-		return m.invokeUpdateTrait(obj.ID, next)
+	objs := m.typedActionObjects()
+	if len(objs) == 0 {
+		objs = []api.Object{obj}
 	}
-	if ts.IsEnum() && len(ts.Values) > 2 {
-		m.mut = mutState{
-			kind:      mutTrait,
-			step:      "value",
-			traitID:   obj.ID,
-			traitType: tt,
-			schema:    ts.AsField(),
-			current:   cur,
-			restoreID: obj.ID,
+	ids := make([]string, 0, len(objs))
+	for _, o := range objs {
+		ids = append(ids, o.ID)
+	}
+	restore := obj.ID
+	if p := m.focusedView(); p != nil {
+		if cur := p.selectedRowID(); cur != "" {
+			restore = cur
 		}
-		return m.openEnumPicker()
 	}
-	return m.startTraitValue(obj)
+	val, picker, errMsg := traitUniformTarget(m.schema, objs)
+	if errMsg != "" {
+		m.status = errMsg
+		return m, nil
+	}
+	tt := traitTypeOf(objs[0])
+	ts := m.schema.Traits[tt]
+	cur := traitValueOf(objs[0])
+	m.mut = mutState{kind: mutTrait, traitID: objs[0].ID, traitType: tt, restoreID: restore, targets: ids, schema: ts.AsField(), current: cur}
+	if picker {
+		if ts.IsEnum() && len(ts.Values) > 2 {
+			m.mut.step = "value"
+			return m.openEnumPicker()
+		}
+		return m.startTraitValue(objs[0])
+	}
+	if len(ids) > 1 {
+		m.mut.current = val
+		return m.openConfirm(fmt.Sprintf("set trait → %s on %d rows [enter/esc]", val, len(ids)))
+	}
+	return m.invokeUpdateTrait(objs[0].ID, val)
 }
 
 func traitToggleValue(ts api.TraitSchema, current string) (string, bool) {
@@ -142,13 +225,23 @@ func (m Model) targetFileObject() *api.Object {
 }
 
 func (m Model) openFieldPicker(obj api.Object, ts api.TypeSchema) (Model, tea.Cmd) {
+	var fields []commonField
+	for _, name := range ts.FieldNames() {
+		fields = append(fields, commonField{Name: name, Schema: ts.Fields[name]})
+	}
+	return m.openCommonFieldPicker(obj, fields)
+}
+
+func (m Model) openCommonFieldPicker(obj api.Object, fields []commonField) (Model, tea.Cmd) {
 	if m.mut.kind == mutNone {
 		m.mut.kind = mutSet
 	}
 	if m.mut.kind == mutSet {
 		m.mut.ref = obj.ID
 		m.mut.objType = obj.Type
-		m.mut.restoreID = obj.ID
+		if m.mut.restoreID == "" {
+			m.mut.restoreID = obj.ID
+		}
 	}
 	m.mut.step = "field"
 	m.overlay = overlayPicker
@@ -156,21 +249,18 @@ func (m Model) openFieldPicker(obj api.Object, ts api.TypeSchema) (Model, tea.Cm
 	m.pickerQ = ""
 	m.pickerCur = 0
 	var items []pickItem
-	for _, name := range ts.FieldNames() {
-		fs := ts.Fields[name]
-		cur := api.ScalarString(obj.Fields[name])
-		if cur == "" {
-			cur = "—"
-		}
+	for _, cf := range fields {
+		fs := cf.Schema
+		cur := m.fieldCurrentLabel(cf.Name, obj)
 		badge := fs.Type
 		if fs.Required {
 			badge += " required"
 		}
 		items = append(items, pickItem{
 			Kind:  pickerFields,
-			Label: name,
+			Label: cf.Name,
 			Sub:   cur + "  " + badge,
-			ID:    name,
+			ID:    cf.Name,
 		})
 	}
 	m.pickerAll = items
@@ -179,13 +269,34 @@ func (m Model) openFieldPicker(obj api.Object, ts api.TypeSchema) (Model, tea.Cm
 	return m, nil
 }
 
+func (m Model) fieldCurrentLabel(name string, obj api.Object) string {
+	cur := api.ScalarString(obj.Fields[name])
+	ids := m.mut.targets
+	if len(ids) > 1 {
+		for _, id := range ids[1:] {
+			o := m.objectByID(id)
+			v := ""
+			if o != nil {
+				v = api.ScalarString(o.Fields[name])
+			}
+			if v != cur {
+				return "—"
+			}
+		}
+	}
+	if cur == "" {
+		return "—"
+	}
+	return cur
+}
+
 func (m Model) afterFieldPicked(name string) (Model, tea.Cmd) {
 	if m.mut.kind == mutSchemaRenameField {
 		m.mut.field = name
 		m.mut.step = "new"
 		return m.openPrompt("new field name", "", false)
 	}
-	obj := m.targetObject()
+	obj := m.mutObject()
 	if obj == nil {
 		m.status = "no object"
 		m.clearMut()
@@ -197,6 +308,14 @@ func (m Model) afterFieldPicked(name string) (Model, tea.Cmd) {
 		ts = m.schema.Types[m.mut.objType]
 	}
 	fs := ts.Fields[name]
+	if len(m.mut.targets) > 1 {
+		for _, cf := range commonFields(m.schema, m.typedActionObjects()) {
+			if cf.Name == name {
+				fs = cf.Schema
+				break
+			}
+		}
+	}
 	m.mut.kind = mutSet
 	m.mut.step = "value"
 	m.mut.field = name
@@ -204,7 +323,9 @@ func (m Model) afterFieldPicked(name string) (Model, tea.Cmd) {
 	m.mut.current = api.ScalarString(obj.Fields[name])
 	m.mut.optional = !fs.Required
 	m.mut.ref = obj.ID
-	m.mut.restoreID = obj.ID
+	if m.mut.restoreID == "" {
+		m.mut.restoreID = obj.ID
+	}
 	return m.openValueWidget()
 }
 
@@ -219,7 +340,7 @@ func (m Model) openValueWidget() (Model, tea.Cmd) {
 		return m.openEnumPicker()
 	case "bool", "boolean":
 		if m.mut.kind == mutTrait {
-			return m.invokeUpdateTrait(m.mut.traitID, toggleBool(m.mut.current))
+			return m.applyTraitValue(toggleBool(m.mut.current))
 		}
 		if m.mut.kind == mutSet && !m.mut.optional {
 			val, err := api.CoerceFieldValue(fs.Type, toggleBool(m.mut.current))
@@ -227,7 +348,7 @@ func (m Model) openValueWidget() (Model, tea.Cmd) {
 				m.errMsg = err.Error()
 				return m, nil
 			}
-			return m.invokeSet(m.mut.ref, map[string]any{m.mut.field: val})
+			return m.applySetFields(map[string]any{m.mut.field: val})
 		}
 		return m.openBoolPicker()
 	case "ref":
@@ -433,14 +554,14 @@ func (m Model) afterChoice(id string) (Model, tea.Cmd) {
 func (m Model) commitValue(raw string) (Model, tea.Cmd) {
 	switch m.mut.kind {
 	case mutTrait:
-		return m.invokeUpdateTrait(m.mut.traitID, raw)
+		return m.applyTraitValue(raw)
 	case mutSet:
 		val, err := api.CoerceFieldValue(m.mut.schema.Type, raw)
 		if err != nil {
 			m.errMsg = err.Error()
 			return m, nil
 		}
-		return m.invokeSet(m.mut.ref, map[string]any{m.mut.field: val})
+		return m.applySetFields(map[string]any{m.mut.field: val})
 	case mutNew:
 		return m.commitNewFieldValue(raw)
 	case mutReclassify:
@@ -467,34 +588,76 @@ func (m Model) moveBoardCard(delta int) (Model, tea.Cmd) {
 	if p == nil || p.spec.Kind != kindBoard {
 		return m, nil
 	}
-	obj := p.selectedObject()
-	if p.restoreID != "" {
-		if found := objectInPane(p, p.restoreID); found != nil {
-			obj = found
+	objs := []api.Object{}
+	if p.hasMarks() {
+		objs = p.markedObjects()
+	} else {
+		obj := p.selectedObject()
+		if p.restoreID != "" {
+			if found := objectInPane(p, p.restoreID); found != nil {
+				obj = found
+			}
+		}
+		if obj != nil {
+			objs = []api.Object{*obj}
 		}
 	}
-	if obj == nil || obj.IsTrait() {
-		m.status = "select an object"
-		return m, nil
-	}
-	target := p.boardCol + delta
-	if target < 0 || target >= len(p.board) {
-		return m, nil
-	}
-	col := p.board[target]
 	field := p.groupBy
 	if field == "" {
 		m.status = "no group_by"
 		return m, nil
 	}
-	m.mut = mutState{kind: mutSet, ref: obj.ID, field: field, restoreID: obj.ID}
-	p.boardCol = target
-	p.restoreID = obj.ID
-	p.keepCursor = true
-	if col.Key == "" {
-		return m.invokeUnset(obj.ID, []string{field})
+	colOf := func(id string) int {
+		for c := range p.board {
+			for _, it := range p.board[c].Items {
+				if it.ID == id {
+					return c
+				}
+			}
+		}
+		return -1
 	}
-	return m.invokeSet(obj.ID, map[string]any{field: col.Key})
+	var ops []boardOp
+	ids := make([]string, 0, len(objs))
+	for _, obj := range objs {
+		if obj.IsTrait() || obj.ID == "" {
+			continue
+		}
+		cur := colOf(obj.ID)
+		if !p.hasMarks() || cur < 0 {
+			cur = p.boardCol
+		}
+		target := cur + delta
+		if target < 0 || target >= len(p.board) {
+			continue
+		}
+		ops = append(ops, boardOp{ID: obj.ID, Field: field, Key: p.board[target].Key})
+		ids = append(ids, obj.ID)
+	}
+	if len(ops) == 0 {
+		return m, nil
+	}
+	restore := p.selectedRowID()
+	m.mut = mutState{kind: mutSet, field: field, restoreID: restore, targets: ids, boardOps: ops}
+	if len(ops) == 1 {
+		op := ops[0]
+		m.mut.ref = op.ID
+		target := p.boardCol + delta
+		if target >= 0 && target < len(p.board) {
+			p.boardCol = target
+		}
+		p.restoreID = restore
+		p.keepCursor = true
+		if op.Key == "" {
+			return m.invokeUnset(op.ID, []string{field})
+		}
+		return m.invokeSet(op.ID, map[string]any{field: op.Key})
+	}
+	dir := "right"
+	if delta < 0 {
+		dir = "left"
+	}
+	return m.openConfirm(fmt.Sprintf("move %d cards one column %s [enter/esc]", len(ops), dir))
 }
 
 func (m Model) openMutTypePicker() (Model, tea.Cmd) {

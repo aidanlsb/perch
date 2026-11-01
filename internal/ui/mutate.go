@@ -76,12 +76,18 @@ type mutState struct {
 	view          config.View
 	fromActions   bool
 	pickedType    bool
+	targets       []string
+	resultOnly    bool
+	unsetOp       bool
+	dests         map[string]string
+	boardOps      []boardOp
 }
 
 type mutateMsg struct {
-	kind mutKind
-	err  error
-	data any
+	kind  mutKind
+	err   error
+	data  any
+	batch []batchItem
 }
 
 type dailyNoteMsg struct {
@@ -166,6 +172,9 @@ func (m Model) commitPrompt() (Model, tea.Cmd) {
 	case mutMove:
 		m.mut.dest = val
 		m.mut.dryRun = true
+		if m.isMulti() {
+			return m.invokeMoveBatch()
+		}
 		return m.invokeMove()
 	case mutReclassify:
 		return m.commitReclassifyField(val)
@@ -188,16 +197,40 @@ func (m Model) commitPrompt() (Model, tea.Cmd) {
 }
 
 func (m Model) applyConfirmed() (Model, tea.Cmd) {
+	if m.mut.resultOnly {
+		m.clearMut()
+		m.overlay = overlayNone
+		return m, nil
+	}
 	switch m.mut.kind {
 	case mutDelete:
 		m.mut.dryRun = false
+		if m.isMulti() {
+			return m.invokeDeleteBatch()
+		}
 		return m.invokeDelete()
 	case mutMove:
 		m.mut.dryRun = false
+		if m.isMulti() {
+			return m.invokeMoveBatch()
+		}
 		return m.invokeMove()
 	case mutReclassify:
 		m.mut.force = true
+		if m.isMulti() {
+			return m.invokeReclassifyBatch()
+		}
 		return m.invokeReclassify()
+	case mutSet:
+		if len(m.mut.boardOps) > 0 {
+			return m.invokeBoardOps()
+		}
+		if m.mut.unsetOp {
+			return m.invokeUnsetBatch()
+		}
+		return m.invokeSetBatch()
+	case mutTrait:
+		return m.invokeTraitBatch()
 	case mutSchemaRenameType:
 		return m.invokeSchemaRenameType(true)
 	case mutSchemaRenameField:
@@ -214,8 +247,10 @@ func (m Model) applyUnset() (Model, tea.Cmd) {
 	}
 	ref := m.mut.ref
 	field := m.mut.field
-	m.mut.restoreID = ref
-	return m.invokeUnset(ref, []string{field})
+	if m.mut.restoreID == "" {
+		m.mut.restoreID = ref
+	}
+	return m.applyUnsetFields([]string{field})
 }
 
 func (m Model) onMutate(msg mutateMsg) (Model, tea.Cmd) {
@@ -223,6 +258,9 @@ func (m Model) onMutate(msg mutateMsg) (Model, tea.Cmd) {
 	if msg.err != nil {
 		m.errMsg = msg.err.Error()
 		return m, nil
+	}
+	if len(msg.batch) > 0 {
+		return m.onMutateBatch(msg)
 	}
 	if m.mut.kind != mutNone && m.mut.kind != msg.kind {
 		return m, nil
@@ -345,6 +383,9 @@ func (m Model) afterApplied(status string) (Model, tea.Cmd) {
 		m.pendingOpenType = openType
 		reloadSchema = true
 	}
+	if p := m.focusedView(); p != nil {
+		p.clearMarks()
+	}
 	m.clearMut()
 	if reloadSchema {
 		m.overlays = nil
@@ -366,8 +407,13 @@ func (m Model) afterApplied(status string) (Model, tea.Cmd) {
 }
 
 func (m *Model) rememberSetOverlay(data any) {
-	id := m.mut.ref
-	fields := m.mut.fields
+	m.rememberSetOverlayFor(m.mut.ref, m.mut.fields, data)
+}
+
+func (m *Model) rememberSetOverlayFor(id string, fields map[string]any, data any) {
+	if fields == nil {
+		fields = m.mut.fields
+	}
 	unset := false
 	if res, ok := data.(*api.SetResult); ok && res != nil {
 		if id == "" {
@@ -395,8 +441,14 @@ func (m *Model) rememberSetOverlay(data any) {
 }
 
 func (m *Model) rememberTraitOverlay(data any) {
-	id := m.mut.traitID
+	m.rememberTraitOverlayFor(m.mut.traitID, data)
+}
+
+func (m *Model) rememberTraitOverlayFor(id string, data any) {
 	val := m.mut.promptBuf
+	if val == "" {
+		val = m.mut.current
+	}
 	if res, ok := data.(*api.UpdateTraitResult); ok && res != nil && len(res.Items) > 0 {
 		it := res.Items[0]
 		if it.ID != "" {

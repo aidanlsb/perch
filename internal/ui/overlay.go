@@ -49,6 +49,11 @@ func (m Model) promptEscape() (Model, tea.Cmd) {
 }
 
 func (m Model) confirmEscape() (Model, tea.Cmd) {
+	if m.mut.resultOnly {
+		m.clearMut()
+		m.overlay = overlayNone
+		return m, nil
+	}
 	if m.mut.kind != mutNone {
 		return m.mutStepBack()
 	}
@@ -69,8 +74,11 @@ func (m Model) dateEscape() (Model, tea.Cmd) {
 func (m Model) mutStepBack() (Model, tea.Cmd) {
 	switch m.mut.kind {
 	case mutSet:
+		if m.overlay == overlayConfirm && !m.mut.unsetOp && len(m.mut.boardOps) == 0 {
+			return m.openValueWidget()
+		}
 		if m.mut.step == "value" || m.mut.step == "date" {
-			obj := m.targetObject()
+			obj := m.mutObject()
 			if obj == nil {
 				return m.abortMut()
 			}
@@ -82,6 +90,9 @@ func (m Model) mutStepBack() (Model, tea.Cmd) {
 		}
 		return m.abortMut()
 	case mutTrait:
+		if m.overlay == overlayConfirm {
+			return m.openValueWidget()
+		}
 		return m.abortMut()
 	case mutNew:
 		return m.stepBackNew()
