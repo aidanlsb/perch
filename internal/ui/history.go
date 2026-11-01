@@ -159,7 +159,7 @@ func (m *Model) applyCachedNote(rd *api.ReadResult, fr histFrame) {
 		m.linkIdx = clamp(fr.LinkIdx, 0, max(0, nLinks-1))
 		m.backIdx = clamp(fr.BackIdx, 0, max(0, nBack-1))
 	} else {
-		m.noteScroll = sourceLineScroll(rd.Content, m.noteBody, fr.Line)
+		m.noteScroll = mapSourceSpan(rd.Content, m.noteBody, fr.Line, m.anchorNeedles()...).scroll
 		m.linkIdx = 0
 		m.backIdx = 0
 		m.pane = paneMain

@@ -110,7 +110,7 @@ func (m Model) commitSaveView() (Model, tea.Cmd) {
 	}
 	p := m.p()
 	v := config.View{
-		Inputs: p.rawInputs,
+		Inputs:  p.rawInputs,
 		Present: config.Present{}.FromSpec(p.spec),
 	}
 	switch {

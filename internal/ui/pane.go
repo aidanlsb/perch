@@ -426,17 +426,19 @@ func (m Model) queryPane(p *viewState, selected string, keep, live bool) (Model,
 	p.sourceQuery = query
 	p.sourceInputs = inputs
 	ts := m.typeSchemaFor(p)
-	if ent, ok := m.queryCache[cacheKey(query, inputs)]; ok {
-		p.objects = ent.objects
-		if p.typeName == "" {
-			p.typeName = ent.typeName
-			ts = m.typeSchemaFor(p)
-		}
-		p.hasMore = ent.hasMore
-		p.total = ent.total
-		p.applyFilterAndGroup(ts)
-		if keep && p.restoreID != "" {
-			p.selectID(p.restoreID)
+	if !live {
+		if ent, ok := m.queryCache[cacheKey(query, inputs)]; ok {
+			p.objects = m.applyMutOverlays(ent.objects)
+			if p.typeName == "" {
+				p.typeName = ent.typeName
+				ts = m.typeSchemaFor(p)
+			}
+			p.hasMore = ent.hasMore
+			p.total = ent.total
+			p.applyFilterAndGroup(ts)
+			if keep && p.restoreID != "" {
+				p.selectID(p.restoreID)
+			}
 		}
 	}
 	p.gen = m.nextGen()

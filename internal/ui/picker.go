@@ -254,6 +254,11 @@ func (m *Model) refilterPicker() {
 
 func (m Model) confirmPicker() (Model, tea.Cmd) {
 	if m.pickerCur < 0 || m.pickerCur >= len(m.pickerHit) {
+		if m.mut.kind != mutNone && m.pickerKind != pickerNav {
+			m.status = "no matches"
+			m.errMsg = "no matches"
+			return m, nil
+		}
 		m.overlay = overlayNone
 		return m, nil
 	}

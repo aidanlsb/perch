@@ -226,6 +226,18 @@ type Model struct {
 	mut             mutState
 	pendingOpenType string
 	pendingOpenView string
+
+	overlays       []objectOverlay
+	scrollNeedle   string
+	pendingCreated string
+	pendingStatus  string
+}
+
+type objectOverlay struct {
+	id      string
+	fields  map[string]any
+	unset   []string
+	created *api.Object
 }
 
 // NewModel constructs an empty UI. Call Init to fetch the schema.

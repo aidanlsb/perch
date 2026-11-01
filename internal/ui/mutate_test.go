@@ -2,6 +2,7 @@ package ui
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -687,5 +688,144 @@ func TestBareSOpensFieldPicker(t *testing.T) {
 	m, _ = m.update(key("s"))
 	if m.overlay != overlayPicker || m.pickerKind != pickerFields {
 		t.Fatalf("overlay=%v kind=%v", m.overlay, m.pickerKind)
+	}
+}
+
+func TestSetFieldRefreshesTypeViewDespiteStaleQuery(t *testing.T) {
+	srv, log := newMutServer(t)
+	m := loadBrowse(t)
+	m.client = api.NewClient(srv.URL, "t")
+	focusMain(&m)
+	obj := m.p().selectedObject()
+	if obj == nil || api.ScalarString(obj.Fields["status"]) != "active" {
+		t.Fatalf("setup %+v", obj)
+	}
+	m.queryCache[cacheKey(m.p().sourceQuery, m.p().sourceInputs)] = queryCacheEntry{
+		objects:  m.p().objects,
+		typeName: "project",
+		total:    2,
+	}
+	m, _ = m.update(key("s"))
+	pickByID(&m, "status")
+	m, _ = m.update(key("enter"))
+	pickByID(&m, "done")
+	m, cmd := m.update(key("enter"))
+	m = flushMut(t, m, cmd)
+	if log.last("set").Command != "set" {
+		t.Fatalf("set not invoked: %+v", log.calls)
+	}
+	got := m.p().selectedObject()
+	if got == nil || got.ID != "projects/a" {
+		t.Fatalf("cursor lost: %+v", got)
+	}
+	if api.ScalarString(got.Fields["status"]) != "done" {
+		t.Fatalf("type view still stale: %+v", got.Fields)
+	}
+	m.p().live = true
+	m.p().keepCursor = true
+	m.p().restoreID = "projects/a"
+	m, _ = m.update(queryMsg{
+		gen: m.p().gen, pane: m.p().id, typeName: "project",
+		objects: []api.Object{{
+			ID: "projects/a", Title: "Alpha", Type: "project",
+			Fields: map[string]any{"name": "Alpha", "status": "active"},
+		}},
+	})
+	got = m.p().selectedObject()
+	if got == nil || got.ID != "projects/a" {
+		t.Fatalf("cursor lost after stale query: %+v", got)
+	}
+	if api.ScalarString(got.Fields["status"]) != "done" {
+		t.Fatalf("stale query overwrote mutation: %+v", got.Fields)
+	}
+}
+
+func TestCreateObjectStaysSelected(t *testing.T) {
+	m, log := loadMutBrowse(t)
+	focusMain(&m)
+	m, _ = m.update(key("c"))
+	for _, r := range "Nova" {
+		m, _ = m.update(runeKey(r))
+	}
+	m, cmd := m.update(key("enter"))
+	m = flushMut(t, m, cmd)
+	if log.last("new").Args["title"] != "Nova" {
+		t.Fatalf("new %+v", log.last("new").Args)
+	}
+	sel := m.p().selectedObject()
+	if sel == nil || sel.ID != "projects/new" {
+		t.Fatalf("created object not focused: %+v ids=%v", sel, idsOf(m.p().filtered))
+	}
+	if !strings.Contains(m.status, "created") {
+		t.Fatalf("status %q", m.status)
+	}
+}
+
+func TestCreateObjectOpensNoteWhenFilteredOut(t *testing.T) {
+	m, _ := loadMutBrowse(t)
+	m.width, m.height = 80, 24
+	focusMain(&m)
+	m, _ = m.update(key("c"))
+	for _, r := range "Ghost" {
+		m, _ = m.update(runeKey(r))
+	}
+	m, cmd := m.update(key("enter"))
+	m = flushMut(t, m, cmd)
+	m.p().live = true
+	m.p().keepCursor = true
+	m.p().restoreID = "projects/new"
+	m, cmd = m.update(queryMsg{
+		gen: m.p().gen, pane: m.p().id, typeName: "project",
+		objects: []api.Object{{
+			ID: "projects/a", Title: "Alpha", Type: "project",
+			Fields: map[string]any{"name": "Alpha", "status": "active"},
+		}},
+	})
+	if cmd != nil {
+		m = execCmds(t, m, cmd)
+	}
+	if m.screen != kindNote {
+		t.Fatalf("expected note view for created object outside results, screen=%s status=%s pending=%s filtered=%v",
+			m.screen, m.status, m.pendingCreated, idsOf(m.p().filtered))
+	}
+	if m.note == nil || m.note.ObjectID != "projects/new" {
+		t.Fatalf("opened %+v", m.note)
+	}
+}
+
+func TestCreateRequiredEnumEmptyDoesNotDismiss(t *testing.T) {
+	m := loadBrowse(t)
+	focusMain(&m)
+	ts := m.schema.Types["project"]
+	ts.Fields["status"] = api.FieldSchema{Type: "enum", Required: true, Values: nil}
+	m.schema.Types["project"] = ts
+	m, _ = m.update(key("c"))
+	for _, r := range "Nova" {
+		m, _ = m.update(runeKey(r))
+	}
+	m, _ = m.update(key("enter"))
+	if m.overlay == overlayNone {
+		t.Fatal("empty required enum must not silently close")
+	}
+	if m.errMsg == "" && !strings.Contains(m.status, "no values") {
+		t.Fatalf("want visible error, status=%q err=%q", m.status, m.errMsg)
+	}
+}
+
+func TestMutationAPIErrorShownInFooter(t *testing.T) {
+	m, _ := loadMutBrowse(t)
+	m.width, m.height = 80, 24
+	focusMain(&m)
+	m, cmd := m.invokeSet("projects/a", map[string]any{"status": "done"})
+	if cmd == nil {
+		t.Fatal("invoke should return cmd")
+	}
+	m, _ = m.update(mutateMsg{kind: mutSet, err: fmt.Errorf("VALIDATION: status is required")})
+	if m.errMsg == "" || !strings.Contains(m.errMsg, "VALIDATION") {
+		t.Fatalf("errMsg %q", m.errMsg)
+	}
+	out := m.View()
+	if !strings.Contains(out, "VALIDATION") {
+		t.Fatalf("footer missing error:\n%s", out)
 	}
 }

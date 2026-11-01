@@ -282,6 +282,7 @@ func (m Model) onMutate(msg mutateMsg) (Model, tea.Cmd) {
 			id = res.ID
 			m.mut.restoreID = id
 		}
+		m.rememberNewOverlay(res)
 		return m.afterApplied("created " + id)
 	case mutSaveQuery:
 		return m.afterApplied("saved views." + m.mut.viewName)
@@ -292,8 +293,10 @@ func (m Model) onMutate(msg mutateMsg) (Model, tea.Cmd) {
 	case mutSchemaAddTrait:
 		return m.afterApplied("added trait " + m.mut.traitName)
 	case mutSet:
+		m.rememberSetOverlay(msg.data)
 		return m.afterApplied("set " + m.mut.field)
 	case mutTrait:
+		m.rememberTraitOverlay(msg.data)
 		return m.afterApplied("updated trait")
 	case mutCapture:
 		return m.afterApplied("captured")
@@ -311,6 +314,10 @@ func (m Model) afterApplied(status string) (Model, tea.Cmd) {
 	m.overlay = overlayNone
 	m.errMsg = ""
 	m.status = status
+	m.pendingStatus = status
+	if kind == mutNew && restore != "" {
+		m.pendingCreated = restore
+	}
 	reloadSchema := kind == mutSchemaAddType || kind == mutSchemaAddField || kind == mutSchemaAddTrait ||
 		kind == mutSchemaRenameType || kind == mutSchemaRenameField || kind == mutSaveQuery
 	if kind == mutSaveQuery {
@@ -340,14 +347,109 @@ func (m Model) afterApplied(status string) (Model, tea.Cmd) {
 	}
 	m.clearMut()
 	if reloadSchema {
+		m.overlays = nil
 		return m, fetchStartup(m.client, true)
 	}
+	m.dropQueryCache()
+	m.applyOverlaysToPanes(restore)
 	m, cmd := m.liveRefetch(true)
-	if p := m.focusedView(); p != nil && restore != "" {
-		p.restoreID = restore
-		p.keepCursor = true
+	if restore != "" {
+		for _, p := range m.panes {
+			if p == nil {
+				continue
+			}
+			p.restoreID = restore
+			p.keepCursor = true
+		}
 	}
 	return m, cmd
+}
+
+func (m *Model) rememberSetOverlay(data any) {
+	id := m.mut.ref
+	fields := m.mut.fields
+	unset := false
+	if res, ok := data.(*api.SetResult); ok && res != nil {
+		if id == "" {
+			id = res.ObjectID
+		}
+		if len(res.UpdatedFields) > 0 {
+			fields = res.UpdatedFields
+		}
+	}
+	if res, ok := data.(*api.UnsetResult); ok && res != nil {
+		unset = true
+		if id == "" {
+			id = res.ObjectID
+		}
+	}
+	if unset {
+		names := m.mut.need
+		if len(names) == 0 && m.mut.field != "" {
+			names = []string{m.mut.field}
+		}
+		m.addOverlay(objectOverlay{id: id, unset: names})
+		return
+	}
+	m.addOverlay(objectOverlay{id: id, fields: copyAnyMap(fields)})
+}
+
+func (m *Model) rememberTraitOverlay(data any) {
+	id := m.mut.traitID
+	val := m.mut.promptBuf
+	if res, ok := data.(*api.UpdateTraitResult); ok && res != nil && len(res.Items) > 0 {
+		it := res.Items[0]
+		if it.ID != "" {
+			id = it.ID
+		}
+		if it.NewValue != "" {
+			val = it.NewValue
+		}
+	}
+	m.addOverlay(objectOverlay{id: id, fields: map[string]any{"value": val}})
+}
+
+func (m *Model) rememberNewOverlay(res *api.NewObjectResult) {
+	id := m.mut.restoreID
+	typ := m.mut.objType
+	title := m.mut.title
+	file := ""
+	if res != nil {
+		if res.ID != "" {
+			id = res.ID
+		}
+		if res.Type != "" {
+			typ = res.Type
+		}
+		if res.Title != "" {
+			title = res.Title
+		}
+		file = res.File
+	}
+	if id == "" {
+		return
+	}
+	fields := copyAnyMap(m.mut.fields)
+	obj := api.Object{
+		ID:       id,
+		Type:     typ,
+		Title:    title,
+		Fields:   fields,
+		FilePath: file,
+		Kind:     "object",
+	}
+	m.addOverlay(objectOverlay{id: id, fields: fields, created: &obj})
+}
+
+func copyAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func runMut(c *api.Client, kind mutKind, fn func(context.Context) (any, error)) tea.Cmd {
@@ -367,6 +469,7 @@ func (m Model) invokeSet(ref string, fields map[string]any) (Model, tea.Cmd) {
 	m.loading = true
 	m.mut.kind = mutSet
 	m.mut.restoreID = ref
+	m.mut.fields = fields
 	c := m.client
 	return m, runMut(c, mutSet, func(ctx context.Context) (any, error) {
 		return c.SetFields(ctx, ref, fields)
@@ -378,6 +481,7 @@ func (m Model) invokeUnset(ref string, fields []string) (Model, tea.Cmd) {
 	m.loading = true
 	m.mut.kind = mutSet
 	m.mut.restoreID = ref
+	m.mut.need = append([]string{}, fields...)
 	c := m.client
 	return m, runMut(c, mutSet, func(ctx context.Context) (any, error) {
 		return c.UnsetFields(ctx, ref, fields)
@@ -389,6 +493,7 @@ func (m Model) invokeUpdateTrait(id, value string) (Model, tea.Cmd) {
 	m.loading = true
 	m.mut.kind = mutTrait
 	m.mut.restoreID = id
+	m.mut.promptBuf = value
 	c := m.client
 	return m, runMut(c, mutTrait, func(ctx context.Context) (any, error) {
 		return c.UpdateTrait(ctx, id, value)

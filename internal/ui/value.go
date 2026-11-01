@@ -264,6 +264,14 @@ func (m Model) openEnumPicker() (Model, tea.Cmd) {
 	m.pickerAll = items
 	m.refilterPicker()
 	m.pickerCur = cur
+	if len(m.pickerHit) == 0 {
+		m.errMsg = "no values"
+		m.status = "no values for " + m.mut.field
+		if m.mut.kind == mutTrait {
+			m.status = "no values for " + m.mut.traitType
+		}
+		return m, nil
+	}
 	m.status = m.mut.field
 	if m.mut.kind == mutTrait {
 		m.status = m.mut.traitType
@@ -307,6 +315,11 @@ func (m Model) openRefPicker() (Model, tea.Cmd) {
 			m.pickerCur = i
 			break
 		}
+	}
+	if len(m.pickerHit) == 0 {
+		m.errMsg = "no references"
+		m.status = "no references"
+		return m, nil
 	}
 	m.status = "ref"
 	if target != "" {

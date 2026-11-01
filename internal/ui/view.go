@@ -676,14 +676,32 @@ func (m Model) viewBacklinkPreview(width, height int) string {
 	}
 	b.WriteString(styleHeader.Render(truncate(head, width)))
 	b.WriteByte('\n')
-	off := sourceLineScroll(rd.Content, body, line)
+	span := mapSourceSpan(rd.Content, body, line, backlinkNeedles(g, m.note.ObjectID)...)
 	used := 3
-	mark := -1
-	if line > 0 {
-		mark = off
+	markStart, markEnd := -1, -1
+	if line > 0 && span.ok() {
+		markStart, markEnd = span.start, span.end
 	}
-	b.WriteString(windowLinesMark(body, off, max(1, height-used), max(8, width-1), mark, line))
+	b.WriteString(windowLinesSpan(body, span.scroll, max(1, height-used), max(8, width-1), markStart, markEnd, line))
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func backlinkNeedles(g api.BacklinkGroup, targetID string) []string {
+	out := make([]string, 0, 3+len(g.Lines))
+	if s := strings.TrimSpace(g.Snippet); s != "" {
+		out = append(out, s)
+	}
+	if s := strings.TrimSpace(g.Text); s != "" {
+		out = append(out, s)
+	}
+	if s := strings.TrimSpace(g.Context); s != "" {
+		out = append(out, s)
+	}
+	out = append(out, g.Lines...)
+	if t := strings.TrimSpace(targetID); t != "" {
+		out = append(out, t)
+	}
+	return out
 }
 
 func backlinkAnchorLine(g api.BacklinkGroup, content, targetID string) int {
@@ -992,12 +1010,15 @@ func (m Model) viewPreview(width, height int) string {
 			body += st.Render(truncate(loc, innerW)) + "\n"
 			used++
 		}
-		mark := -1
+		markStart, markEnd := -1, -1
 		if m.previewLine > 0 {
-			mark = sourceLineScroll(m.preview.Content, m.previewBody, m.previewLine)
+			span := mapSourceSpan(m.preview.Content, m.previewBody, m.previewLine, m.anchorNeedles()...)
+			if span.ok() {
+				markStart, markEnd = span.start, span.end
+			}
 		}
 		winH := max(1, innerH-used)
-		body += windowLinesMark(m.previewBody, m.previewScroll, winH, innerW, mark, m.previewLine)
+		body += windowLinesSpan(m.previewBody, m.previewScroll, winH, innerW, markStart, markEnd, m.previewLine)
 		nLines := strings.Count(m.previewBody, "\n") + 1
 		scroll = scrollState{offset: m.previewScroll, total: nLines, view: winH}
 	}
@@ -1292,10 +1313,10 @@ func truncate(s string, w int) string {
 }
 
 func windowLines(s string, offset, height, width int) string {
-	return windowLinesMark(s, offset, height, width, -1, 0)
+	return windowLinesSpan(s, offset, height, width, -1, -1, 0)
 }
 
-func windowLinesMark(s string, offset, height, width, mark, srcLine int) string {
+func windowLinesSpan(s string, offset, height, width, markStart, markEnd, srcLine int) string {
 	lines := strings.Split(s, "\n")
 	if offset < 0 {
 		offset = 0
@@ -1305,13 +1326,10 @@ func windowLinesMark(s string, offset, height, width, mark, srcLine int) string 
 	}
 	end := min(len(lines), offset+height)
 	slice := lines[offset:end]
+	marked := markStart >= 0 && markEnd >= markStart
 	gutter := 0
-	if srcLine > 0 && mark >= 0 {
-		maxNum := srcLine + (offset + height - 1 - mark)
-		if maxNum < srcLine {
-			maxNum = srcLine
-		}
-		gutter = len(fmt.Sprintf("%d", max(1, maxNum))) + 1
+	if srcLine > 0 && marked {
+		gutter = len(fmt.Sprintf("%d", max(1, srcLine))) + 1
 		if gutter < 3 {
 			gutter = 3
 		}
@@ -1322,13 +1340,14 @@ func windowLinesMark(s string, offset, height, width, mark, srcLine int) string 
 	}
 	for i := range slice {
 		body := truncate(slice[i], innerW)
-		hit := mark >= 0 && offset+i == mark
+		hit := marked && offset+i >= markStart && offset+i <= markEnd
 		if gutter > 0 {
-			n := srcLine + (offset + i - mark)
-			if n < 1 {
-				n = 1
+			var num string
+			if hit {
+				num = styleDim.Render(fmt.Sprintf("%*d", gutter-1, srcLine))
+			} else {
+				num = styleDim.Render(fmt.Sprintf("%*s", gutter-1, ""))
 			}
-			num := styleDim.Render(fmt.Sprintf("%*d", gutter-1, n))
 			if hit {
 				slice[i] = num + styleHeader.Render("▸") + styleRowSel.Width(innerW).Render(body)
 			} else {
